@@ -1,0 +1,41 @@
+# CAT Fortran 配置文件
+# 地月空间轨道动力学工具
+
+# 轨道传播参数
+propagation_step = 60.0
+propagation_tolerance = 1.0e-12
+max_propagation_steps = 10000
+
+# 轨道改进参数
+convergence_tolerance = 1.0e-8
+max_iterations = 100
+
+# 坐标系统参数
+reference_frame = J2000
+central_body = EARTH
+time_calendar = Julian # Gregorian, Mixed
+time_system = TDT # TT,tdb,utc
+time_zone = UTC+0
+
+# 输出参数
+verbose_output = true
+save_results = true
+output_format = CSV
+
+# 数值计算参数
+gravitational_constant = 398600.4418
+
+# 力模型参数
+use_j2_perturbation = true
+use_atmospheric_drag = false
+use_solar_radiation_pressure = false
+use_third_body_perturbation = false
+
+# 观测参数
+elevation_limit = 10.0
+measurement_noise_std = 0.001, 0.001, 0.001
+
+# 文件路径
+spice_kernel_path = ./kernels/
+output_directory = ./output/
+log_file_path = ./logs/cat.log
