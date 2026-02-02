@@ -1,19 +1,22 @@
-name = "AOC_Fortran"
+name = "CAT_Fortran"
 version = "0.1.0"
-license = "license"
-author = "Jane Doe"
-maintainer = "jane.doe@example.com"
-copyright = "Copyright 2026, Jane Doe"
+license = "MIT"
+author = "Songyu"
+maintainer = "Songyu"
+copyright = "2026 CAT Project"
+description = "Astrodynamics library using FPM structure"
+
 [build]
 auto-executables = true
 auto-tests = true
 auto-examples = true
-module-naming = false
+# 关键：告诉 fpm 链接名为 spicelib 的库，以及数学库 m
+link = ["spicelib", "m"]
+
 [install]
 library = false
-test = false
-[fortran]
-implicit-typing = false
-implicit-external = false
-source-form = "free"
 
+# 针对 Linux 的特殊配置
+# 这告诉编译器去项目根目录下的 lib/ 文件夹找 .a 文件
+[build.flags]
+link = ["-Llib"]
