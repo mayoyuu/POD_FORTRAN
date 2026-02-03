@@ -1,4 +1,4 @@
-name = "CAT_Fortran"
+name = "AOC_Fortran"
 version = "0.1.0"
 license = "MIT"
 author = "Songyu"
@@ -10,13 +10,8 @@ description = "Astrodynamics library using FPM structure"
 auto-executables = true
 auto-tests = true
 auto-examples = true
-# 关键：告诉 fpm 链接名为 spicelib 的库，以及数学库 m
-link = ["spicelib", "m"]
+# 核心：只声明要链接库的名字
+link = ["spicelib", "m"] 
 
 [install]
 library = false
-
-# 针对 Linux 的特殊配置
-# 这告诉编译器去项目根目录下的 lib/ 文件夹找 .a 文件
-[build.flags]
-link = ["-Llib"]
