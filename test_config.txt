@@ -1,0 +1,69 @@
+# CAT Fortran 配置文件
+# 生成时间: 2026-02-04 11:03:01             
+
+# 轨道传播参数
+propagation_step = 60.0
+propagation_tolerance = 1.0e-12
+max_propagation_steps = 10000
+rk4_step_size = 60.0
+rkf45_tolerance = 1.0e-12
+rkf45_min_step = 1.0e-6
+rkf45_max_step = 3600.0
+
+# 轨道改进参数
+convergence_tolerance = 1.0e-8
+max_iterations = 100
+damping_factor = 0.1
+use_adaptive_damping = true
+
+# 坐标系统参数
+reference_frame = J2000
+central_body = EARTH
+time_system = UTC
+use_precession = true
+use_nutation = true
+
+# 输出参数
+verbose_output = true
+save_results = true
+output_format = CSV
+date_format = YYYY-MM-DD HH:MM:SS
+number_format = F20.12
+scientific_notation = false
+output_precision = 12
+
+# 数值计算参数
+gravitational_constant = 398600.4418
+numerical_tolerance = 1.0e-15
+max_matrix_size = 1000
+
+# 性能参数
+max_threads = 1
+parallel_computation = false
+memory_limit = 1.0e9
+use_gpu = false
+
+# 力模型参数
+use_j2_perturbation = true
+use_atmospheric_drag = false
+use_solar_radiation_pressure = false
+use_third_body_gravity = false
+j2_degree = 2
+j2_order = 2
+
+# 测量模型参数
+measurement_noise_std = 1.0e-3
+use_measurement_weights = true
+outlier_threshold = 3.0
+
+# 文件I/O参数
+data_directory = ./data/
+results_directory = ./results/
+auto_backup = true
+backup_interval = 3600
+
+# 调试参数
+debug_mode = false
+debug_level = 1
+save_intermediate_results = false
+debug_directory = ./debug/

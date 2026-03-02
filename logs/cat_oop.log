@@ -1,0 +1,10 @@
+==========================================
+    CAT Fortran System Log (OOP Simple)
+==========================================
+
+[2026-02-04 14:38:23] [INFO] Logger initialized successfully
+[2026-02-04 14:38:23] [INFO] [cat_system_simple] System initialized successfully
+[2026-02-04 14:38:23] [INFO] [cat_system_simple] SPICE kernels loaded
+[2026-02-04 14:38:23] [INFO] [cat_system_simple] SPICE kernels unloaded
+[2026-02-04 14:38:23] [INFO] [cat_system_simple] System cleanup started
+[2026-02-04 14:38:23] [INFO] Logger cleanup completed

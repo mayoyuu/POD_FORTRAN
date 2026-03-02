@@ -52,7 +52,7 @@ program read_spice_constants
     ! 读取太阳参数
     write(*, *) '=== 太阳参数 ==='
     call bodvrd('SUN', 'GM', 1, dim, values)
-    write(*, '(A, F15.6, A)') '太阳引力参数 (GM): ', values(1), ' km³/s²'
+    write(*, '(A,ES22.12, A)') '太阳引力参数 (GM): ', values(1), ' km³/s²'
     
     write(*, *)
     
