@@ -24,7 +24,7 @@
 !> 
 !> ## Dependencies
 !> 
-!> - **Internal**: `cat_global` for precision constants
+!> - **Internal**: `pod_global` for precision constants
 !> 
 !> ## Author
 !> 
@@ -50,8 +50,8 @@
 !--------------------------------------------------------------------------------------------------------------
 !--------------------------------------------------------------------------------------------------------------
 
-module cat_basicmath
-    use cat_global, only: DP
+module pod_basicmath
+    use pod_global, only: DP
     implicit none
     
     private
@@ -213,4 +213,4 @@ contains
         norm_matrix = sqrt(sum(matrix**2))
     end function norm_matrix
 
-end module cat_basicmath
+end module pod_basicmath

@@ -40,7 +40,7 @@
 !> 
 !> ## Dependencies
 !> 
-!> - **Internal**: `cat_global` for data types and constants
+!> - **Internal**: `pod_global` for data types and constants
 !> - **External**: NASA SPICE Toolkit for time conversions
 !> 
 !> ## Author
@@ -89,9 +89,9 @@
 !--------------------------------------------------------------------------------------------------------------
 !--------------------------------------------------------------------------------------------------------------
 
-module cat_time_module
-    use cat_global, only: DP, MAX_STRING_LEN, SUCCESS, ERROR_INVALID_INPUT
-    use cat_spice, only: str2et, et2utc, ttrans
+module pod_time_module
+    use pod_global, only: DP, MAX_STRING_LEN, SUCCESS, ERROR_INVALID_INPUT
+    use pod_spice, only: str2et, et2utc, ttrans
     implicit none
     
     private
@@ -352,4 +352,4 @@ contains
         
     end function get_current_utc
 
-end module cat_time_module
+end module pod_time_module

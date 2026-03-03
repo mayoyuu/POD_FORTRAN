@@ -1,6 +1,6 @@
-module cat_measurement_model_module
-    use cat_global, only: DP, MAX_STRING_LEN
-    use cat_frame_module, only: eci_to_geodetic, geodetic_to_eci
+module pod_measurement_model_module
+    use pod_global, only: DP, MAX_STRING_LEN
+    use pod_frame_module, only: eci_to_geodetic, geodetic_to_eci
     
     implicit none
     
@@ -223,4 +223,4 @@ contains
         doppler_shift = -frequency * range_rate * 1000.0_DP / SPEED_OF_LIGHT
     end subroutine compute_doppler_shift
 
-end module cat_measurement_model_module
+end module pod_measurement_model_module

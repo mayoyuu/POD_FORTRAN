@@ -1,8 +1,8 @@
 program test_time_system
-    use cat_global, only: DP, cat_init, cat_cleanup
-    use cat_time_module, only: time_transfer, utc_to_et, et_to_utc, utc_to_jd, jd_to_utc, &
+    use pod_global, only: DP, pod_init, pod_cleanup
+    use pod_time_module, only: time_transfer, utc_to_et, et_to_utc, utc_to_jd, jd_to_utc, &
                               utc_to_mjd, mjd_to_utc, validate_time_string, get_current_utc
-    use cat_spice, only: spice_init, spice_cleanup, str2et, et2utc
+    use pod_spice, only: spice_init, spice_cleanup, str2et, et2utc
     
     implicit none
     
@@ -14,7 +14,7 @@ program test_time_system
     write(*, *) '=== CAT 时间系统模块测试 ==='
     
     ! 初始化系统
-    call cat_init()
+    call pod_init()
     call spice_init()
     
     ! 测试1: UTC到ET转换
@@ -159,6 +159,6 @@ program test_time_system
     
     ! 清理系统
     call spice_cleanup()
-    call cat_cleanup()
+    call pod_cleanup()
     
 end program test_time_system

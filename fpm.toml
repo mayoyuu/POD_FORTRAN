@@ -1,9 +1,9 @@
-name = "AOC_Fortran"
+name = "POD_Fortran"
 version = "0.1.0"
 license = "MIT"
 author = "Songyu"
 maintainer = "Songyu"
-copyright = "2026 CAT Project"
+copyright = "2026 POD Project"
 description = "Astrodynamics library using FPM structure"
 
 [build]
@@ -11,7 +11,7 @@ auto-executables = true
 auto-tests = true
 auto-examples = true
 # 核心：只声明要链接库的名字
-link = ["spicelib", "m"] 
+link = ["spicelib", "m"]    
 
 [install]
 library = false

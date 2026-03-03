@@ -1,7 +1,7 @@
 program safe_spice_test
-    use cat_global, only: DP, cat_init
-    use cat_spice, only: spice_init, spkezr, str2et, et2utc
-    use cat_basicmath, only: vector_magnitude
+    use pod_global, only: DP, pod_init
+    use pod_spice, only: spice_init, spkezr, str2et, et2utc
+    use pod_basicmath, only: vector_magnitude
     
     implicit none
     
@@ -14,7 +14,7 @@ program safe_spice_test
     write(*, *) '=== 安全SPICE功能测试 ==='
     
     ! 初始化系统
-    call cat_init()
+    call pod_init()
     call spice_init()
     
     ! 测试时间转换

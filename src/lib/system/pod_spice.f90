@@ -22,7 +22,7 @@
 !> ## Dependencies
 !> 
 !> - **External**: NASA SPICE Toolkit (`spicelib.a`)
-!> - **Internal**: `cat_global` for file operations and constants
+!> - **Internal**: `pod_global` for file operations and constants
 !> 
 !> ## Input/Output Files
 !> 
@@ -53,8 +53,8 @@
 !--------------------------------------------------------------------------------------------------------------
 !--------------------------------------------------------------------------------------------------------------
 
-module cat_spice
-    use cat_global, only: DP, MAX_STRING_LEN, file_exists
+module pod_spice
+    use pod_global, only: DP, MAX_STRING_LEN, file_exists
     implicit none
     
     ! SPICE状态
@@ -232,4 +232,4 @@ contains
         path = spice_kernel_path
     end function get_spice_kernel_path
 
-end module cat_spice
+end module pod_spice

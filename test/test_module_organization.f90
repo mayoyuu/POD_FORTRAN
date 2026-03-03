@@ -1,19 +1,19 @@
 program test_module_organization
-    use cat_global, only: DP, MAX_STRING_LEN, cat_init, cat_cleanup
-    use cat_object_base, only: cat_object
-    use cat_system_oop_simple, only: cat_system_simple, cat_logger_simple
-    use cat_time_module, only: utc_to_et, et_to_utc, utc_to_jd, jd_to_utc
-    use cat_frame_simple_module, only: cat_frame_state, FRAME_TYPE_INERTIAL, FRAME_ID_GCRS
-    use cat_spice, only: spice_init, spice_cleanup
+    use pod_global, only: DP, MAX_STRING_LEN, pod_init, pod_cleanup
+    use pod_object_base, only: pod_object
+    use pod_system_oop_simple, only: pod_system_simple, pod_logger_simple
+    use pod_time_module, only: utc_to_et, et_to_utc, utc_to_jd, jd_to_utc
+    use pod_frame_simple_module, only: pod_frame_state, FRAME_TYPE_INERTIAL, FRAME_ID_GCRS
+    use pod_spice, only: spice_init, spice_cleanup
     
     implicit none
     
     ! Object instances
-    type(cat_system_simple) :: system
-    type(cat_logger_simple) :: logger
+    type(pod_system_simple) :: system
+    type(pod_logger_simple) :: logger
     real(DP) :: et_time, jd_time
     character(len=100) :: utc_string
-    type(cat_frame_state) :: coord_state
+    type(pod_frame_state) :: coord_state
     
     write(*, *) '=========================================='
     write(*, *) '     CAT Module Organization Test'
@@ -21,7 +21,7 @@ program test_module_organization
     write(*, *)
     
     ! Initialize system
-    call cat_init()
+    call pod_init()
     call spice_init()
     
     ! Test 1: System initialization
@@ -101,12 +101,12 @@ program test_module_organization
     ! Test 6: Module integration
     write(*, *) '6. Testing module integration:'
     write(*, *) '  All modules can be imported and used together:'
-    write(*, *) '  - cat_global: Constants and data types'
-    write(*, *) '  - cat_object_base: Base object functionality'
-    write(*, *) '  - cat_system_oop_simple: System and logger classes'
-    write(*, *) '  - cat_time_module: Time conversion functions'
-    write(*, *) '  - cat_frame_simple_module: Frame operations'
-    write(*, *) '  - cat_spice: SPICE toolkit interface'
+    write(*, *) '  - pod_global: Constants and data types'
+    write(*, *) '  - pod_object_base: Base object functionality'
+    write(*, *) '  - pod_system_oop_simple: System and logger classes'
+    write(*, *) '  - pod_time_module: Time conversion functions'
+    write(*, *) '  - pod_frame_simple_module: Frame operations'
+    write(*, *) '  - pod_spice: SPICE toolkit interface'
     write(*, *) '  ✓ Module integration successful'
     write(*, *)
     
@@ -124,7 +124,7 @@ program test_module_organization
     call logger%cleanup()
     call system%cleanup()
     call spice_cleanup()
-    call cat_cleanup()
+    call pod_cleanup()
     write(*, *) '  ✓ All objects cleaned up successfully'
     write(*, *)
     

@@ -1,5 +1,5 @@
-module cat_statistics_module
-    use cat_global, only: DP
+module pod_statistics_module
+    use pod_global, only: DP
     
     implicit none
     
@@ -275,4 +275,4 @@ contains
         deallocate(std_dev)
     end subroutine compute_correlation_matrix
 
-end module cat_statistics_module
+end module pod_statistics_module

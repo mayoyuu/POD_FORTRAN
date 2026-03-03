@@ -24,7 +24,7 @@
 !> 帧名动态获取，以避免本地常量失配风险。
 !>
 !> ## SPICE Integration & Kernel Requirements
-!> - 函数/子程序: `pxform`, `sxform`, `namfrm`（通过 `cat_spice` 暴露）
+!> - 函数/子程序: `pxform`, `sxform`, `namfrm`（通过 `pod_spice` 暴露）
 !> - 必需内核: 
 !>   - LSK（闰秒内核）: 时间一致性
 !>   - PCK/SPK（视需求）: 天体/姿态数据
@@ -37,9 +37,9 @@
 !> @note 所有对外接口建议使用帧名字符串（如 `from_frame`, `to_frame`）。
 !> @warning 使用前需确保相应 SPICE 内核（尤其 FK）已正确加载。
 !> @todo 提供基于帧名的高层封装接口，如 `transform_frame(from,to,et,vec)`。
-module cat_frame_module
-    use cat_global, only: DP
-    use cat_config, only: config
+module pod_frame_module
+    use pod_global, only: DP
+    use pod_config, only: config
     
     implicit none
     
@@ -304,4 +304,4 @@ contains
         eci_pos(3) = (N * (1.0_DP - EARTH_ECC2) + alt) * sin_lat
     end subroutine geodetic_to_eci
 
-end module cat_frame_module
+end module pod_frame_module

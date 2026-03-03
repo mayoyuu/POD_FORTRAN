@@ -1,5 +1,5 @@
-module cat_data_format_module
-    use cat_global, only: DP, MAX_STRING_LEN
+module pod_data_format_module
+    use pod_global, only: DP, MAX_STRING_LEN
     implicit none
     
     private
@@ -268,4 +268,4 @@ contains
         
     end subroutine format_csv_line
 
-end module cat_data_format_module
+end module pod_data_format_module

@@ -1,6 +1,6 @@
 program time_test
-    use cat_global, only: DP, cat_init, cat_cleanup
-    use cat_spice, only: str2et, et2utc, spice_init, spice_cleanup
+    use pod_global, only: DP, pod_init, pod_cleanup
+    use pod_spice, only: str2et, et2utc, spice_init, spice_cleanup
     
     implicit none
     
@@ -10,7 +10,7 @@ program time_test
     write(*, *) '=== SPICE时间转换测试 ==='
     
     ! 初始化系统
-    call cat_init()
+    call pod_init()
     call spice_init()
     
     ! 测试时间转换
@@ -68,6 +68,6 @@ program time_test
     
     ! 清理系统
     call spice_cleanup()
-    call cat_cleanup()
+    call pod_cleanup()
     
 end program time_test

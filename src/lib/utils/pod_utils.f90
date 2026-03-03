@@ -1,5 +1,5 @@
-module cat_utils
-    use cat_global, only: DP, MAX_STRING_LEN
+module pod_utils
+    use pod_global, only: DP, MAX_STRING_LEN
     
     implicit none
     
@@ -16,7 +16,7 @@ contains
     subroutine print_help()
         write(*, *) 'CAT Fortran - 地月空间轨道动力学工具'
         write(*, *)
-        write(*, *) '用法: cat_fortran [选项]'
+        write(*, *) '用法: pod_fortran [选项]'
         write(*, *)
         write(*, *) '选项:'
         write(*, *) '  -c, --config FILE    指定配置文件路径'
@@ -232,4 +232,4 @@ contains
     end function norm_matrix
     
 
-end module cat_utils
+end module pod_utils

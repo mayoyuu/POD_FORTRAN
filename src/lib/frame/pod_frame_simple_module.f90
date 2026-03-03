@@ -5,30 +5,30 @@
 !> 以最小依赖方式引用。
 !>
 !> ## Responsibilities（职责）
-!> - 提供 `cat_frame_state` 轻量结构（位置、速度、帧名、历元、有效标记）
+!> - 提供 `pod_frame_state` 轻量结构（位置、速度、帧名、历元、有效标记）
 !> - 提供帧类别枚举（惯性/自转/地固/台站/轨道）
 !> - 约定统一使用 SPICE 帧名字符串（如 `J2000`、`ITRF2000` 等）
 !>
-!> ## 与 `cat_frame_module` 的差异
+!> ## 与 `pod_frame_module` 的差异
 !> - 本模块：仅含类型与基础枚举，无 SPICE 依赖；供轻量引用
-!> - `cat_frame_module`：实现帧间转换与几何运算，集成 SPICE（`pxform`/`sxform`等）
+!> - `pod_frame_module`：实现帧间转换与几何运算，集成 SPICE（`pxform`/`sxform`等）
 !>
 !> ## 命名与ID策略
 !> - 推荐仅使用帧名字符串；如需帧ID，请在运行时通过 SPICE `namfrm(name,id)` 获取
 !> - 不在程序中新增/维护本地帧ID常量，避免与内核不一致
 !>
 !> ## Dependencies
-!> - `cat_global`: 基础数据类型与常量
+!> - `pod_global`: 基础数据类型与常量
 !>
 !> ## Version
 !> - **Created**: 2025-09-09
 !> - **Updated**: 2025-09-12 - 明确模块职责分离与SPICE帧名策略
 !>
-!> @note 若需要进行帧间转换，请使用 `cat_frame_module` 中的接口。
+!> @note 若需要进行帧间转换，请使用 `pod_frame_module` 中的接口。
 !> @warning 使用前请确保所用帧已在 SPICE FK 中正确定义并加载。
 
-module cat_frame_simple_module
-    use cat_global, only: DP, MAX_STRING_LEN
+module pod_frame_simple_module
+    use pod_global, only: DP, MAX_STRING_LEN
     implicit none
     
     private
@@ -60,7 +60,7 @@ module cat_frame_simple_module
               FRAME_ID_TEME, FRAME_ID_TOD, FRAME_ID_TOPOCENTRIC, FRAME_ID_RTN
     
     !> Frame state structure
-    type, public :: cat_frame_state
+    type, public :: pod_frame_state
         real(DP), dimension(3) :: position = 0.0_DP
         real(DP), dimension(3) :: velocity = 0.0_DP
         character(len=MAX_STRING_LEN) :: frame_name = ""
@@ -79,7 +79,7 @@ module cat_frame_simple_module
         procedure :: set_valid
         procedure :: copy_state
         procedure :: clear_state
-    end type cat_frame_state
+    end type pod_frame_state
     
 contains
     
@@ -88,67 +88,67 @@ contains
     ! ============================================================================
     
     function get_position(self) result(position)
-        class(cat_frame_state), intent(in) :: self
+        class(pod_frame_state), intent(in) :: self
         real(DP), dimension(3) :: position
         position = self%position
     end function get_position
     
     subroutine set_position(self, position)
-        class(cat_frame_state), intent(inout) :: self
+        class(pod_frame_state), intent(inout) :: self
         real(DP), dimension(3), intent(in) :: position
         self%position = position
     end subroutine set_position
     
     function get_velocity(self) result(velocity)
-        class(cat_frame_state), intent(in) :: self
+        class(pod_frame_state), intent(in) :: self
         real(DP), dimension(3) :: velocity
         velocity = self%velocity
     end function get_velocity
     
     subroutine set_velocity(self, velocity)
-        class(cat_frame_state), intent(inout) :: self
+        class(pod_frame_state), intent(inout) :: self
         real(DP), dimension(3), intent(in) :: velocity
         self%velocity = velocity
     end subroutine set_velocity
     
     function get_frame_name(self) result(frame_name)
-        class(cat_frame_state), intent(in) :: self
+        class(pod_frame_state), intent(in) :: self
         character(len=MAX_STRING_LEN) :: frame_name
         frame_name = self%frame_name
     end function get_frame_name
     
     subroutine set_frame_name(self, frame_name)
-        class(cat_frame_state), intent(inout) :: self
+        class(pod_frame_state), intent(inout) :: self
         character(len=*), intent(in) :: frame_name
         self%frame_name = frame_name
     end subroutine set_frame_name
     
     function get_epoch(self) result(epoch)
-        class(cat_frame_state), intent(in) :: self
+        class(pod_frame_state), intent(in) :: self
         real(DP) :: epoch
         epoch = self%epoch
     end function get_epoch
     
     subroutine set_epoch(self, epoch)
-        class(cat_frame_state), intent(inout) :: self
+        class(pod_frame_state), intent(inout) :: self
         real(DP), intent(in) :: epoch
         self%epoch = epoch
     end subroutine set_epoch
     
     logical function is_valid(self)
-        class(cat_frame_state), intent(in) :: self
+        class(pod_frame_state), intent(in) :: self
         is_valid = self%valid
     end function is_valid
     
     subroutine set_valid(self, valid)
-        class(cat_frame_state), intent(inout) :: self
+        class(pod_frame_state), intent(inout) :: self
         logical, intent(in) :: valid
         self%valid = valid
     end subroutine set_valid
     
     subroutine copy_state(self, other_state)
-        class(cat_frame_state), intent(inout) :: self
-        class(cat_frame_state), intent(in) :: other_state
+        class(pod_frame_state), intent(inout) :: self
+        class(pod_frame_state), intent(in) :: other_state
         self%position = other_state%position
         self%velocity = other_state%velocity
         self%frame_name = other_state%frame_name
@@ -157,7 +157,7 @@ contains
     end subroutine copy_state
     
     subroutine clear_state(self)
-        class(cat_frame_state), intent(inout) :: self
+        class(pod_frame_state), intent(inout) :: self
         self%position = 0.0_DP
         self%velocity = 0.0_DP
         self%frame_name = ""
@@ -165,4 +165,4 @@ contains
         self%valid = .false.
     end subroutine clear_state
 
-end module cat_frame_simple_module
+end module pod_frame_simple_module

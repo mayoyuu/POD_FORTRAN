@@ -1,12 +1,12 @@
-module cat_orbit_propagation
-    use cat_global, only: DP, MAX_STRING_LEN, output_directory
-    use cat_config, only: config
-    use cat_utils, only: print_separator, print_vector, save_matrix_to_file, &
+module pod_orbit_propagation
+    use pod_global, only: DP, MAX_STRING_LEN, output_directory
+    use pod_config, only: config
+    use pod_utils, only: print_separator, print_vector, save_matrix_to_file, &
                         get_user_choice, get_user_real, get_user_string, &
                         confirm_action, pause_execution
-    use cat_frame_module, only: cartesian_to_keplerian, keplerian_to_cartesian
-    use cat_integrator_module, only: rk4_integrate, rkf45_integrate
-    use cat_force_model_module, only: compute_acceleration
+    use pod_frame_module, only: cartesian_to_keplerian, keplerian_to_cartesian
+    use pod_integrator_module, only: rk4_integrate, rkf45_integrate
+    use pod_force_model_module, only: compute_acceleration
     
     implicit none
     
@@ -242,4 +242,4 @@ contains
         if (allocated(result%keplerian_elements)) deallocate(result%keplerian_elements)
     end subroutine cleanup_propagation_result
 
-end module cat_orbit_propagation
+end module pod_orbit_propagation

@@ -1,6 +1,6 @@
-program test_cat_config
-    use cat_global
-    use cat_config
+program test_pod_config
+    use pod_global
+    use pod_config
     implicit none
     
     write(*, *) '=========================================='
@@ -10,7 +10,7 @@ program test_cat_config
     
     ! 测试1: 系统初始化
     write(*, *) '测试1: 系统初始化'
-    call cat_init()
+    call pod_init()
     write(*, *)
     
     ! 测试2: 默认配置
@@ -46,11 +46,11 @@ program test_cat_config
     
     ! 测试8: 系统清理
     write(*, *) '测试8: 系统清理'
-    call cat_cleanup()
+    call pod_cleanup()
     write(*, *)
     
     write(*, *) '=========================================='
     write(*, *) '    所有测试完成'
     write(*, *) '=========================================='
     
-end program test_cat_config
+end program test_pod_config

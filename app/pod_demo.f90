@@ -1,7 +1,7 @@
-program cat_demo
-    !> CAT Fortran 演示程序
+program pod_demo
+    !> POD Fortran 演示程序
     !> 
-    !> 这个程序展示了如何使用CAT Fortran系统进行基本的空间目标监测任务
+    !> 这个程序展示了如何使用POD Fortran系统进行基本的空间目标监测任务
     !> 包括：
     !> - 系统初始化
     !> - 时间转换
@@ -9,15 +9,15 @@ program cat_demo
     !> - 坐标转换
     !> - 系统清理
     !> 
-    !> @author CAT Fortran Team
+    !> @author POD Fortran Team
     !> @date 2025-09-12
     !> @version 1.0
     
-    use cat_global, only: DP, cat_init, cat_cleanup
-    use cat_spice, only: spice_init, spice_cleanup, spkezr, str2et, et2utc
-    use cat_time_module, only: utc_to_et, et_to_utc, utc_to_jd, jd_to_utc
-    use cat_basicmath, only: vector_magnitude
-    ! use cat_frame_simple_module, only: cat_frame_simple
+    use pod_global, only: DP, pod_init, pod_cleanup
+    use pod_spice, only: spice_init, spice_cleanup, spkezr, str2et, et2utc
+    use pod_time_module, only: utc_to_et, et_to_utc, utc_to_jd, jd_to_utc
+    use pod_basicmath, only: vector_magnitude
+    ! use pod_frame_simple_module, only: pod_frame_simple
     
     implicit none
     
@@ -30,13 +30,13 @@ program cat_demo
     integer :: status
     
     write(*, *) '=========================================='
-    write(*, *) '      CAT Fortran 演示程序'
+    write(*, *) '      POD Fortran 演示程序'
     write(*, *) '=========================================='
     write(*, *) ''
     
     ! 1. 系统初始化
-    write(*, *) '1. 初始化CAT Fortran系统...'
-    call cat_init()
+    write(*, *) '1. 初始化POD Fortran系统...'
+    call pod_init()
     call spice_init()
     write(*, *) '   ✓ 系统初始化完成'
     write(*, *) ''
@@ -45,7 +45,7 @@ program cat_demo
     write(*, *) '2. 时间转换演示:'
     utc_string = '2024-01-01T12:00:00'
     
-    ! 使用CAT时间模块
+    ! 使用POD时间模块
     time_et = utc_to_et(utc_string)
     time_jd = utc_to_jd(utc_string)
     utc_output = et_to_utc(time_et)
@@ -134,12 +134,12 @@ program cat_demo
     ! 6. 系统清理
     write(*, *) '6. 清理系统资源...'
     ! call spice_cleanup()
-    ! call cat_cleanup()
+    ! call pod_cleanup()
     write(*, *) '   ✓ 系统清理完成'
     write(*, *) ''
     
     write(*, *) '=========================================='
-    write(*, *) '      CAT Fortran 演示程序完成'
+    write(*, *) '      POD Fortran 演示程序完成'
     write(*, *) '=========================================='
     write(*, *) ''
     write(*, *) '演示功能包括:'
@@ -150,9 +150,9 @@ program cat_demo
     write(*, *) '- ✓ 多时间点分析'
     write(*, *) '- ✓ 数学工具函数 (向量模长)'
     write(*, *) ''
-    write(*, *) 'CAT Fortran 系统已准备就绪，可用于空间目标监测任务！'
+    write(*, *) 'POD Fortran 系统已准备就绪，可用于空间目标监测任务！'
 
     ! 强制停止，跳过运行时清理，绕过 Segfault
     stop
     
-end program cat_demo
+end program pod_demo

@@ -1,7 +1,7 @@
-module cat_integrator_module
-    use cat_global, only: DP
-    use cat_config, only: config
-    use cat_force_model_module, only: compute_acceleration
+module pod_integrator_module
+    use pod_global, only: DP
+    use pod_config, only: config
+    use pod_force_model_module, only: compute_acceleration
     
     implicit none
     
@@ -262,4 +262,4 @@ contains
         error_estimate = sqrt(sum((state_5th - state_4th)**2))
     end subroutine rkf45_step
 
-end module cat_integrator_module
+end module pod_integrator_module

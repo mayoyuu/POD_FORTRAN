@@ -1,12 +1,12 @@
 program test_oop_simple
-    use cat_global, only: DP
-    use cat_object_base, only: cat_object
-    use cat_system_oop_simple, only: cat_system_simple, cat_logger_simple
+    use pod_global, only: DP
+    use pod_object_base, only: pod_object
+    use pod_system_oop_simple, only: pod_system_simple, pod_logger_simple
     implicit none
     
     ! Object instances
-    type(cat_system_simple) :: system
-    type(cat_logger_simple) :: logger
+    type(pod_system_simple) :: system
+    type(pod_logger_simple) :: logger
     
     write(*, *) '=========================================='
     write(*, *) '     CAT OOP Simple Test Program'
@@ -44,7 +44,7 @@ program test_oop_simple
     
     ! Test 2: Main System
     write(*, *) 'Test 2: Main System'
-    call system%set_name('Test_CAT_System_Simple')
+    call system%set_name('Test_POD_System_Simple')
     call system%initialize()
     
     if (system%is_initialized()) then
@@ -93,11 +93,11 @@ contains
     subroutine test_polymorphism()
         implicit none
         
-        class(cat_object), allocatable :: obj1, obj2
+        class(pod_object), allocatable :: obj1, obj2
         
         ! Allocate different types
-        allocate(cat_system_simple::obj1)
-        allocate(cat_logger_simple::obj2)
+        allocate(pod_system_simple::obj1)
+        allocate(pod_logger_simple::obj2)
         
         ! Set names
         call obj1%set_name('Polymorphic_System_Simple')

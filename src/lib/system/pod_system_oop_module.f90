@@ -11,8 +11,8 @@
 !> 
 !> ## Dependencies
 !> 
-!> - `cat_global`: For data types and constants
-!> - `cat_object_base`: For base object class
+!> - `pod_global`: For data types and constants
+!> - `pod_object_base`: For base object class
 !> 
 !> ## Author
 !> 
@@ -26,10 +26,10 @@
 !> @note This module demonstrates a simplified OOP approach to system management
 !> @warning This is a demonstration of OOP design, not a replacement for the current system
 
-module cat_system_oop_simple
-    use cat_global, only: DP, MAX_STRING_LEN, LOG_INFO, LOG_ERROR, LOG_WARNING, &
+module pod_system_oop_simple
+    use pod_global, only: DP, MAX_STRING_LEN, LOG_INFO, LOG_ERROR, LOG_WARNING, &
                           SUCCESS, ERROR_SYSTEM_NOT_INITIALIZED
-    use cat_object_base, only: cat_object
+    use pod_object_base, only: pod_object
     implicit none
     
     private
@@ -53,9 +53,9 @@ module cat_system_oop_simple
     end enum
     
     !> Object-oriented logger class
-    type, extends(cat_object), public :: cat_logger_simple
+    type, extends(pod_object), public :: pod_logger_simple
         integer :: log_level = LOG_LEVEL_INFO
-        character(len=MAX_STRING_LEN) :: log_file = "./logs/cat_oop.log"
+        character(len=MAX_STRING_LEN) :: log_file = "./logs/pod_oop.log"
         integer :: log_unit = 99
         logical :: console_output = .true.
         logical :: file_output = .true.
@@ -78,12 +78,12 @@ module cat_system_oop_simple
         procedure :: write_log_entry
         procedure :: get_timestamp
         procedure :: get_level_string
-    end type cat_logger_simple
+    end type pod_logger_simple
     
     !> Main system management class
-    type, extends(cat_object), public :: cat_system_simple
+    type, extends(pod_object), public :: pod_system_simple
         integer :: system_state = SYSTEM_STATE_UNINITIALIZED
-        type(cat_logger_simple) :: logger
+        type(pod_logger_simple) :: logger
         character(len=MAX_STRING_LEN) :: spice_kernel_path = "./kernels/"
         character(len=MAX_STRING_LEN) :: output_directory = "./output/"
         logical :: spice_loaded = .false.
@@ -108,7 +108,7 @@ module cat_system_oop_simple
         procedure :: is_spice_loaded
         procedure :: create_directories
         procedure :: update_memory_usage
-    end type cat_system_simple
+    end type pod_system_simple
     
 contains
     
@@ -117,7 +117,7 @@ contains
     ! ============================================================================
     
     subroutine logger_initialize(self, config_file)
-        class(cat_logger_simple), intent(inout) :: self
+        class(pod_logger_simple), intent(inout) :: self
         character(len=*), intent(in), optional :: config_file
         logical :: file_is_open
         
@@ -128,7 +128,7 @@ contains
         
         ! Set default name if not set
         if (len_trim(self%name) == 0) then
-            self%name = "CAT_Logger_Simple"
+            self%name = "POD_Logger_Simple"
         end if
         
         ! Open log file if file output is enabled
@@ -149,7 +149,7 @@ contains
     end subroutine logger_initialize
     
     subroutine logger_cleanup(self)
-        class(cat_logger_simple), intent(inout) :: self
+        class(pod_logger_simple), intent(inout) :: self
         
         if (.not. self%initialized) return
         
@@ -163,24 +163,24 @@ contains
     end subroutine logger_cleanup
     
     logical function logger_is_initialized(self)
-        class(cat_logger_simple), intent(in) :: self
+        class(pod_logger_simple), intent(in) :: self
         logger_is_initialized = self%initialized
     end function logger_is_initialized
     
     function logger_get_name(self) result(name)
-        class(cat_logger_simple), intent(in) :: self
+        class(pod_logger_simple), intent(in) :: self
         character(len=MAX_STRING_LEN) :: name
         name = self%name
     end function logger_get_name
     
     subroutine logger_set_name(self, name)
-        class(cat_logger_simple), intent(inout) :: self
+        class(pod_logger_simple), intent(inout) :: self
         character(len=*), intent(in) :: name
         self%name = name
     end subroutine logger_set_name
     
     subroutine log_message(self, level, message, module_name)
-        class(cat_logger_simple), intent(inout) :: self
+        class(pod_logger_simple), intent(inout) :: self
         integer, intent(in) :: level
         character(len=*), intent(in) :: message
         character(len=*), intent(in), optional :: module_name
@@ -216,54 +216,54 @@ contains
     end subroutine log_message
     
     subroutine set_log_level(self, level)
-        class(cat_logger_simple), intent(inout) :: self
+        class(pod_logger_simple), intent(inout) :: self
         integer, intent(in) :: level
         self%log_level = level
         call self%log_message(LOG_LEVEL_INFO, "Log level set to: " // self%get_level_string(level))
     end subroutine set_log_level
     
     function get_log_level(self) result(level)
-        class(cat_logger_simple), intent(in) :: self
+        class(pod_logger_simple), intent(in) :: self
         integer :: level
         level = self%log_level
     end function get_log_level
     
     subroutine set_log_file(self, filename)
-        class(cat_logger_simple), intent(inout) :: self
+        class(pod_logger_simple), intent(inout) :: self
         character(len=*), intent(in) :: filename
         self%log_file = filename
     end subroutine set_log_file
     
     function get_log_file(self) result(filename)
-        class(cat_logger_simple), intent(in) :: self
+        class(pod_logger_simple), intent(in) :: self
         character(len=MAX_STRING_LEN) :: filename
         filename = self%log_file
     end function get_log_file
     
     subroutine set_console_output(self, enabled)
-        class(cat_logger_simple), intent(inout) :: self
+        class(pod_logger_simple), intent(inout) :: self
         logical, intent(in) :: enabled
         self%console_output = enabled
     end subroutine set_console_output
     
     logical function get_console_output(self)
-        class(cat_logger_simple), intent(in) :: self
+        class(pod_logger_simple), intent(in) :: self
         get_console_output = self%console_output
     end function get_console_output
     
     subroutine set_file_output(self, enabled)
-        class(cat_logger_simple), intent(inout) :: self
+        class(pod_logger_simple), intent(inout) :: self
         logical, intent(in) :: enabled
         self%file_output = enabled
     end subroutine set_file_output
     
     logical function get_file_output(self)
-        class(cat_logger_simple), intent(in) :: self
+        class(pod_logger_simple), intent(in) :: self
         get_file_output = self%file_output
     end function get_file_output
     
     subroutine write_log_entry(self, entry)
-        class(cat_logger_simple), intent(inout) :: self
+        class(pod_logger_simple), intent(inout) :: self
         character(len=*), intent(in) :: entry
         
         if (self%file_output) then
@@ -277,7 +277,7 @@ contains
     end subroutine write_log_entry
     
     subroutine get_timestamp(self, timestamp)
-        class(cat_logger_simple), intent(in) :: self
+        class(pod_logger_simple), intent(in) :: self
         character(len=32), intent(out) :: timestamp
         character(len=8) :: date
         character(len=10) :: time
@@ -289,7 +289,7 @@ contains
     end subroutine get_timestamp
     
     function get_level_string(self, level) result(level_str)
-        class(cat_logger_simple), intent(in) :: self
+        class(pod_logger_simple), intent(in) :: self
         integer, intent(in) :: level
         character(len=16) :: level_str
         
@@ -314,7 +314,7 @@ contains
     ! ============================================================================
     
     subroutine system_initialize(self, config_file)
-        class(cat_system_simple), intent(inout) :: self
+        class(pod_system_simple), intent(inout) :: self
         character(len=*), intent(in), optional :: config_file
         
         if (self%initialized) then
@@ -324,7 +324,7 @@ contains
         
         ! Set default name if not set
         if (len_trim(self%name) == 0) then
-            self%name = "CAT_System_Simple"
+            self%name = "POD_System_Simple"
         end if
         
         self%system_state = SYSTEM_STATE_INITIALIZING
@@ -341,11 +341,11 @@ contains
         self%system_state = SYSTEM_STATE_READY
         self%initialized = .true.
         
-        call self%logger%log_message(LOG_LEVEL_INFO, "System initialized successfully", "cat_system_simple")
+        call self%logger%log_message(LOG_LEVEL_INFO, "System initialized successfully", "pod_system_simple")
     end subroutine system_initialize
     
     subroutine system_cleanup(self)
-        class(cat_system_simple), intent(inout) :: self
+        class(pod_system_simple), intent(inout) :: self
         
         if (.not. self%initialized) then
             call self%set_error(LOG_WARNING, "System not initialized, no cleanup needed")
@@ -354,7 +354,7 @@ contains
         
         self%system_state = SYSTEM_STATE_SHUTDOWN
         
-        call self%logger%log_message(LOG_LEVEL_INFO, "System cleanup started", "cat_system_simple")
+        call self%logger%log_message(LOG_LEVEL_INFO, "System cleanup started", "pod_system_simple")
         
         ! Unload SPICE kernels if loaded
         if (self%spice_loaded) then
@@ -367,34 +367,34 @@ contains
         self%system_state = SYSTEM_STATE_UNINITIALIZED
         self%initialized = .false.
         
-        call self%logger%log_message(LOG_LEVEL_INFO, "System cleanup completed", "cat_system_simple")
+        call self%logger%log_message(LOG_LEVEL_INFO, "System cleanup completed", "pod_system_simple")
     end subroutine system_cleanup
     
     logical function system_is_initialized(self)
-        class(cat_system_simple), intent(in) :: self
+        class(pod_system_simple), intent(in) :: self
         system_is_initialized = self%initialized
     end function system_is_initialized
     
     function system_get_name(self) result(name)
-        class(cat_system_simple), intent(in) :: self
+        class(pod_system_simple), intent(in) :: self
         character(len=MAX_STRING_LEN) :: name
         name = self%name
     end function system_get_name
     
     subroutine system_set_name(self, name)
-        class(cat_system_simple), intent(inout) :: self
+        class(pod_system_simple), intent(inout) :: self
         character(len=*), intent(in) :: name
         self%name = name
     end subroutine system_set_name
     
     function get_system_state(self) result(state)
-        class(cat_system_simple), intent(in) :: self
+        class(pod_system_simple), intent(in) :: self
         integer :: state
         state = self%system_state
     end function get_system_state
     
     function get_system_state_string(self) result(state_str)
-        class(cat_system_simple), intent(in) :: self
+        class(pod_system_simple), intent(in) :: self
         character(len=32) :: state_str
         
         select case (self%system_state)
@@ -414,25 +414,25 @@ contains
     end function get_system_state_string
     
     function get_logger(self) result(logger)
-        class(cat_system_simple), intent(in) :: self
-        type(cat_logger_simple) :: logger
+        class(pod_system_simple), intent(in) :: self
+        type(pod_logger_simple) :: logger
         logger = self%logger
     end function get_logger
     
     function get_memory_usage(self) result(usage)
-        class(cat_system_simple), intent(in) :: self
+        class(pod_system_simple), intent(in) :: self
         real(DP) :: usage
         usage = self%memory_usage
     end function get_memory_usage
     
     function get_error_count(self) result(count)
-        class(cat_system_simple), intent(in) :: self
+        class(pod_system_simple), intent(in) :: self
         integer :: count
         count = self%error_count
     end function get_error_count
     
     subroutine print_system_status(self)
-        class(cat_system_simple), intent(in) :: self
+        class(pod_system_simple), intent(in) :: self
         
         write(*, *) '=== CAT System Status (OOP Simple) ==='
         write(*, *) 'Name: ', trim(self%name)
@@ -446,28 +446,28 @@ contains
     end subroutine print_system_status
     
     subroutine load_spice_kernels(self)
-        class(cat_system_simple), intent(inout) :: self
+        class(pod_system_simple), intent(inout) :: self
         ! Implementation would load SPICE kernels
         ! This is a placeholder for the actual implementation
         self%spice_loaded = .true.
-        call self%logger%log_message(LOG_LEVEL_INFO, "SPICE kernels loaded", "cat_system_simple")
+        call self%logger%log_message(LOG_LEVEL_INFO, "SPICE kernels loaded", "pod_system_simple")
     end subroutine load_spice_kernels
     
     subroutine unload_spice_kernels(self)
-        class(cat_system_simple), intent(inout) :: self
+        class(pod_system_simple), intent(inout) :: self
         ! Implementation would unload SPICE kernels
         ! This is a placeholder for the actual implementation
         self%spice_loaded = .false.
-        call self%logger%log_message(LOG_LEVEL_INFO, "SPICE kernels unloaded", "cat_system_simple")
+        call self%logger%log_message(LOG_LEVEL_INFO, "SPICE kernels unloaded", "pod_system_simple")
     end subroutine unload_spice_kernels
     
     logical function is_spice_loaded(self)
-        class(cat_system_simple), intent(in) :: self
+        class(pod_system_simple), intent(in) :: self
         is_spice_loaded = self%spice_loaded
     end function is_spice_loaded
     
     subroutine create_directories(self)
-        class(cat_system_simple), intent(inout) :: self
+        class(pod_system_simple), intent(inout) :: self
         character(len=MAX_STRING_LEN) :: cmd
         
         ! Create output directory
@@ -488,10 +488,10 @@ contains
     end subroutine create_directories
     
     subroutine update_memory_usage(self)
-        class(cat_system_simple), intent(inout) :: self
+        class(pod_system_simple), intent(inout) :: self
         ! Implementation would update memory usage
         ! This is a placeholder for the actual implementation
         self%memory_usage = 0.0_DP
     end subroutine update_memory_usage
 
-end module cat_system_oop_simple
+end module pod_system_oop_simple

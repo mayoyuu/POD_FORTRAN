@@ -1,7 +1,7 @@
 program full_spice_test
-    use cat_global, only: DP, cat_init, cat_cleanup
-    use cat_spice, only: spice_init, spice_cleanup, spkezr, str2et, et2utc
-    use cat_basicmath, only: vector_magnitude
+    use pod_global, only: DP, pod_init, pod_cleanup
+    use pod_spice, only: spice_init, spice_cleanup, spkezr, str2et, et2utc
+    use pod_basicmath, only: vector_magnitude
     
     implicit none
     
@@ -14,7 +14,7 @@ program full_spice_test
     write(*, *) '=== 完整SPICE功能测试 ==='
     
     ! 初始化系统
-    call cat_init()
+    call pod_init()
     call spice_init()
     
     ! 测试时间转换
@@ -120,6 +120,6 @@ program full_spice_test
     
     ! 清理系统
     call spice_cleanup()
-    call cat_cleanup()
+    call pod_cleanup()
     
 end program full_spice_test

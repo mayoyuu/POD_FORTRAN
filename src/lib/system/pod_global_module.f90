@@ -18,7 +18,7 @@
 !> 
 !> ## Input/Output Files
 !> 
-!> - **Input**: `config/cat_config.txt` (optional)
+!> - **Input**: `config/pod_config.txt` (optional)
 !> - **Output**: `logs/cat.log`
 !> 
 !> ## Author
@@ -45,7 +45,7 @@
 !--------------------------------------------------------------------------------------------------------------
 
 
-module cat_global
+module pod_global
     implicit none
     
     ! Make essential constants and functions public
@@ -56,7 +56,7 @@ module cat_global
     public :: GRAVITATIONAL_CONSTANT
     public :: J2000_EPOCH, SECONDS_PER_DAY, DAYS_PER_YEAR
     public :: PLANET_MU
-    public :: cat_init, cat_cleanup
+    public :: pod_init, pod_cleanup
     
     !> Double precision kind parameter
     !! Provides 15 decimal digits of precision and exponent range up to 10^307
@@ -202,16 +202,16 @@ contains
     !!       will not cause issues.
     !!
     !! @warning Must be called before using any other CAT modules
-    subroutine cat_init()
+    subroutine pod_init()
         implicit none
         
         ! Check if already initialized
         if (system_initialized) then
-            call log_message(LOG_WARNING, 'System already initialized', 'cat_init')
+            call log_message(LOG_WARNING, 'System already initialized', 'pod_init')
             return
         end if
         
-        call log_message(LOG_INFO, 'Initializing CAT Fortran system...', 'cat_init')
+        call log_message(LOG_INFO, 'Initializing CAT Fortran system...', 'pod_init')
         
         ! Initialize system state
         global_state%initialized = .false.
@@ -241,8 +241,8 @@ contains
         system_initialized = .true.
         global_state%initialized = .true.
         
-        call log_message(LOG_INFO, 'System initialization completed', 'cat_init')
-    end subroutine cat_init
+        call log_message(LOG_INFO, 'System initialization completed', 'pod_init')
+    end subroutine pod_init
     
     !> Cleanup the CAT Fortran system
     !!
@@ -254,15 +254,15 @@ contains
     !!       will not cause issues.
     !!
     !! @warning Should be called before program termination
-    subroutine cat_cleanup()
+    subroutine pod_cleanup()
         implicit none
         
         if (.not. system_initialized) then
-            call log_message(LOG_WARNING, 'System not initialized, no cleanup needed', 'cat_cleanup')
+            call log_message(LOG_WARNING, 'System not initialized, no cleanup needed', 'pod_cleanup')
             return
         end if
         
-        call log_message(LOG_INFO, 'Cleaning up CAT Fortran system...', 'cat_cleanup')
+        call log_message(LOG_INFO, 'Cleaning up CAT Fortran system...', 'pod_cleanup')
         
         ! Note: SPICE cleanup will be handled by other modules
         
@@ -275,8 +275,8 @@ contains
         global_state%spice_loaded = .false.
         global_state%config_loaded = .false.
         
-        call log_message(LOG_INFO, 'System cleanup completed', 'cat_cleanup')
-    end subroutine cat_cleanup
+        call log_message(LOG_INFO, 'System cleanup completed', 'pod_cleanup')
+    end subroutine pod_cleanup
     
     subroutine create_directories()
         implicit none
@@ -299,7 +299,7 @@ contains
         call system(cmd)
     end subroutine create_directories
     
-    ! SPICE-related functions will be handled by cat_spice module
+    ! SPICE-related functions will be handled by pod_spice module
     
     logical function file_exists(filename)
         character(len=*), intent(in) :: filename
@@ -562,4 +562,4 @@ contains
         directory_exists = exists
     end function directory_exists
 
-end module cat_global
+end module pod_global

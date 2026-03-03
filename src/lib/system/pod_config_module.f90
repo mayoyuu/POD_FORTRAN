@@ -28,12 +28,12 @@
 !> 
 !> ## Dependencies
 !> 
-!> - `cat_global`: For data types and global state management
+!> - `pod_global`: For data types and global state management
 !> 
 !> ## Input/Output Files
 !> 
-!> - **Input**: `config/cat_config.txt`
-!> - **Output**: `config/cat_config.txt` (default template)
+!> - **Input**: `config/pod_config.txt`
+!> - **Output**: `config/pod_config.txt` (default template)
 !> 
 !> ## Author
 !> 
@@ -51,8 +51,8 @@
 !>          configuration files. Invalid parameters will be reported and
 !>          automatically corrected where possible.
 
-module cat_config
-    use cat_global, only: DP, MAX_STRING_LEN, global_state
+module pod_config
+    use pod_global, only: DP, MAX_STRING_LEN, global_state
     
     implicit none
     
@@ -802,4 +802,4 @@ contains
         end select
     end function get_config_value
 
-end module cat_config
+end module pod_config

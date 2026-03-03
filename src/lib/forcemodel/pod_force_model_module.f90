@@ -1,7 +1,7 @@
-module cat_force_model_module
-    use cat_global, only: DP
-    use cat_config, only: config
-    use cat_spice, only: get_sun_position, get_moon_position
+module pod_force_model_module
+    use pod_global, only: DP
+    use pod_config, only: config
+    use pod_spice, only: get_sun_position, get_moon_position
     
     implicit none
     
@@ -242,4 +242,4 @@ contains
         write(*, *) '第三体摄动力: ', merge('启用', '禁用', use_third_body_perturbation)
     end subroutine print_force_model_status
 
-end module cat_force_model_module
+end module pod_force_model_module
