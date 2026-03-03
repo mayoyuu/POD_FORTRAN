@@ -1,4 +1,4 @@
-!> # CAT Frame Module
+!> # POD Frame Module
 !>
 !> 统一的坐标系/参考系（frame）转换与相关几何变换模块。
 !>
@@ -38,8 +38,10 @@
 !> @warning 使用前需确保相应 SPICE 内核（尤其 FK）已正确加载。
 !> @todo 提供基于帧名的高层封装接口，如 `transform_frame(from,to,et,vec)`。
 module pod_frame_module
-    use pod_global, only: DP
+    use pod_global, only: DP, MAX_STRING_LEN
     use pod_config, only: config
+    use pod_frame_simple_module, only: pod_frame_state  ! <--- 引入状态对象
+    use pod_spice, only: sxform, pxform, namfrm
     
     implicit none
     
@@ -303,5 +305,75 @@ contains
         eci_pos(2) = (N + alt) * cos_lat * sin_lon
         eci_pos(3) = (N * (1.0_DP - EARTH_ECC2) + alt) * sin_lat
     end subroutine geodetic_to_eci
+
+    !> 核心功能：基于 SPICE 的通用参考系状态转换
+    !> @param state_in 输入的状态对象 (必须有效且包含历元)
+    !> @param target_frame_name 目标参考系名称 (如 'ITRF93', 'J2000')
+    !> @param state_out 输出的转换后状态对象
+    subroutine transform_frame_state(state_in, target_frame_name, state_out)
+        class(pod_frame_state), intent(in) :: state_in
+        character(len=*), intent(in) :: target_frame_name
+        class(pod_frame_state), intent(inout) :: state_out
+        
+        real(DP), dimension(6,6) :: xform
+        real(DP), dimension(6) :: vec_in, vec_out
+        character(len=MAX_STRING_LEN) :: source_frame
+        
+        ! 1. 安全检查：如果输入状态无效，直接返回无效的输出
+        if (.not. state_in%is_valid()) then
+            call state_out%clear_state()
+            return
+        end if
+        
+        source_frame = state_in%get_frame_name()
+        
+        ! 2. 性能优化：如果源参考系和目标参考系完全一样，直接复制对象并返回
+        if (trim(source_frame) == trim(target_frame_name)) then
+            call state_out%copy_state(state_in)
+            return
+        end if
+        
+        ! 3. 调用 SPICE 核心计算 6x6 状态转移矩阵 (包含自转对速度的科氏力等修正)
+        call sxform(trim(source_frame), trim(target_frame_name), &
+                    state_in%get_epoch(), xform)
+        
+        ! 4. 组装 6 维向量并执行矩阵乘法
+        vec_in(1:3) = state_in%get_position()
+        vec_in(4:6) = state_in%get_velocity()
+        
+        vec_out = matmul(xform, vec_in)
+        
+        ! 5. 将计算结果组装到新的目标对象中
+        call state_out%set_position(vec_out(1:3))
+        call state_out%set_velocity(vec_out(4:6))
+        call state_out%set_epoch(state_in%get_epoch())
+        call state_out%set_frame_name(trim(target_frame_name))
+        call state_out%set_valid(.true.)
+        
+    end subroutine transform_frame_state
+
+    !> 高级功能：将任意坐标系下的状态，安全地转换为地球经纬度高程
+    !> 内部会自动先将其转换到地固系 (ITRF93) 以确保地球自转被正确处理
+    subroutine state_to_geodetic(state_in, lat, lon, alt)
+        class(pod_frame_state), intent(in) :: state_in
+        real(DP), intent(out) :: lat, lon, alt
+        
+        type(pod_frame_state) :: state_itrs
+        
+        ! 1. 强制转换到高精度地固系 (ITRF93)
+        call transform_frame_state(state_in, 'ITRF93', state_itrs)
+        
+        ! 2. 确保转换成功
+        if (.not. state_itrs%is_valid()) then
+            lat = 0.0_DP
+            lon = 0.0_DP
+            alt = 0.0_DP
+            return
+        end if
+        
+        ! 3. 调用 eci_to_geodetic (此时传入的已经是安全的 ITRS 坐标了)
+        call eci_to_geodetic(state_itrs%get_position(), lat, lon, alt)
+        
+    end subroutine state_to_geodetic
 
 end module pod_frame_module

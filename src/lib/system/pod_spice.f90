@@ -103,6 +103,13 @@ module pod_spice
             real(8), intent(in) :: et
             real(8), dimension(3,3), intent(out) :: rot
         end subroutine pxform
+
+        subroutine sxform(from, to, et, xform)
+            character(len=*), intent(in) :: from
+            character(len=*), intent(in) :: to
+            real(8), intent(in) :: et
+            real(8), dimension(6,6), intent(out) :: xform
+        end subroutine sxform
         
         subroutine bodvrd(body, item, maxn, dim, values)
             character(len=*), intent(in) :: body
@@ -129,6 +136,12 @@ module pod_spice
             character(len=*), intent(in) :: output_type
             real(8), intent(inout) :: time
         end subroutine ttrans
+
+        ! >  get the frame code
+        subroutine namfrm(name, frcode)
+            character(len=*), intent(in)  :: name
+            integer,          intent(out) :: frcode
+        end subroutine namfrm
     end interface
     
 contains
