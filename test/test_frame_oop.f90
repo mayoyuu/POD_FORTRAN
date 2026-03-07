@@ -10,12 +10,12 @@ program test_frame_oop
     type(pod_frame_state) :: state_in, state_out
     real(DP) :: time_et
     
-    write(*, *) '=== 终极架构验证: 坐标系高层封装测试 ==='
+    write(*, *) '=== 架构验证: 坐标系高层封装测试 ==='
     
     ! 1. 初始化 SPICE 环境 (加载内核库)
     call spice_init()
     
-    ! 2. 设定测试时间 (注意这里我们用了 2023 年以规避之前的报错)
+    ! 2. 设定测试时间 
     call str2et('2023-01-01T12:00:00', time_et)
     
     ! 3. 准备输入数据: GCRS (J2000) 下的卫星状态
@@ -31,8 +31,7 @@ program test_frame_oop
     write(*, '(A, 3F15.4)') ' 位置 (km)   : ', state_in%get_position()
     write(*, '(A, 3F15.4)') ' 速度 (km/s) : ', state_in%get_velocity()
     
-    ! 4. 见证奇迹的时刻：一键调用高层转换接口！
-    ! 没有任何复杂的矩阵乘法，没有任何底层的 SPICE 函数暴露在这里
+    ! 4. 调用高层转换接口
     call transform_frame_state(state_in, 'ITRF93', state_out)
     
     ! 5. 打印结果

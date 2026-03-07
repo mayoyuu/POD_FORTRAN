@@ -193,7 +193,7 @@ contains
         end if
         
         ! 加载地球内核
-        kernel_file = trim(spice_kernel_path) // 'pck/earth_000101_230801_230509.bpc'
+        kernel_file = trim(spice_kernel_path) // 'pck/earth_latest_high_prec.bpc'
         if (file_exists(kernel_file)) then
             call furnsh(kernel_file)
             write(*, *) '已加载地球内核: ', trim(kernel_file)
