@@ -172,10 +172,28 @@ contains
                 dt = max(dt_min, min(dt_max, dt))
                 
             else
-                ! 拒绝这一步，减小步长
-                dt = safety_factor * dt * (tolerance / error_estimate)**0.25_DP
-                dt = max(dt_min, dt)
+                ! 检查是否已经触底
+                if (dt <= dt_min) then
+                    ! 【防抱死补丁】已经缩小到极小步长依然无法满足容差，强行接受步长并前进！
+                    ! 否则会陷入不推进时间的死循环
+                    current_state = next_state_5th
+                    current_time = current_time + dt
+                    n_steps = n_steps + 1
+                    
+                    times(n_steps) = current_time
+                    states(n_steps, :) = current_state
+                    
+                    ! 保持 dt 为 dt_min 继续尝试下一步
+                else
+                    ! 正常拒绝这一步，减小步长，重新计算当前时刻
+                    dt = safety_factor * dt * (tolerance / error_estimate)**0.25_DP
+                    dt = max(dt_min, dt)
+                end if
             end if
+            !     ! 拒绝这一步，减小步长
+            !     dt = safety_factor * dt * (tolerance / error_estimate)**0.25_DP
+            !     dt = max(dt_min, dt)
+            ! end if
             
             ! 确保不超过结束时间
             if (current_time + dt > t_end) then

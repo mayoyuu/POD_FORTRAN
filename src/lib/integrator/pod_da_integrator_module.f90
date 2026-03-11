@@ -112,9 +112,9 @@ contains
         allocate(times(max_steps))
         allocate(states(max_steps))
         
-        do j = 1, max_steps
-            call states(j)%init(6)
-        end do
+        ! do j = 1, max_steps
+        !     call states(j)%init(6)
+        ! end do
         
         call current_state%init(6)
         call next_state_4th%init(6)
@@ -139,16 +139,37 @@ contains
                 n_steps = n_steps + 1
                 
                 times(n_steps) = current_time
+                ! 【在这里按需分配！】为当前步初始化 DA 容器
+                call states(n_steps)%init(6)
                 states(n_steps) = current_state
+                
                 
                 if (error_estimate > 0.0_DP) then
                     dt = safety_factor * dt * (tolerance / error_estimate)**0.25_DP
                 end if
                 dt = max(dt_min, min(dt_max, dt))
             else
-                dt = safety_factor * dt * (tolerance / error_estimate)**0.25_DP
-                dt = max(dt_min, dt)
+                ! 检查是否已经触底
+                if (dt <= dt_min) then
+                    ! 【防抱死补丁】已经缩小到极小步长依然无法满足容差，强行接受步长并前进！
+                    ! 否则会陷入不推进时间的死循环
+                    current_state = next_state_5th
+                    current_time = current_time + dt
+                    n_steps = n_steps + 1
+                    
+                    times(n_steps) = current_time
+                    states(n_steps) = current_state
+                    
+                    ! 保持 dt 为 dt_min 继续尝试下一步
+                else
+                    ! 正常拒绝这一步，减小步长，重新计算当前时刻
+                    dt = safety_factor * dt * (tolerance / error_estimate)**0.25_DP
+                    dt = max(dt_min, dt)
+                end if
             end if
+            !     dt = safety_factor * dt * (tolerance / error_estimate)**0.25_DP
+            !     dt = max(dt_min, dt)
+            ! end if
             
             if (current_time + dt > t_end) then
                 dt = t_end - current_time

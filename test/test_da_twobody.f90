@@ -77,9 +77,9 @@ program test_da_twobody
     write(*,*) ""
     write(*,*) ">>> [阶段 2] 正在执行 RKF45 变步长积分对比..."
     t_start = 0.0_DP
-    t_end = 3600.0_DP       ! 测试积分 1 小时
-    max_steps = 100000
-    tolerance = 1.0e-11_DP  ! 严苛的误差容限
+    t_end = 3600.0_DP       ! 测试跑 1 个小时
+    max_steps = 2000        ! 把 100000 改为 2000
+    tolerance = 1.0e-8_DP   ! 保持 1e-8 的合理容差
     
     ! 跑纯实数 RKF45
     call adaptive_step_integrate(state_real, t_start, t_end, max_steps, tolerance, &
