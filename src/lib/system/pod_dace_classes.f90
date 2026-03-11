@@ -53,6 +53,22 @@ module pod_dace_classes
             import :: c_int, c_double; integer(c_int), value :: h1, ho; real(c_double), value :: val
         end subroutine c_fdace_mul_double
 
+        subroutine c_fdace_negate(hi, ho) bind(C, name="fdace_negate")
+            import :: c_int; integer(c_int), value :: hi, ho
+        end subroutine c_fdace_negate
+
+        subroutine c_fdace_sub_double(h1, val, ho) bind(C, name="fdace_sub_double")
+            import :: c_int, c_double; integer(c_int), value :: h1, ho; real(c_double), value :: val
+        end subroutine c_fdace_sub_double
+
+        subroutine c_fdace_double_sub(val, h2, ho) bind(C, name="fdace_double_sub")
+            import :: c_int, c_double; integer(c_int), value :: h2, ho; real(c_double), value :: val
+        end subroutine c_fdace_double_sub
+
+        subroutine c_fdace_double_div(val, h2, ho) bind(C, name="fdace_double_div")
+            import :: c_int, c_double; integer(c_int), value :: h2, ho; real(c_double), value :: val
+        end subroutine c_fdace_double_div
+
         subroutine c_fdace_sin(hi, ho) bind(C, name="fdace_sin")
             import :: c_int; integer(c_int), value :: hi, ho
         end subroutine c_fdace_sin
@@ -81,6 +97,19 @@ module pod_dace_classes
         subroutine c_fdace_print(h) bind(C, name="fdace_print")
             import :: c_int; integer(c_int), value :: h
         end subroutine c_fdace_print
+
+        subroutine c_fdace_eval_var(hi, var_idx, val, ho) bind(C, name="fdace_eval_var")
+            import :: c_int, c_double
+            integer(c_int), value :: hi, var_idx, ho
+            real(c_double), value :: val
+        end subroutine c_fdace_eval_var
+
+        subroutine c_fdace_eval_all(hi, vals, n, res) bind(C, name="fdace_eval_all")
+            import :: c_int, c_double
+            integer(c_int), value :: hi, n
+            real(c_double), intent(in) :: vals(*)
+            real(c_double), intent(out) :: res
+        end subroutine c_fdace_eval_all
     end interface
 
     ! =========================================================
@@ -95,24 +124,35 @@ module pod_dace_classes
         procedure :: print => da_print
         procedure :: cons => da_get_cons
         procedure :: deriv => da_deriv
+        procedure, private :: da_eval_var
+        procedure, private :: da_eval_all
+        generic :: eval => da_eval_var, da_eval_all
     end type DA
 
-    ! 算符重载
+    ! ---------------------------------------------------------
+    ! 算符重载：标量 DA 与 实数
+    ! ---------------------------------------------------------
     interface operator(+)
         module procedure da_add_da, da_add_real, real_add_da
     end interface
+    
     interface operator(-)
-        module procedure da_sub_da
+        ! 包含了一元负号 (例如: -x)
+        module procedure da_sub_da, da_sub_real, real_sub_da, unary_minus_da
     end interface
+    
     interface operator(*)
         module procedure da_mul_da, da_mul_real, real_mul_da
     end interface
+    
     interface operator(/)
-        module procedure da_div_da
+        module procedure da_div_da, da_div_real, real_div_da
     end interface
+    
     interface assignment(=)
         module procedure da_assign_da, da_assign_real
     end interface
+
     
     ! 科学函数重载
     interface sin
@@ -140,17 +180,38 @@ module pod_dace_classes
         procedure :: print => vector_print
         procedure :: get => vector_get
         procedure :: set => vector_set
+        procedure, private :: vector_eval_var
+        procedure, private :: vector_eval_all
+        generic :: eval => vector_eval_var, vector_eval_all
+
     end type AlgebraicVector
 
+    ! ---------------------------------------------------------
+    ! 算符重载：向量与 标量(DA/实数)
+    ! ---------------------------------------------------------
     interface operator(+)
         module procedure vector_add_vector
     end interface
+    
     interface operator(-)
-        module procedure vector_sub_vector
+        ! 包含了一元负号 (例如: -v)
+        module procedure vector_sub_vector, unary_minus_vector
     end interface
+    
     interface operator(*)
-        module procedure real_mul_vector, da_mul_vector, vector_dot_vector
+        ! 向量点乘
+        module procedure vector_dot_vector
+        ! 标量 * 向量
+        module procedure real_mul_vector, da_mul_vector
+        ! 向量 * 标量 (交换律)
+        module procedure vector_mul_real, vector_mul_da
     end interface
+    
+    interface operator(/)
+        ! 向量 / 标量
+        module procedure vector_div_real, vector_div_da
+    end interface
+    
     interface assignment(=)
         module procedure vector_assign_vector
     end interface
@@ -242,6 +303,44 @@ contains
         class(DA), intent(in) :: da1
         res = da_mul_real(da1, val)
     end function real_mul_da
+
+    ! --- 一元负号: -DA ---
+    type(DA) function unary_minus_da(da1) result(res)
+        class(DA), intent(in) :: da1
+        call res%init()
+        call c_fdace_negate(da1%handle, res%handle)
+    end function unary_minus_da
+
+    ! --- DA - 实数 ---
+    type(DA) function da_sub_real(da1, val) result(res)
+        class(DA), intent(in) :: da1
+        real(8), intent(in) :: val
+        call res%init()
+        call c_fdace_sub_double(da1%handle, val, res%handle)
+    end function da_sub_real
+
+    ! --- 实数 - DA ---
+    type(DA) function real_sub_da(val, da1) result(res)
+        real(8), intent(in) :: val
+        class(DA), intent(in) :: da1
+        call res%init()
+        call c_fdace_double_sub(val, da1%handle, res%handle)
+    end function real_sub_da
+
+    ! --- 实数 / DA ---
+    type(DA) function real_div_da(val, da2) result(res)
+        real(8), intent(in) :: val
+        class(DA), intent(in) :: da2
+        call res%init()
+        call c_fdace_double_div(val, da2%handle, res%handle)
+    end function real_div_da
+
+    ! --- DA 除以 实数 ---
+    type(DA) function da_div_real(da1, val) result(res)
+        class(DA), intent(in) :: da1
+        real(8), intent(in) :: val
+        res = da1 * (1.0d0 / val)
+    end function da_div_real
 
     ! --- 科学函数与微积分 ---
     type(DA) function da_sin(da1) result(res)
@@ -396,5 +495,93 @@ contains
             res = res + (v1%elements(i) * v2%elements(i))
         end do
     end function vector_dot_vector
+
+    ! 一元负号: -Vector
+    type(AlgebraicVector) function unary_minus_vector(v1) result(res)
+        class(AlgebraicVector), intent(in) :: v1
+        integer :: i
+        call res%init(v1%size)
+        do i = 1, v1%size
+            res%elements(i) = -v1%elements(i) ! 自动调用 DA 的一元负号
+        end do
+    end function unary_minus_vector
+
+    ! 向量 * 实数 (补齐交换律)
+    type(AlgebraicVector) function vector_mul_real(vec, val) result(res)
+        class(AlgebraicVector), intent(in) :: vec
+        real(8), intent(in) :: val
+        res = val * vec  ! 直接复用已有的 real_mul_vector
+    end function vector_mul_real
+
+    ! 向量 * DA (补齐交换律)
+    type(AlgebraicVector) function vector_mul_da(vec, val) result(res)
+        class(AlgebraicVector), intent(in) :: vec
+        class(DA), intent(in) :: val
+        res = val * vec  ! 直接复用已有的 da_mul_vector
+    end function vector_mul_da
+
+    ! 向量 / 实数
+    type(AlgebraicVector) function vector_div_real(vec, val) result(res)
+        class(AlgebraicVector), intent(in) :: vec
+        real(8), intent(in) :: val
+        res = vec * (1.0d0 / val)
+    end function vector_div_real
+
+    ! 向量 / DA
+    type(AlgebraicVector) function vector_div_da(vec, val) result(res)
+        class(AlgebraicVector), intent(in) :: vec
+        class(DA), intent(in) :: val
+        integer :: i
+        call res%init(vec%size)
+        do i = 1, vec%size
+            res%elements(i) = vec%elements(i) / val ! 自动调用 DA / DA
+        end do
+    end function vector_div_da
+
+    ! --- DA 的 eval 实现 ---
+    type(DA) function da_eval_var(this, var_idx, val) result(res)
+        class(DA), intent(in) :: this
+        integer, intent(in) :: var_idx
+        real(8), intent(in) :: val
+        
+        call res%init()
+        call c_fdace_eval_var(this%handle, int(var_idx, c_int), val, res%handle)
+    end function da_eval_var
+
+    ! --- Vector 的 eval 实现 (天然的数组循环优势) ---
+    type(AlgebraicVector) function vector_eval_var(this, var_idx, val) result(res)
+        class(AlgebraicVector), intent(in) :: this
+        integer, intent(in) :: var_idx
+        real(8), intent(in) :: val
+        integer :: i
+        
+        call res%init(this%size)
+        do i = 1, this%size
+            ! 对向量里的每一个 DA 元素执行 eval
+            res%elements(i) = this%elements(i)%eval(var_idx, val)
+        end do
+    end function vector_eval_var
+
+    ! --- DA 的全代入实现 (返回实数标量) ---
+    real(8) function da_eval_all(this, vals)
+        class(DA), intent(in) :: this
+        real(8), intent(in) :: vals(:) ! 传入形如 [0.5d0, 1.2d0, ...] 的数组
+        
+        call c_fdace_eval_all(this%handle, vals, size(vals), da_eval_all)
+    end function da_eval_all
+
+    ! --- Vector 的全代入实现 (返回实数数组) ---
+    function vector_eval_all(this, vals) result(res)
+        class(AlgebraicVector), intent(in) :: this
+        real(8), intent(in) :: vals(:)
+        real(8), allocatable :: res(:)
+        integer :: i
+        
+        allocate(res(this%size))
+        do i = 1, this%size
+            res(i) = this%elements(i)%eval(vals)
+        end do
+    end function vector_eval_all
+
 
 end module pod_dace_classes

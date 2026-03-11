@@ -2,11 +2,15 @@ program test_dace_link
     use pod_dace_bridge, only: dace_initialize
     use pod_dace_classes
     implicit none
+    ! A function to calculate square root
     
     ! 声明标量 DA 对象
-    type(DA) :: x, y, f, df_dx, dot_res
+    type(DA) :: x, y, z, f, df_dx, dot_res, ff, f_eval
     ! 声明向量对象
-    type(AlgebraicVector) :: v1, v2, v3
+    type(AlgebraicVector) :: v1, v2, v3, v_eval
+
+    real(8) :: f_final
+    real(8), allocatable :: final_vec_vals(:)
     
     write(*, *) '=========================================='
     write(*, *) '      DACE 终极运算能力与内存安全测试'
@@ -30,7 +34,9 @@ program test_dace_link
     call x%init_var(1) 
     ! 把 y 设为第 2 个独立变量: DA(2)
     call y%init_var(2) 
-    
+
+    call z%init_var(3)
+
     ! 极度优雅的数学表达式！
     ! 构造函数: f(x,y) = sin(x) * y + 2.5
     f = sin(x) * y + 2.5d0
@@ -85,6 +91,43 @@ program test_dace_link
     write(*, *) ''
 
     ! ==========================================
+    ! 阶段 3.5: Eval 代入求值测试
+    ! ==========================================
+    write(*, *) '>>> [阶段 3.5] 代入求值 (Eval/Plug) 测试'
+    
+    ! 此时 x 和 y 还是存活状态，可以安全使用
+    ff = 3.0d0 * x + 5.0d0 * y  
+    write(*, *) '原始多项式 ff = 3.0*x + 5.0*y :'
+    call ff%print()
+    
+    ! 把 delta_x (1号变量) 代入为 0.5
+    ! f_eval 应该变成: 1.5 + 5.0 * y
+    f_eval = ff%eval(1, 0.5d0) 
+    write(*, *) '将 x (变量1) 代入为 0.5 后 :'
+    call f_eval%print()
+
+    f_final = f_eval%eval([0.5d0])
+    write(*, *) '将 f_eval 的 y (变量1) 代入为 0.5 后 :'
+    write(*, *) '将 f_eval 的所有剩余变量代入后得到的纯实数 :'
+    write(*, *) f_final  ! 直接用 write 打印，不要用 %print()
+
+    ! 向量 eval 测试
+    ! 我们直接借用阶段 3 已经赋好值的 v1: [x, y, 1.0]
+    write(*, *) '原始向量 v1 :'
+    call v1%print()
+    
+    ! 一键将向量里所有的 x 替换为 0.5
+    v_eval = v1%eval(1, 0.5d0)
+    write(*, *) '将 v1 中的 x 代入为 0.5 后 :'
+    call v_eval%print()
+    write(*, *) ''
+
+    final_vec_vals = v_eval%eval([0.0d0,0.0d0])
+    write(*, *) '将 v_eval 中的 x 代入为 0.5 后 :'
+    write(*, *) final_vec_vals
+    
+
+    ! ==========================================
     ! 阶段 4: 内存生命周期测试
     ! ==========================================
     write(*, *) '>>> [阶段 4] 内存自动释放与回收池测试...'
@@ -101,5 +144,7 @@ program test_dace_link
     write(*, *) ''
     write(*, *) '🎉 恭喜！DA 算符与 Vector 引擎全部正常工作，内存安全退出！'
     write(*, *) '=========================================='
+
+
 
 end program test_dace_link

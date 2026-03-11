@@ -64,6 +64,10 @@ module pod_spice
     ! SPICE常量
     integer, parameter :: SPICE_MAX_STRING_LEN = 256
     integer, parameter :: SPICE_MAX_KERNELS = 100
+
+    public :: spice_init, spice_cleanup, is_spice_initialized
+    public :: set_spice_kernel_path, get_spice_kernel_path
+    public :: get_sun_position, get_moon_position  ! <--- 新增
     
     ! SPICE函数接口声明
     interface
@@ -245,4 +249,57 @@ contains
         path = spice_kernel_path
     end function get_spice_kernel_path
 
+
+    ! =========================================================
+    ! 高级业务接口：天体状态获取
+    ! =========================================================
+
+    !> 通用底层封装：获取目标天体相对于中心天体的位置和速度
+    subroutine get_body_state(target, et, observer, position, velocity)
+        character(len=*), intent(in) :: target
+        real(DP), intent(in) :: et
+        character(len=*), intent(in) :: observer
+        real(DP), dimension(3), intent(out) :: position
+        real(DP), dimension(3), intent(out) :: velocity
+        
+        real(8), dimension(6) :: state
+        logical :: found
+        
+        ! 自动检查初始化 (极其安全的防御性编程)
+        if (.not. spice_initialized) call spice_init()
+        
+        ! 调用 SPICE 核心接口
+        ! 参考系固定为 J2000, 光差校正为 NONE (精密定轨动力学积分的标准做法)
+        call spkezr(target, et, 'J2000', 'NONE', observer, state, found)
+        
+        if (found) then
+            position = state(1:3)
+            velocity = state(4:6)
+        else
+            write(*,*) "SPICE 严重错误: 无法获取天体状态! Target: ", trim(target)
+            ! 赋值为0防止产生不可预测的NaN传播
+            position = 0.0_DP
+            velocity = 0.0_DP
+        end if
+    end subroutine get_body_state
+
+    !> 获取太阳位置和速度 (用于第三体摄动和太阳辐射压)
+    subroutine get_sun_position(et, observer, position, velocity)
+        real(DP), intent(in) :: et
+        character(len=*), intent(in) :: observer
+        real(DP), dimension(3), intent(out) :: position, velocity
+        
+        call get_body_state('SUN', et, observer, position, velocity)
+    end subroutine get_sun_position
+
+    !> 获取月球位置和速度 (用于第三体摄动)
+    subroutine get_moon_position(et, observer, position, velocity)
+        real(DP), intent(in) :: et
+        character(len=*), intent(in) :: observer
+        real(DP), dimension(3), intent(out) :: position, velocity
+        
+        call get_body_state('MOON', et, observer, position, velocity)
+    end subroutine get_moon_position
+
+    
 end module pod_spice
