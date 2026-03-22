@@ -4,8 +4,32 @@ module pod_integrator_module
     use pod_force_model_module, only: compute_acceleration
     
     implicit none
+
+    ! --- 积分器类型常量定义 (暴露给外部用户使用) ---
+    integer, parameter, public :: METHOD_RKF45 = 1
+    integer, parameter, public :: METHOD_RKF78 = 2
     
 contains
+
+    subroutine compute_derivatives(state, time, derivatives)
+        real(DP), dimension(6), intent(in) :: state
+        real(DP), intent(in) :: time
+        real(DP), dimension(6), intent(out) :: derivatives
+        
+        real(DP), dimension(3) :: position, velocity, acceleration
+        
+        ! 提取位置和速度
+        position = state(1:3)
+        velocity = state(4:6)
+        
+        ! 计算加速度
+        call compute_acceleration(position, velocity, time, acceleration)
+        
+        ! 构建导数向量 [dx/dt, dy/dt, dz/dt, dvx/dt, dvy/dt, dvz/dt]
+        derivatives(1:3) = velocity
+        derivatives(4:6) = acceleration
+    end subroutine compute_derivatives
+    
 
     subroutine rk4_integrate(state, dt, time, new_state)
         real(DP), dimension(6), intent(in) :: state
@@ -40,92 +64,54 @@ contains
         real(DP), intent(in) :: dt, time
         real(DP), dimension(6), intent(out) :: new_state
         
-        real(DP), dimension(6) :: k1, k2, k3, k4, k5, k6
-        real(DP), dimension(6) :: temp_state
-        real(DP), dimension(6) :: state_4th, state_5th
+        real(DP), dimension(6) :: temp_4th, temp_5th
+        real(DP) :: err_est
+        
+        ! 1. 直接调用核心计算引擎
+        call rkf45_step(state, dt, time, temp_4th, temp_5th, err_est)
+        
+        ! 2. 丢弃4阶解和误差，只把最高精度的5阶解作为结果返回
+        new_state = temp_5th
+    end subroutine rkf45_integrate
+
+    subroutine rkf78_integrate(state, dt, time, new_state)
+        real(DP), dimension(6), intent(in) :: state
+        real(DP), intent(in) :: dt, time
+        real(DP), dimension(6), intent(out) :: new_state
+        
+        real(DP), dimension(6) :: state_7th, state_8th
         real(DP) :: error_estimate, tolerance
         
         tolerance = config%propagation_tolerance
         
-        ! RKF45 积分方法 (Runge-Kutta-Fehlberg 4(5))
-        ! k1 = f(t, y)
-        call compute_derivatives(state, time, k1)
+        call rkf78_step(state, dt, time, state_7th, state_8th, error_estimate)
         
-        ! k2 = f(t + dt/5, y + dt*k1/5)
-        temp_state = state + dt * k1 / 5.0_DP
-        call compute_derivatives(temp_state, time + dt/5.0_DP, k2)
+        ! 返回高阶解
+        new_state = state_8th
         
-        ! k3 = f(t + 3*dt/10, y + dt*(3*k1 + 9*k2)/40)
-        temp_state = state + dt * (3.0_DP * k1 + 9.0_DP * k2) / 40.0_DP
-        call compute_derivatives(temp_state, time + 3.0_DP*dt/10.0_DP, k3)
-        
-        ! k4 = f(t + 4*dt/5, y + dt*(44*k1 - 168*k2 + 160*k3)/45)
-        temp_state = state + dt * (44.0_DP * k1 - 168.0_DP * k2 + 160.0_DP * k3) / 45.0_DP
-        call compute_derivatives(temp_state, time + 4.0_DP*dt/5.0_DP, k4)
-        
-        ! k5 = f(t + 8*dt/9, y + dt*(19372*k1 - 76032*k2 + 64448*k3 - 212*k4)/6561)
-        temp_state = state + dt * (19372.0_DP * k1 - 76032.0_DP * k2 + &
-                                  64448.0_DP * k3 - 212.0_DP * k4) / 6561.0_DP
-        call compute_derivatives(temp_state, time + 8.0_DP*dt/9.0_DP, k5)
-        
-        ! k6 = f(t + dt, y + dt*(9017*k1 - 355*k2 + 46732*k3 + 49*k4 - 5103*k5)/6561)
-        temp_state = state + dt * (9017.0_DP * k1 - 355.0_DP * k2 + 46732.0_DP * k3 + &
-                                  49.0_DP * k4 - 5103.0_DP * k5) / 6561.0_DP
-        call compute_derivatives(temp_state, time + dt, k6)
-        
-        ! 4阶解
-        state_4th = state + dt * (25.0_DP * k1 / 216.0_DP + 1408.0_DP * k3 / 2565.0_DP + &
-                                  2197.0_DP * k4 / 4104.0_DP - k5 / 5.0_DP)
-        
-        ! 5阶解
-        state_5th = state + dt * (16.0_DP * k1 / 135.0_DP + 6656.0_DP * k3 / 12825.0_DP + &
-                                  28561.0_DP * k4 / 56430.0_DP - 9.0_DP * k5 / 50.0_DP + &
-                                  2.0_DP * k6 / 55.0_DP)
-        
-        ! 误差估计
-        error_estimate = sqrt(sum((state_5th - state_4th)**2))
-        
-        ! 使用5阶解作为最终结果
-        new_state = state_5th
-        
-        ! 如果误差太大，可以在这里实现自适应步长控制
+        ! 简单的误差检查逻辑
         if (error_estimate > tolerance) then
-            ! 可以减小步长或发出警告
-            ! 这里简化处理，实际应用中需要更复杂的自适应控制
+            ! 这里可以添加警告，但在自适应循环中，这个逻辑会被上层接管
         end if
-    end subroutine rkf45_integrate
-    
-    subroutine compute_derivatives(state, time, derivatives)
-        real(DP), dimension(6), intent(in) :: state
-        real(DP), intent(in) :: time
-        real(DP), dimension(6), intent(out) :: derivatives
-        
-        real(DP), dimension(3) :: position, velocity, acceleration
-        
-        ! 提取位置和速度
-        position = state(1:3)
-        velocity = state(4:6)
-        
-        ! 计算加速度
-        call compute_acceleration(position, velocity, time, acceleration)
-        
-        ! 构建导数向量 [dx/dt, dy/dt, dz/dt, dvx/dt, dvy/dt, dvz/dt]
-        derivatives(1:3) = velocity
-        derivatives(4:6) = acceleration
-    end subroutine compute_derivatives
+    end subroutine rkf78_integrate
     
     subroutine adaptive_step_integrate(state, t_start, t_end, max_steps, tolerance, &
-                                     times, states, n_steps)
+                                       integrator_method, times, states, n_steps)
+        ! ... 前面的参数声明保持不变 ...
         real(DP), dimension(6), intent(in) :: state
         real(DP), intent(in) :: t_start, t_end, tolerance
         integer, intent(in) :: max_steps
+        integer, intent(in) :: integrator_method  ! 新增参数：选择使用 RKF45 还是 RKF78
         real(DP), allocatable, dimension(:), intent(out) :: times
         real(DP), allocatable, dimension(:,:), intent(out) :: states
         integer, intent(out) :: n_steps
         
         real(DP) :: current_time, dt, dt_min, dt_max
-        real(DP), dimension(6) :: current_state, next_state_4th, next_state_5th
-        real(DP) :: error_estimate, safety_factor
+        ! 新增  exp_power
+        real(DP), dimension(6) :: current_state
+        real(DP), dimension(6) :: next_state_4th, next_state_5th, next_state_7th, next_state_8th
+        real(DP), dimension(6) :: next_state_high ! 用于统一暂存不同算法的高阶输出
+        real(DP) :: error_estimate, safety_factor, exp_power
         integer :: i
         
         ! 初始化
@@ -151,32 +137,49 @@ contains
         do i = 2, max_steps
             ! 检查是否到达结束时间
             if (current_time >= t_end) exit
-            
-            ! 使用RKF45方法进行一步积分
-            call rkf45_step(current_state, dt, current_time, next_state_4th, next_state_5th, error_estimate)
-            
-            ! 检查误差
+
+           ! ==========================================
+            ! 1. 积分器路由分发 (使用易读的常量)
+            ! ==========================================
+            if (integrator_method == METHOD_RKF78) then
+                call rkf78_step(current_state, dt, current_time, next_state_7th, next_state_8th, error_estimate)
+                next_state_high = next_state_8th
+                exp_power = 0.125_DP              ! 1/8
+            else if (integrator_method == METHOD_RKF45) then
+                call rkf45_step(current_state, dt, current_time, next_state_4th, next_state_5th, error_estimate)
+                next_state_high = next_state_5th
+                exp_power = 0.25_DP               ! 1/4
+            else
+                ! 防御性编程：用户传了不支持的常量
+                print *, "Error: Unsupported integrator method!"
+                stop
+            end if
+
+            ! =========================================================
+            ! 2. 检查误差并决定是否推进
+            ! =========================================================
             if (error_estimate <= tolerance) then
-                ! 接受这一步
-                current_state = next_state_5th
+                ! 误差达标：正式接受这一步
+                current_state = next_state_high
                 current_time = current_time + dt
                 n_steps = n_steps + 1
                 
                 times(n_steps) = current_time
                 states(n_steps, :) = current_state
                 
-                ! 调整步长
+                ! 调整（尝试放大）步长，使用动态的 exp_power
                 if (error_estimate > 0.0_DP) then
-                    dt = safety_factor * dt * (tolerance / error_estimate)**0.25_DP
+                    dt = safety_factor * dt * (tolerance / error_estimate)**exp_power
                 end if
                 dt = max(dt_min, min(dt_max, dt))
                 
             else
+                ! 误差超标：拒绝这一步（注意：不更新 current_state 和 current_time）
+                
                 ! 检查是否已经触底
                 if (dt <= dt_min) then
                     ! 【防抱死补丁】已经缩小到极小步长依然无法满足容差，强行接受步长并前进！
-                    ! 否则会陷入不推进时间的死循环
-                    current_state = next_state_5th
+                    current_state = next_state_high
                     current_time = current_time + dt
                     n_steps = n_steps + 1
                     
@@ -185,15 +188,11 @@ contains
                     
                     ! 保持 dt 为 dt_min 继续尝试下一步
                 else
-                    ! 正常拒绝这一步，减小步长，重新计算当前时刻
-                    dt = safety_factor * dt * (tolerance / error_estimate)**0.25_DP
+                    ! 正常拒绝这一步，减小步长，重新计算当前时刻。使用动态的 exp_power
+                    dt = safety_factor * dt * (tolerance / error_estimate)**exp_power
                     dt = max(dt_min, dt)
                 end if
             end if
-            !     ! 拒绝这一步，减小步长
-            !     dt = safety_factor * dt * (tolerance / error_estimate)**0.25_DP
-            !     dt = max(dt_min, dt)
-            ! end if
             
             ! 确保不超过结束时间
             if (current_time + dt > t_end) then
@@ -201,13 +200,24 @@ contains
             end if
         end do
         
-        ! 调整数组大小
+       ! 调整数组大小 
         if (n_steps < max_steps) then
-            times = times(1:n_steps)
-            states = states(1:n_steps, :)
+            block
+                real(DP), allocatable, dimension(:) :: temp_times
+                real(DP), allocatable, dimension(:,:) :: temp_states
+                
+                allocate(temp_times(n_steps))
+                allocate(temp_states(n_steps, 6))
+                
+                temp_times = times(1:n_steps)
+                temp_states = states(1:n_steps, :)
+                
+                call move_alloc(temp_times, times)
+                call move_alloc(temp_states, states)
+            end block
         end if
     end subroutine adaptive_step_integrate
-    
+
     subroutine rkf45_step(state, dt, time, state_4th, state_5th, error_estimate)
         real(DP), dimension(6), intent(in) :: state
         real(DP), intent(in) :: dt, time
@@ -279,5 +289,122 @@ contains
         ! 误差估计
         error_estimate = sqrt(sum((state_5th - state_4th)**2))
     end subroutine rkf45_step
+
+    ! ======================================================================
+    ! RKF 7(8) 单步推进核心
+    ! 计算高精度的新状态，并返回截断误差估计向量
+    ! ======================================================================
+    subroutine rkf78_step(state, dt, time, state_7th, state_8th, error_estimate)
+        real(DP), dimension(6), intent(in) :: state
+        real(DP), intent(in) :: dt, time
+        real(DP), dimension(6), intent(out) :: state_7th, state_8th
+        real(DP), intent(out) :: error_estimate
+        
+        real(DP), dimension(6) :: f0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12
+        
+        ! --- RKF78 系数 (Fehlberg 7(8)) ---
+        real(DP), parameter :: a1 = 2.0_DP/27.0_DP,   a2 = 1.0_DP/9.0_DP,   a3 = 1.0_DP/6.0_DP
+        real(DP), parameter :: a4 = 5.0_DP/12.0_DP,   a5 = 1.0_DP/2.0_DP,   a6 = 5.0_DP/6.0_DP
+        real(DP), parameter :: a7 = 1.0_DP/6.0_DP,    a8 = 2.0_DP/3.0_DP,   a9 = 1.0_DP/3.0_DP
+        
+        real(DP), parameter :: b10 = 2.0_DP/27.0_DP
+        real(DP), parameter :: b20 = 1.0_DP/36.0_DP,    b21 = 1.0_DP/12.0_DP
+        real(DP), parameter :: b30 = 1.0_DP/24.0_DP,    b32 = 1.0_DP/8.0_DP
+        real(DP), parameter :: b40 = 5.0_DP/12.0_DP,    b42 = -25.0_DP/16.0_DP, b43 = 25.0_DP/16.0_DP
+        real(DP), parameter :: b50 = 1.0_DP/20.0_DP,    b53 = 1.0_DP/4.0_DP,    b54 = 1.0_DP/5.0_DP
+        real(DP), parameter :: b60 = -25.0_DP/108.0_DP, b63 = 125.0_DP/108.0_DP, &
+                               b64 = -65.0_DP/27.0_DP,  b65 = 125.0_DP/54.0_DP
+        real(DP), parameter :: b70 = 31.0_DP/300.0_DP,  b74 = 61.0_DP/225.0_DP,  &
+                               b75 = -2.0_DP/9.0_DP,    b76 = 13.0_DP/900.0_DP
+                               
+        ! 从这里开始进行安全折行处理
+        real(DP), parameter :: b80 = 2.0_DP,            b83 = -53.0_DP/6.0_DP,   &
+                               b84 = 704.0_DP/45.0_DP,  b85 = -107.0_DP/9.0_DP,  &
+                               b86 = 67.0_DP/90.0_DP,   b87 = 3.0_DP
+                               
+        real(DP), parameter :: b90 = -91.0_DP/108.0_DP, b93 = 23.0_DP/108.0_DP,  &
+                               b94 = -976.0_DP/135.0_DP, b95 = 311.0_DP/54.0_DP, &
+                               b96 = -19.0_DP/60.0_DP,  b97 = 17.0_DP/6.0_DP,    &
+                               b98 = -1.0_DP/12.0_DP
+                               
+        real(DP), parameter :: b100 = 2383.0_DP/4100.0_DP, b103 = -341.0_DP/164.0_DP, &
+                               b104 = 4496.0_DP/1025.0_DP, b105 = -301.0_DP/82.0_DP,  &
+                               b106 = 2133.0_DP/4100.0_DP, b107 = 45.0_DP/82.0_DP,    &
+                               b108 = 45.0_DP/164.0_DP,    b109 = 18.0_DP/41.0_DP
+                               
+        real(DP), parameter :: b110 = 3.0_DP/205.0_DP,   b115 = -6.0_DP/41.0_DP,    &
+                               b116 = -3.0_DP/205.0_DP,  b117 = -3.0_DP/41.0_DP,    &
+                               b118 = 3.0_DP/41.0_DP,    b119 = 6.0_DP/41.0_DP
+                               
+        real(DP), parameter :: b120 = -1777.0_DP/4100.0_DP, b123 = -341.0_DP/164.0_DP, &
+                               b124 = 4496.0_DP/1025.0_DP,  b125 = -289.0_DP/82.0_DP,  &
+                               b126 = 2193.0_DP/4100.0_DP,  b127 = 51.0_DP/82.0_DP,    &
+                               b128 = 33.0_DP/164.0_DP,     b129 = 12.0_DP/41.0_DP
+        
+        real(DP), parameter :: c5 = 34.0_DP/105.0_DP,    c6 = 9.0_DP/35.0_DP,       &
+                               c7 = 9.0_DP/35.0_DP,      c8 = 9.0_DP/280.0_DP,      &
+                               c9 = 9.0_DP/280.0_DP,     c11 = 41.0_DP/840.0_DP,    &
+                               c12 = 41.0_DP/840.0_DP
+                               
+        real(DP), parameter :: err_factor = 41.0_DP/840.0_DP
+        ! ==========================================
+        ! 修正点 1：清理了 dt == 0.0_DP 时的历史变量名
+        ! ==========================================
+        if (dt == 0.0_DP) then
+            state_7th = state
+            state_8th = state
+            error_estimate = 0.0_DP
+            return
+        end if
+
+        ! 13 阶段导数计算
+        call compute_derivatives(state, time, f0)
+        
+        call compute_derivatives(state + dt*(f0*b10), time + dt*a1, f1)
+        
+        call compute_derivatives(state + dt*(f0*b20 + f1*b21), time + dt*a2, f2)
+        
+        call compute_derivatives(state + dt*(f0*b30 + f2*b32), time + dt*a3, f3)
+        
+        call compute_derivatives(state + dt*(f0*b40 + f2*b42 + f3*b43), time + dt*a4, f4)
+        
+        call compute_derivatives(state + dt*(f0*b50 + f3*b53 + f4*b54), time + dt*a5, f5)
+        
+        call compute_derivatives(state + dt*(f0*b60 + f3*b63 + f4*b64 + f5*b65), &
+                                 time + dt*a6, f6)
+        
+        call compute_derivatives(state + dt*(f0*b70 + f4*b74 + f5*b75 + f6*b76), &
+                                 time + dt*a7, f7)
+        
+        call compute_derivatives(state + dt*(f0*b80 + f3*b83 + f4*b84 + f5*b85 + &
+                                 f6*b86 + f7*b87), time + dt*a8, f8)
+        
+        call compute_derivatives(state + dt*(f0*b90 + f3*b93 + f4*b94 + f5*b95 + &
+                                 f6*b96 + f7*b97 + f8*b98), time + dt*a9, f9)
+        
+        call compute_derivatives(state + dt*(f0*b100 + f3*b103 + f4*b104 + f5*b105 + &
+                                 f6*b106 + f7*b107 + f8*b108 + f9*b109), &
+                                 time + dt, f10)
+        
+        call compute_derivatives(state + dt*(f0*b110 + f5*b115 + f6*b116 + f7*b117 + &
+                                 f8*b118 + f9*b119), time, f11)
+        
+        call compute_derivatives(state + dt*(f0*b120 + f3*b123 + f4*b124 + f5*b125 + &
+                                 f6*b126 + f7*b127 + f8*b128 + f9*b129 + f11), &
+                                 time + dt, f12)
+
+        ! 8阶解 (作为主结果)
+        state_8th = state + dt*(f5*c5 + f6*c6 + f7*c7 + f8*c8 + f9*c9 + &
+                                f11*c11 + f12*c12)
+        
+        ! 7阶解 (用于误差评估)
+        state_7th = state_8th - (err_factor * (f0 + f10 - f11 - f12) * dt)
+        
+        ! ==========================================
+        ! 修正点 2：修复标量化计算时丢失变量声明的问题
+        ! ==========================================
+        error_estimate = sqrt(sum((state_8th - state_7th)**2))
+        
+    end subroutine rkf78_step
 
 end module pod_integrator_module

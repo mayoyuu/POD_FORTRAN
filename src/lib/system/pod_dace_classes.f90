@@ -4,6 +4,7 @@ module pod_dace_classes
     implicit none
     private
     
+    public :: dace_initilize
     public :: DA, AlgebraicVector
     public :: operator(+), operator(-), operator(*), operator(/)
     public :: assignment(=)
@@ -13,6 +14,13 @@ module pod_dace_classes
     ! 1. C 接口绑定
     ! =========================================================
     interface
+        ! [新增] 引擎全局初始化
+        subroutine c_daceInit(max_order, max_vars) bind(C, name="fdace_core_init")
+            import :: c_int
+            integer(c_int), value :: max_order
+            integer(c_int), value :: max_vars
+        end subroutine c_daceInit
+        ! 基础接口：分配、释放、复制 DA 句柄
         subroutine c_fdace_allocate(h) bind(C, name="fdace_allocate")
             import :: c_int; integer(c_int), intent(out) :: h
         end subroutine c_fdace_allocate
@@ -29,6 +37,27 @@ module pod_dace_classes
             import :: c_int; integer(c_int), value :: h_src, h_dest
         end subroutine c_fdace_copy
 
+        ! 编译接口：接受多个 DA 句柄，返回一个新的编译后 DA 句柄 泛化的需求
+        subroutine c_fdace_compile_vector(da_handles, size, cda_handle) bind(C, name="fdace_compile_vector")
+            import :: c_int
+            integer(c_int), intent(in) :: da_handles(*)
+            integer(c_int), value :: size
+            integer(c_int), intent(out) :: cda_handle
+        end subroutine c_fdace_compile_vector
+
+        subroutine c_fdace_compiled_free(h) bind(C, name="fdace_compiled_free")
+            import :: c_int
+            integer(c_int), value :: h
+        end subroutine c_fdace_compiled_free
+
+        subroutine c_fdace_compiled_eval_double(cda_handle, in_args, n_args, out_res, n_res) bind(C, name="fdace_compiled_eval_double")
+            import :: c_int, c_double
+            integer(c_int), value :: cda_handle, n_args, n_res
+            real(c_double), intent(in) :: in_args(*)
+            real(c_double), intent(out) :: out_res(*)
+        end subroutine c_fdace_compiled_eval_double
+
+        ! 基础代数运算
         subroutine c_fdace_add(h1, h2, ho) bind(C, name="fdace_add")
             import :: c_int; integer(c_int), value :: h1, h2, ho
         end subroutine c_fdace_add
@@ -112,6 +141,15 @@ module pod_dace_classes
         end subroutine c_fdace_eval_all
     end interface
 
+    ! 在模块顶部类型定义区补充
+    type :: CompiledDA
+        integer(c_int) :: handle = -1
+        integer :: dim = 0  ! 记录编译了几个多项式 (比如位置速度是 6)
+    contains
+        procedure :: destroy => compiled_destroy
+        procedure :: eval => compiled_eval
+    end type CompiledDA
+
     ! =========================================================
     ! 2. 面向对象 DA 类
     ! =========================================================
@@ -180,6 +218,7 @@ module pod_dace_classes
         procedure :: print => vector_print
         procedure :: get => vector_get
         procedure :: set => vector_set
+        procedure :: compile => vector_compile
         procedure, private :: vector_eval_var
         procedure, private :: vector_eval_all
         generic :: eval => vector_eval_var, vector_eval_all
@@ -217,6 +256,13 @@ module pod_dace_classes
     end interface
 
 contains
+    ! [新增] 全局初始化子程序
+    subroutine dace_initialize(order, vars)
+        integer, intent(in) :: order, vars
+        write(*, *) '[DACE Engine] Initializing... Max Order = ', order, ', Variables = ', vars
+        call c_daceInit(int(order, c_int), int(vars, c_int))
+        write(*, *) '[DACE Engine] Initialization Complete.'
+    end subroutine dace_initialize
 
     ! --- DA 生命周期管理 ---
     subroutine da_init(this)
@@ -237,6 +283,43 @@ contains
             this%handle = -1
         end if
     end subroutine da_destroy
+
+    ! === CompiledDA 的生命周期与求值 ===
+    subroutine compiled_destroy(this)
+        class(CompiledDA), intent(inout) :: this
+        if (this%handle /= -1) then
+            call c_fdace_compiled_free(this%handle)
+            this%handle = -1
+        end if
+    end subroutine compiled_destroy
+
+    function compiled_eval(this, args) result(res)
+        class(CompiledDA), intent(in) :: this
+        real(8), intent(in) :: args(:)
+        real(8), allocatable :: res(:)
+        
+        allocate(res(this%dim))
+        ! 调用 C++ 端的极致优化模板
+        call c_fdace_compiled_eval_double(this%handle, args, size(args), res, this%dim)
+    end function compiled_eval
+
+    ! === AlgebraicVector 的编译方法 ===
+    function vector_compile(this) result(cda)
+        class(AlgebraicVector), intent(in) :: this
+        type(CompiledDA) :: cda
+        integer(c_int), allocatable :: handles(:)
+        integer :: i
+        
+        ! 提取向量中所有 DA 的底层句柄
+        allocate(handles(this%size))
+        do i = 1, this%size
+            handles(i) = this%elements(i)%handle
+        end do
+        
+        ! 批量编译
+        call c_fdace_compile_vector(handles, this%size, cda%handle)
+        cda%dim = this%size
+    end function vector_compile
 
     ! --- DA 赋值重载 (=) ---
     subroutine da_assign_da(lhs, rhs)
@@ -571,16 +654,33 @@ contains
     end function da_eval_all
 
     ! --- Vector 的全代入实现 (返回实数数组) ---
+    ! --- Vector 的全代入实现 (单次极速版，替换原有的 do 循环) ---
     function vector_eval_all(this, vals) result(res)
+        ! 只适用于单次求值场景
+        !! 如果要进行大规模MC求值，请调用compile方法预编译后再用compile eval
         class(AlgebraicVector), intent(in) :: this
         real(8), intent(in) :: vals(:)
         real(8), allocatable :: res(:)
+        
+        integer(c_int) :: cda_handle
+        integer(c_int), allocatable :: handles(:)
         integer :: i
         
-        allocate(res(this%size))
+        ! 1. 提取向量中所有 DA 的底层句柄
+        allocate(handles(this%size))
         do i = 1, this%size
-            res(i) = this%elements(i)%eval(vals)
+            handles(i) = this%elements(i)%handle
         end do
+        
+        ! 2. 整体编译：只需调用 1 次 C 接口，将 6 个多项式一次性打包展平
+        call c_fdace_compile_vector(handles, this%size, cda_handle)
+        
+        ! 3. 极速求值：调用 C++ 底层的 double 批量求值模板
+        allocate(res(this%size))
+        call c_fdace_compiled_eval_double(cda_handle, vals, size(vals), res, this%size)
+        
+        ! 4. 立即释放临时计划
+        call c_fdace_compiled_free(cda_handle)
     end function vector_eval_all
 
 

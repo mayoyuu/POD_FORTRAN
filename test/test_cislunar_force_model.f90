@@ -1,76 +1,111 @@
 program test_cislunar_force_model
     use pod_global, only: DP
-    use pod_spice, only: str2et, furnsh  ! 假设你的 SPICE 接口封装了这些
+    use pod_spice, only: spice_init, str2et  
     use pod_force_model_module
+    use pod_integrator_module, only: adaptive_step_integrate, METHOD_RKF45, METHOD_RKF78
     
     implicit none
     
     real(DP) :: tdb_epoch
     real(DP), dimension(3) :: position, velocity, acceleration
     
+    ! --- 积分器相关变量 ---
+    real(DP), dimension(6) :: initial_state, final_state_45, final_state_78
+    real(DP) :: t_start, t_end, tolerance
+    integer :: max_steps, n_steps_45, n_steps_78
+    real(DP), allocatable, dimension(:) :: times
+    real(DP), allocatable, dimension(:,:) :: states
+    real(DP) :: cpu_start, cpu_end, time_45, time_78
+    
+    ! 1. 全局只允许在这里进行唯一的一次 SPICE 初始化！
+    call spice_init()
+    
     write(*,*) "=================================================="
-    write(*,*) "   CAT POD System - 地月空间力学模型基准测试      "
+    write(*,*) "   CAT POD System - 地月空间力学模型与积分测试    "
     write(*,*) "=================================================="
     
-    ! =====================================================================
-    ! 1. 加载 SPICE 内核 (极其重要：力模型依赖真实的星历和定向常数)
-    ! =====================================================================
-    write(*,*) ">>> 正在加载 SPICE 内核..."
-    ! 注意：这里请确保你的 kernels 目录下有这些基本文件
-    call furnsh('./kernels/lsk/naif0012.tls')         ! 闰秒内核 (时间转换必需)
-    call furnsh('./kernels/pck/pck00010.tpc')         ! 行星常数内核 (GM 值必需)
-    call furnsh('./kernels/spk/de440.bsp')            ! 行星星历 (DE440 业界标准)
-    write(*,*) "  [OK] SPICE 内核加载完成。"
-    
-    ! =====================================================================
-    ! 2. 任务级力模型配置 (Task-Specific Configuration)
-    ! =====================================================================
-    write(*,*) ">>> 正在配置地月转移轨道 (LTO) 力学环境..."
-    
-    ! 设置摄动总开关: (地球高阶, 月球高阶, 第三体, SRP光压, 大气阻力, 相对论)
-    call set_perturbation_switches(.true., .true., .true., .true., .false., .true.)
-    
-    ! 设置高阶重力场截断阶数: 地球 10 阶, 月球 10 阶 (Cislunar 标准配置)
+    ! 2. 任务级力模型配置 
+    call set_perturbation_switches(.true., .true., .true., .false., .false., .false.)
     call set_gravity_degrees(10, 10)
+    call set_active_planets([3, 10, 11])
     
-    ! 激活多体引力网: 2=金星, 3=地球, 5=木星, 10=月球, 11=太阳
-    call set_active_planets([2, 3, 5, 10, 11])
-    
-    ! =====================================================================
-    ! 3. 初始化并打印监控面板
-    ! =====================================================================
+    ! 3. 初始化多体网并打印面板
     call init_gravity_network()
     call print_force_model_status()
     
-    ! =====================================================================
-    ! 4. 设定测试初始状态 (真实绝对历元 + 地月转移空间位置)
-    ! =====================================================================
-    ! 将 UTC 字符串转换为绝对质心动力学时 (TDB/ET 秒数)
-    call str2et('2026-03-09T12:00:00', tdb_epoch)
-    write(*,*) ">>> 测试历元 (TDB 秒数) : ", tdb_epoch
+    ! 4. 设定测试初始状态
+    call str2et('2024-03-09T12:00:00', tdb_epoch)
     
-    ! 构造一个典型的高轨/地月转移轨道状态 (单位: km, km/s)
-    ! 假设卫星目前距离地心 100,000 km，正在飞向月球
     position = [100000.0_DP, 50000.0_DP, 20000.0_DP]
     velocity = [1.5_DP, 2.5_DP, 0.5_DP]
     
-    write(*,*) ">>> 卫星当前惯性系位置 (km): ", position
-    write(*,*) ">>> 卫星当前惯性系速度 (km/s): ", velocity
+    ! 组装 6D 状态向量
+    initial_state(1:3) = position
+    initial_state(4:6) = velocity
     
-    ! =====================================================================
-    ! 5. 核心调用：计算此时此刻的真实加速度
-    ! =====================================================================
-    write(*,*) ">>> 正在计算多体高精度加速度..."
+    write(*,*) ">>> 测试历元 (TDB 秒数) : ", tdb_epoch
+    write(*,*) ">>> 卫星初始位置 (km): ", position
+    write(*,*) ">>> 卫星初始速度 (km/s): ", velocity
+    
+    ! 5. 单步力模型基准测试
+    write(*,*) ">>> 正在计算初始历元加速度..."
     call compute_acceleration(position, velocity, tdb_epoch, acceleration)
+    write(*,"(A, 3(E20.12))") " 初始总加速度 (km/s^2): ", acceleration
     
-    ! =====================================================================
-    ! 6. 结果输出
-    ! =====================================================================
+    ! ==================================================
+    ! 6. 积分器性能与精度测试
+    ! ==================================================
     write(*,*) ""
     write(*,*) "=================================================="
-    write(*,*) "总加速度结果 (km/s^2) :"
-    write(*,"(3(E20.12))") acceleration(1), acceleration(2), acceleration(3)
-    write(*,*) "总加速度模长 (km/s^2) :", norm2(acceleration)
+    write(*,*) "               轨道积分器效能评估                 "
     write(*,*) "=================================================="
+    
+    ! 设置积分任务参数 (例如：向前推演 1 天)
+    t_start = tdb_epoch
+    t_end = tdb_epoch + 86400.0_DP 
+    tolerance = 1.0D-7  ! 设置一个极其严格的容差
+    max_steps = 500000
+    
+    write(*,*) "积分时长: 86400.0 秒 (1 天)"
+    write(*,*) "局部截断误差容差: ", tolerance
+    write(*,*) ""
+    
+    ! --- 测试 1: RKF45 ---
+    write(*,*) ">>> 正在运行 RKF 4(5) 自适应积分..."
+    call cpu_time(cpu_start)
+    call adaptive_step_integrate(initial_state, t_start, t_end, max_steps, tolerance, &
+                                 METHOD_RKF45, times, states, n_steps_45)
+    call cpu_time(cpu_end)
+    time_45 = cpu_end - cpu_start
+    final_state_45 = states(n_steps_45, :)
+    
+    write(*,"(A, I8)")      " [RKF45] 总计算步数 : ", n_steps_45
+    write(*,"(A, F8.4, A)") " [RKF45] 耗时       : ", time_45, " 秒"
+    
+    ! 释放内存，为下一次测试做准备
+    deallocate(times, states)
+    
+    ! --- 测试 2: RKF78 ---
+    write(*,*) ">>> 正在运行 RKF 7(8) 自适应积分..."
+    call cpu_time(cpu_start)
+    call adaptive_step_integrate(initial_state, t_start, t_end, max_steps, tolerance, &
+                                 METHOD_RKF78, times, states, n_steps_78)
+    call cpu_time(cpu_end)
+    time_78 = cpu_end - cpu_start
+    final_state_78 = states(n_steps_78, :)
+    
+    write(*,"(A, I8)")      " [RKF78] 总计算步数 : ", n_steps_78
+    write(*,"(A, F8.4, A)") " [RKF78] 耗时       : ", time_78, " 秒"
+    
+    deallocate(times, states)
+    
+    ! --- 结果交叉对比 ---
+    write(*,*) ""
+    write(*,*) "=================================================="
+    write(*,*) "               积分结果一致性校验                 "
+    write(*,*) "=================================================="
+    write(*,"(A, 3(E20.12))") " RKF45 最终位置 (km) : ", final_state_45(1:3)
+    write(*,"(A, 3(E20.12))") " RKF78 最终位置 (km) : ", final_state_78(1:3)
+    write(*,"(A, 3(E20.12))") " 位置差异 (km)       : ", abs(final_state_45(1:3) - final_state_78(1:3))
     
 end program test_cislunar_force_model

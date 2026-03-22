@@ -164,6 +164,9 @@ contains
         real(DP) :: coslg, sinlg, r, r2, zr, w11, w21, eta, dplm
         real(DP), dimension(3) :: k_v, g_v, w1, w2, flm
         
+        ! --- 安全检查提前 ---
+        if (gf%ncs < 1) return ! 如果没有阶数，直接返回
+        
         if (gf%cen_body == 3) then
             clm = clme; slm = slme
         else 

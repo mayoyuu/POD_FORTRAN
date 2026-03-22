@@ -79,14 +79,14 @@ module pod_spice
             character(len=*), intent(in) :: kernel
         end subroutine unload
         
-        subroutine spkezr(target, et, ref, abcorr, obs, state, found)
+       subroutine spkezr(target, et, ref, abcorr, obs, state, lt)
             character(len=*), intent(in) :: target
             real(8), intent(in) :: et
             character(len=*), intent(in) :: ref
             character(len=*), intent(in) :: abcorr
             character(len=*), intent(in) :: obs
             real(8), dimension(6), intent(out) :: state
-            logical, intent(out) :: found
+            real(8), intent(out) :: lt  ! <--- 修正：接收光行时，而不是布尔值
         end subroutine spkezr
         
         subroutine str2et(str, et)
@@ -122,6 +122,14 @@ module pod_spice
             integer, intent(out) :: dim
             double precision, intent(out) :: values(*)
         end subroutine bodvrd
+
+        subroutine bodvcd(bodyid, item, maxn, dim, values)
+            integer, intent(in) :: bodyid                ! <--- 这里必须是 integer，代表天体 ID
+            character(len=*), intent(in) :: item
+            integer, intent(in) :: maxn
+            integer, intent(out) :: dim
+            double precision, intent(out) :: values(*)
+        end subroutine bodvcd
         
         subroutine bodn2c(name, code, found)
             character(len=*), intent(in) :: name
@@ -188,7 +196,7 @@ contains
         end if
         
         ! 加载星历内核
-        kernel_file = trim(spice_kernel_path) // 'spk/de421.bsp'
+        kernel_file = trim(spice_kernel_path) // 'spk/de440.bsp'
         if (file_exists(kernel_file)) then
             call furnsh(kernel_file)
             write(*, *) '已加载星历内核: ', trim(kernel_file)
@@ -255,6 +263,7 @@ contains
     ! =========================================================
 
     !> 通用底层封装：获取目标天体相对于中心天体的位置和速度
+    !> 通用底层封装：获取目标天体相对于中心天体的位置和速度
     subroutine get_body_state(target, et, observer, position, velocity)
         character(len=*), intent(in) :: target
         real(DP), intent(in) :: et
@@ -263,24 +272,19 @@ contains
         real(DP), dimension(3), intent(out) :: velocity
         
         real(8), dimension(6) :: state
-        logical :: found
+        real(8) :: lt  ! <--- 修正：声明一个 real(8) 来安全接收光行时
         
-        ! 自动检查初始化 (极其安全的防御性编程)
+        ! 自动检查初始化
         if (.not. spice_initialized) call spice_init()
         
         ! 调用 SPICE 核心接口
-        ! 参考系固定为 J2000, 光差校正为 NONE (精密定轨动力学积分的标准做法)
-        call spkezr(target, et, 'J2000', 'NONE', observer, state, found)
+        ! 注意：J2000 系，无光差校正 (NONE)，因为我们在做动力学数值积分
+        call spkezr(target, et, 'J2000', 'NONE', observer, state, lt)
         
-        if (found) then
-            position = state(1:3)
-            velocity = state(4:6)
-        else
-            write(*,*) "SPICE 严重错误: 无法获取天体状态! Target: ", trim(target)
-            ! 赋值为0防止产生不可预测的NaN传播
-            position = 0.0_DP
-            velocity = 0.0_DP
-        end if
+        ! SPICE 只要没报错退出，state 里就是绝对安全的物理值
+        position = state(1:3)
+        velocity = state(4:6)
+        
     end subroutine get_body_state
 
     !> 获取太阳位置和速度 (用于第三体摄动和太阳辐射压)

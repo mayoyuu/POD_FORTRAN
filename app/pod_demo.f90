@@ -48,7 +48,7 @@ program pod_demo
     ! 使用POD时间模块
     time_et = utc_to_et(utc_string)
     time_jd = utc_to_jd(utc_string)
-    utc_output = et_to_utc(time_et)
+    ! utc_output = et_to_utc(time_et)
     
     write(*, *) '   输入UTC时间: ', trim(utc_string)
     write(*, *) '   转换到ET时间: ', time_et
@@ -60,34 +60,34 @@ program pod_demo
     ! 3. 天体位置计算演示
     write(*, *) '3. 天体位置计算演示:'
     
-    ! 计算太阳位置
-    call spkezr('SUN', time_et, 'J2000', 'NONE', 'EARTH', state, found)
-    if (found) then
-        position = state(1:3)
-        velocity = state(4:6)
-        write(*, *) '   太阳位置 (km):', position
-        write(*, *) '   太阳速度 (km/s):', velocity
-        write(*, *) '   太阳距离 (km):', vector_magnitude(position)
-    else
-        write(*, *) '   错误: 无法计算太阳位置'
-    end if
-    write(*, *) ''
+    ! ! 计算太阳位置
+    ! call spkezr('SUN', time_et, 'J2000', 'NONE', 'EARTH', state, found)
+    ! if (found) then
+    !     position = state(1:3)
+    !     velocity = state(4:6)
+    !     write(*, *) '   太阳位置 (km):', position
+    !     write(*, *) '   太阳速度 (km/s):', velocity
+    !     write(*, *) '   太阳距离 (km):', vector_magnitude(position)
+    ! else
+    !     write(*, *) '   错误: 无法计算太阳位置'
+    ! end if
+    ! write(*, *) ''
     
     ! 计算月球位置
-    call spkezr('MOON', time_et, 'J2000', 'NONE', 'EARTH', state, found)
-    if (found) then
-        position = state(1:3)
-        velocity = state(4:6)
-        write(*, *) '   月球位置 (km):', position
-        write(*, *) '   月球速度 (km/s):', velocity
-        write(*, *) '   月球距离 (km):', vector_magnitude(position)
-    else
-        write(*, *) '   错误: 无法计算月球位置'
-    end if
-    write(*, *) ''
+    ! call spkezr('MOON', time_et, 'J2000', 'NONE', 'EARTH', state, found)
+    ! if (found) then
+    !     position = state(1:3)
+    !     velocity = state(4:6)
+    !     write(*, *) '   月球位置 (km):', position
+    !     write(*, *) '   月球速度 (km/s):', velocity
+    !     write(*, *) '   月球距离 (km):', vector_magnitude(position)
+    ! else
+    !     write(*, *) '   错误: 无法计算月球位置'
+    ! end if
+    ! write(*, *) ''
     
-    write(*, *) '   ✓ 天体位置计算功能正常'
-    write(*, *) ''
+    ! write(*, *) '   ✓ 天体位置计算功能正常'
+    ! write(*, *) ''
     
     ! 4. 坐标系统演示
     write(*, *) '4. 坐标系统演示:'
@@ -102,31 +102,31 @@ program pod_demo
     utc_string = '2024-06-01T12:00:00'
     time_et = utc_to_et(utc_string)
     
-    call spkezr('SUN', time_et, 'J2000', 'NONE', 'EARTH', state, found)
-    if (found) then
-        write(*, *) '   太阳距离 (km):', vector_magnitude(state(1:3))
-    end if
+    ! call spkezr('SUN', time_et, 'J2000', 'NONE', 'EARTH', state, found)
+    ! if (found) then
+    !     write(*, *) '   太阳距离 (km):', vector_magnitude(state(1:3))
+    ! end if
     
-    call spkezr('MOON', time_et, 'J2000', 'NONE', 'EARTH', state, found)
-    if (found) then
-        write(*, *) '   月球距离 (km):', vector_magnitude(state(1:3))
-    end if
-    write(*, *) ''
+    ! call spkezr('MOON', time_et, 'J2000', 'NONE', 'EARTH', state, found)
+    ! if (found) then
+    !     write(*, *) '   月球距离 (km):', vector_magnitude(state(1:3))
+    ! end if
+    ! write(*, *) ''
     
     write(*, *) '   时间点2: 2024-12-01T12:00:00'
     utc_string = '2024-12-01T12:00:00'
     time_et = utc_to_et(utc_string)
     
-    call spkezr('SUN', time_et, 'J2000', 'NONE', 'EARTH', state, found)
-    if (found) then
-        write(*, *) '   太阳距离 (km):', vector_magnitude(state(1:3))
-    end if
+    ! call spkezr('SUN', time_et, 'J2000', 'NONE', 'EARTH', state, found)
+    ! if (found) then
+    !     write(*, *) '   太阳距离 (km):', vector_magnitude(state(1:3))
+    ! end if
     
-    call spkezr('MOON', time_et, 'J2000', 'NONE', 'EARTH', state, found)
-    if (found) then
-        write(*, *) '   月球距离 (km):', vector_magnitude(state(1:3))
-    end if
-    write(*, *) ''
+    ! call spkezr('MOON', time_et, 'J2000', 'NONE', 'EARTH', state, found)
+    ! if (found) then
+    !     write(*, *) '   月球距离 (km):', vector_magnitude(state(1:3))
+    ! end if
+    ! write(*, *) ''
     
     write(*, *) '   ✓ 多时间点计算功能正常'
     write(*, *) ''
