@@ -1,14 +1,18 @@
 !> # CAT DACE Classes Module
 module pod_dace_classes
     use, intrinsic :: iso_c_binding
+    use :: pod_global, only: DP
     implicit none
     private
     
-    public :: dace_initilize
+    public :: dace_initialize
+    public :: da_var !! 直接暴露一个 da_var 函数，简化独立变量的创建
     public :: DA, AlgebraicVector
     public :: operator(+), operator(-), operator(*), operator(/)
     public :: assignment(=)
+    public :: operator(**)
     public :: sin, cos, exp, sqrt
+    public :: matmul
 
     ! =========================================================
     ! 1. C 接口绑定
@@ -50,7 +54,8 @@ module pod_dace_classes
             integer(c_int), value :: h
         end subroutine c_fdace_compiled_free
 
-        subroutine c_fdace_compiled_eval_double(cda_handle, in_args, n_args, out_res, n_res) bind(C, name="fdace_compiled_eval_double")
+        subroutine c_fdace_compiled_eval_double(cda_handle, in_args, n_args, out_res, n_res) &
+            bind(C, name="fdace_compiled_eval_double")
             import :: c_int, c_double
             integer(c_int), value :: cda_handle, n_args, n_res
             real(c_double), intent(in) :: in_args(*)
@@ -101,6 +106,19 @@ module pod_dace_classes
         subroutine c_fdace_sin(hi, ho) bind(C, name="fdace_sin")
             import :: c_int; integer(c_int), value :: hi, ho
         end subroutine c_fdace_sin
+
+        ! DA 整数次幂接口
+        subroutine c_fdace_pow_int(h_in, p, h_out) bind(C, name="fdace_pow_int")
+            import :: c_int
+            integer(c_int), value :: h_in, p, h_out
+        end subroutine c_fdace_pow_int
+
+        ! DA 实数次幂接口
+        subroutine c_fdace_pow_double(h_in, p, h_out) bind(C, name="fdace_pow_double")
+            import :: c_int, c_double
+            integer(c_int), value :: h_in, h_out
+            real(c_double), value :: p
+        end subroutine c_fdace_pow_double
 
         ! [新增] cos, exp, sqrt 的 C 接口
         subroutine c_fdace_cos(hi, ho) bind(C, name="fdace_cos")
@@ -165,6 +183,8 @@ module pod_dace_classes
         procedure, private :: da_eval_var
         procedure, private :: da_eval_all
         generic :: eval => da_eval_var, da_eval_all
+
+        final :: da_auto_destroy
     end type DA
 
     ! ---------------------------------------------------------
@@ -189,6 +209,12 @@ module pod_dace_classes
     
     interface assignment(=)
         module procedure da_assign_da, da_assign_real
+    end interface
+
+    ! 重载 Fortran 幂运算符 **
+    interface operator(**)
+        module procedure da_pow_int
+        module procedure da_pow_real
     end interface
 
     
@@ -219,9 +245,15 @@ module pod_dace_classes
         procedure :: get => vector_get
         procedure :: set => vector_set
         procedure :: compile => vector_compile
+
+        procedure :: cons => vector_cons  ! 返回一个实数向量，包含每个 DA 元素的常数项，便于调试
         procedure, private :: vector_eval_var
         procedure, private :: vector_eval_all
         generic :: eval => vector_eval_var, vector_eval_all
+
+        procedure :: norm2 => vector_norm2 ! 向量的二范数
+
+        final :: vector_auto_destroy
 
     end type AlgebraicVector
 
@@ -230,11 +262,17 @@ module pod_dace_classes
     ! ---------------------------------------------------------
     interface operator(+)
         module procedure vector_add_vector
+        ! 【新增】DA 向量 + 实数数组
+        module procedure vector_add_real_array
+        module procedure real_array_add_vector
     end interface
     
     interface operator(-)
         ! 包含了一元负号 (例如: -v)
         module procedure vector_sub_vector, unary_minus_vector
+        ! 【新增】DA 向量 - 实数数组;实数数组 - DA 向量
+        module procedure vector_sub_real_array
+        module procedure real_array_sub_vector
     end interface
     
     interface operator(*)
@@ -253,6 +291,11 @@ module pod_dace_classes
     
     interface assignment(=)
         module procedure vector_assign_vector
+        module procedure vector_assign_real
+    end interface
+
+    interface matmul
+        module procedure real3x3_matmul_vector
     end interface
 
 contains
@@ -263,6 +306,13 @@ contains
         call c_daceInit(int(order, c_int), int(vars, c_int))
         write(*, *) '[DACE Engine] Initialization Complete.'
     end subroutine dace_initialize
+
+    ! 模拟 C++ 中 DA(i) 的工厂函数
+    type(DA) function da_var(var_idx)
+        integer, intent(in) :: var_idx
+        ! init_var 会在底层调用 C++ 分配句柄并初始化为独立变量
+        call da_var%init_var(var_idx)
+    end function da_var
 
     ! --- DA 生命周期管理 ---
     subroutine da_init(this)
@@ -422,8 +472,26 @@ contains
     type(DA) function da_div_real(da1, val) result(res)
         class(DA), intent(in) :: da1
         real(8), intent(in) :: val
-        res = da1 * (1.0d0 / val)
+        res = da1 * (1.0_DP / val)
     end function da_div_real
+
+    ! DA ** 整数 (例如: zr**2)
+    type(DA) function da_pow_int(base, p) result(res)
+        class(DA), intent(in) :: base
+        integer, intent(in) :: p
+        
+        call res%init() ! 自动分配底层 C++ 句柄
+        call c_fdace_pow_int(base%handle, int(p, c_int), res%handle)
+    end function da_pow_int
+
+    ! DA ** 实数 (例如: zr**2.0_DP 或 r**(-3.0_DP))
+    type(DA) function da_pow_real(base, p) result(res)
+        class(DA), intent(in) :: base
+        real(8), intent(in) :: p
+        
+        call res%init() ! 自动分配底层 C++ 句柄
+        call c_fdace_pow_double(base%handle, real(p, c_double), res%handle)
+    end function da_pow_real
 
     ! --- 科学函数与微积分 ---
     type(DA) function da_sin(da1) result(res)
@@ -529,6 +597,28 @@ contains
         end do
     end subroutine vector_assign_vector
 
+    ! ==========================================
+    ! 向量 = 实数 (例如: fl = 0.0_DP)
+    ! ==========================================
+    subroutine vector_assign_real(lhs, val)
+        class(AlgebraicVector), intent(inout) :: lhs
+        real(8), intent(in) :: val
+        integer :: i
+        
+        ! 安全检查：如果向量还没有设定大小，直接返回或报错
+        ! (因为一个不知道维度的向量，无法给它的分量赋值)
+        if (lhs%size <= 0) then
+            write(*,*) "[警告] AlgebraicVector 未初始化大小，无法执行标量赋值！"
+            return
+        end if
+        
+        ! 遍历每一个分量，将标量赋给它
+        do i = 1, lhs%size
+            ! 这里会自动触发底层的 da_assign_real，极其安全且高效
+            lhs%elements(i) = val
+        end do
+    end subroutine vector_assign_real
+
     type(AlgebraicVector) function vector_sub_vector(v1, v2) result(res)
         class(AlgebraicVector), intent(in) :: v1, v2
         integer :: i
@@ -539,6 +629,46 @@ contains
         end do
     end function vector_sub_vector
 
+    ! ==========================================
+    ! DA 向量 - 实数一维数组 (例如: position - body_pos)
+    ! ==========================================
+    type(AlgebraicVector) function vector_sub_real_array(vec, arr) result(res)
+        class(AlgebraicVector), intent(in) :: vec
+        real(8), intent(in) :: arr(:)
+        integer :: i
+        
+        if (vec%size /= size(arr)) then
+            write(*,*) "[致命错误] 向量减法维度不匹配 (DA 向量 - 实数数组)！"
+            stop
+        end if
+        
+        call res%init(vec%size)
+        do i = 1, vec%size
+            ! 这里会自动触发底层的 DA - 实数 重载，速度极快
+            res%elements(i) = vec%elements(i) - arr(i)
+        end do
+    end function vector_sub_real_array
+
+    ! ==========================================
+    ! 实数一维数组 - DA 向量 (例如: body_pos - position)
+    ! ==========================================
+    type(AlgebraicVector) function real_array_sub_vector(arr, vec) result(res)
+        real(8), intent(in) :: arr(:)
+        class(AlgebraicVector), intent(in) :: vec
+        integer :: i
+        
+        if (size(arr) /= vec%size) then
+            write(*,*) "[致命错误] 向量减法维度不匹配 (实数数组 - DA 向量)！"
+            stop
+        end if
+        
+        call res%init(vec%size)
+        do i = 1, vec%size
+            ! 自动触发底层的 实数 - DA 重载
+            res%elements(i) = arr(i) - vec%elements(i)
+        end do
+    end function real_array_sub_vector
+
     type(AlgebraicVector) function vector_add_vector(v1, v2) result(res)
         class(AlgebraicVector), intent(in) :: v1, v2
         integer :: i
@@ -547,6 +677,43 @@ contains
             res%elements(i) = v1%elements(i) + v2%elements(i)
         end do
     end function vector_add_vector
+
+        type(AlgebraicVector) function vector_add_real_array(vec, arr) result(res)
+        class(AlgebraicVector), intent(in) :: vec
+        real(8), intent(in) :: arr(:)
+        integer :: i
+        
+        if (vec%size /= size(arr)) then
+            write(*,*) "[致命错误] 向量加法维度不匹配 (DA 向量 - 实数数组)！"
+            stop
+        end if
+        
+        call res%init(vec%size)
+        do i = 1, vec%size
+            ! 这里会自动触发底层的 DA - 实数 重载，速度极快
+            res%elements(i) = vec%elements(i) + arr(i)
+        end do
+    end function vector_add_real_array
+
+    ! ==========================================
+    ! 实数一维数组 + DA 向量 (例如: body_pos + position)
+    ! ==========================================
+    type(AlgebraicVector) function real_array_add_vector(arr, vec) result(res)
+        real(8), intent(in) :: arr(:)
+        class(AlgebraicVector), intent(in) :: vec
+        integer :: i
+        
+        if (size(arr) /= vec%size) then
+            write(*,*) "[致命错误] 向量加法维度不匹配 (实数数组 - DA 向量)！"
+            stop
+        end if
+        
+        call res%init(vec%size)
+        do i = 1, vec%size
+            ! 自动触发底层的 实数 - DA 重载
+            res%elements(i) = arr(i) + vec%elements(i)
+        end do
+    end function real_array_add_vector
 
     type(AlgebraicVector) function real_mul_vector(val, vec) result(res)
         real(8), intent(in) :: val
@@ -573,7 +740,7 @@ contains
         integer :: i
         if (v1%size /= v2%size) stop "ERROR: Vector Dot Product Dimension Mismatch!"
         call res%init() 
-        res = 0.0d0 
+        res = 0.0_DP 
         do i = 1, v1%size
             res = res + (v1%elements(i) * v2%elements(i))
         end do
@@ -607,7 +774,7 @@ contains
     type(AlgebraicVector) function vector_div_real(vec, val) result(res)
         class(AlgebraicVector), intent(in) :: vec
         real(8), intent(in) :: val
-        res = vec * (1.0d0 / val)
+        res = vec * (1.0_DP / val)
     end function vector_div_real
 
     ! 向量 / DA
@@ -620,6 +787,58 @@ contains
             res%elements(i) = vec%elements(i) / val ! 自动调用 DA / DA
         end do
     end function vector_div_da
+
+    type(DA) function vector_norm2(this) result(res)
+        class(AlgebraicVector), intent(in) :: this
+        
+        ! 直接利用向量点乘 (this * this) 得到 DA 标量，再开根号
+        res = sqrt(this * this)
+    end function vector_norm2
+
+    ! ==========================================
+    ! 3x3 实数矩阵 * DA 向量 (例如: matmul(rot_to_body, dr_da))
+    ! ==========================================
+    function real3x3_matmul_vector(mat, vec) result(res)
+        real(8), intent(in) :: mat(3,3)
+        class(AlgebraicVector), intent(in) :: vec
+        type(AlgebraicVector) :: res
+        integer :: i, j
+        
+        ! 安全检查
+        if (vec%size /= 3) then
+            write(*,*) "[致命错误] 矩阵乘法要求 DA 向量维度必须为 3！"
+            stop
+        end if
+        
+        ! 1. 为结果向量分配 C++ 句柄内存
+        call res%init(3)
+        
+        ! 2. 触发 vector_assign_real，一键清零 (极其安全)
+        do i = 1, 3
+            res%elements(i) = 0.0_DP
+        end do
+        
+        ! 3. 标准矩阵乘法展开
+        ! 这里的乘号和加号，全部会自动路由到你写好的底层 DA 重载！
+        do i = 1, 3
+            do j = 1, 3
+                res%elements(i) = res%elements(i) + mat(i,j) * vec%elements(j)
+            end do
+        end do
+        
+    end function real3x3_matmul_vector
+
+    !--- vector_cons 实现
+    function vector_cons(this) result(res)
+        class(AlgebraicVector), intent(in) :: this
+        real(8), allocatable :: res(:)
+        integer :: i
+        
+        allocate(res(this%size))
+        do i = 1, this%size
+            res(i) = this%elements(i)%cons() ! 调用 DA 的 cons 方法
+        end do
+    end function vector_cons
 
     ! --- DA 的 eval 实现 ---
     type(DA) function da_eval_var(this, var_idx, val) result(res)
@@ -648,12 +867,11 @@ contains
     ! --- DA 的全代入实现 (返回实数标量) ---
     real(8) function da_eval_all(this, vals)
         class(DA), intent(in) :: this
-        real(8), intent(in) :: vals(:) ! 传入形如 [0.5d0, 1.2d0, ...] 的数组
+        real(8), intent(in) :: vals(:) ! 传入形如 [0.5_DP, 1.2_DP, ...] 的数组
         
         call c_fdace_eval_all(this%handle, vals, size(vals), da_eval_all)
     end function da_eval_all
 
-    ! --- Vector 的全代入实现 (返回实数数组) ---
     ! --- Vector 的全代入实现 (单次极速版，替换原有的 do 循环) ---
     function vector_eval_all(this, vals) result(res)
         ! 只适用于单次求值场景
@@ -683,5 +901,33 @@ contains
         call c_fdace_compiled_free(cda_handle)
     end function vector_eval_all
 
+    ! ==========================================
+    ! DA 的自动析构实现
+    ! ==========================================
+    subroutine da_auto_destroy(this)
+        type(DA), intent(inout) :: this
+        
+        ! 安全检查：如果句柄有效，则通知 C++ 底层销毁
+        if (this%handle /= -1) then
+            ! 注意：这里替换为你之前在 da_destroy 里实际调用的 C 接口名字
+            call c_fdace_free(this%handle) 
+            this%handle = -1
+        end if
+    end subroutine da_auto_destroy
+
+    ! ==========================================
+    ! 向量的自动析构实现
+    ! ==========================================
+    subroutine vector_auto_destroy(this)
+        type(AlgebraicVector), intent(inout) :: this
+        
+        ! 极其优雅的级联释放：
+        ! 当你 deallocate 这个原生数组时，Fortran 会自动遍历里面的每一个 DA 元素，
+        ! 并对它们挨个触发上面的 da_auto_destroy！
+        if (allocated(this%elements)) then
+            deallocate(this%elements)
+        end if
+        this%size = 0
+    end subroutine vector_auto_destroy
 
 end module pod_dace_classes

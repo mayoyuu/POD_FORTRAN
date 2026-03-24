@@ -17,6 +17,8 @@ program pod_demo
     use pod_spice, only: spice_init, spice_cleanup, spkezr, str2et, et2utc
     use pod_time_module, only: utc_to_et, et_to_utc, utc_to_jd, jd_to_utc
     use pod_basicmath, only: vector_magnitude
+    use pod_dace_classes, only: DA, AlgebraicVector
+    use pod_gravity_model_module, only: gravity_field
     ! use pod_frame_simple_module, only: pod_frame_simple
     
     implicit none

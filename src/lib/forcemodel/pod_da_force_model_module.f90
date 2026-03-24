@@ -61,6 +61,12 @@ contains
         type(AlgebraicVector), intent(out) :: acceleration
         
         type(AlgebraicVector) :: acc_grav, acc_drag, acc_srp
+
+        ! 初始化AlgebraicVector
+        if (acc_grav%size /= 3) call acc_grav%init(3)
+        if (acc_drag%size /= 3) call acc_drag%init(3)
+        if (acc_srp%size /= 3) call acc_srp%init(3)
+        if (acceleration%size /= 3) call acceleration%init(3)
         
         ! 安全检查
         if (.not. is_gravity_network_loaded) call init_gravity_network()
@@ -73,9 +79,7 @@ contains
         if (fm_config%use_drag) then
             call compute_atmospheric_drag(position, velocity, acc_drag)
         else
-            acc_drag%elements[0] = 0.0_DP
-            acc_drag%elements[1] = 0.0_DP
-            acc_drag%elements[2] = 0.0_DP
+            acc_drag = 0.0_DP
         end if
         
         ! 3. 总和
@@ -89,11 +93,14 @@ contains
         type(AlgebraicVector), intent(out) :: acc_grav
         
         integer :: i
-        real(DP) :: r_mag, r_body_mag, r_rel_mag
-        type(AlgebraicVector) :: body_pos, body_vel, r_rel
+        real(DP) :: r_body_mag
+        type(DA) :: r_mag, r_rel_mag
+        real(DP), dimension(3) :: body_pos, body_vel
+        type(AlgebraicVector) ::  r_rel
         type(AlgebraicVector) :: acc_z, acc_t
         real(DP), dimension(3,3) :: rot_to_body
-        
+
+        call acc_grav%init(3)
         acc_grav = 0.0_DP
         
         do i = 1, MAX_BODIES
@@ -103,7 +110,7 @@ contains
             ! 情形 A: 中心天体 (地球, i=3)
             ! ==========================================
             if (i == 3) then
-                r_mag = norm2(position)
+                r_mag = position%norm2()  ! 计算卫星位置的模长 (DA 类型)
                 
                 ! A.1 中心点质量引力
                 acc_grav = acc_grav - gm_planets(i) * position / r_mag**3
@@ -113,15 +120,15 @@ contains
                 ! A.2 地球高阶非球形引力
                 if (fm_config%use_earth_nspheric) then
                     call pxform('J2000', 'IAU_EARTH', time, rot_to_body)
-                    earth_grav%dr = matmul(rot_to_body, position)
+                    earth_grav%dr_da = matmul(rot_to_body, position)
 
-                    write(*,*) '>>> 卫星在地固系坐标为: ', earth_grav%dr
+                    write(*,*) '>>> 卫星在地固系坐标为: ', earth_grav%dr_da%elements(1), earth_grav%dr_da%elements(2), earth_grav%dr_da%elements(3)
                     
-                    call earth_grav%f_zonal(acc_z)
-                    call earth_grav%f_tesseral(acc_t)
+                    call earth_grav%f_zonal_da(acc_z)
+                    call earth_grav%f_tesseral_da(acc_t)
 
-                    write(*,*) '>>> 地球非球形引力分量 (地固系), 带谐: ', acc_z
-                    write(*,*) '>>> 地球非球形引力分量 (地固系), 田谐: ', acc_t
+                    write(*,*) '>>> 地球非球形引力分量 (地固系), 带谐: ', acc_z%elements(1), acc_z%elements(2), acc_z%elements(3)
+                    write(*,*) '>>> 地球非球形引力分量 (地固系), 田谐: ', acc_t%elements(1), acc_t%elements(2), acc_t%elements(3)
                     
                     acc_grav = acc_grav + matmul(transpose(rot_to_body), acc_z + acc_t)
                 end if

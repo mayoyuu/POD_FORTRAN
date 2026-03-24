@@ -18,6 +18,8 @@
 !> ## Dependencies
 !> 
 !> - `pod_global`: For precision definitions (`DP`).
+!> - `pod_dace_classes`: For DA vector types used in high-order uncertainty propagation.
+!> - `pod_spice`: For time conversions and ephemeris data access (if needed for gravity field parameters).
 !> 
 !> ## Input Files
 !> 
@@ -46,6 +48,7 @@
 
 module pod_gravity_model_module
     use pod_global, only: DP
+    use pod_dace_classes
     implicit none
     
     real(DP) :: g_m, r_m, g_e, r_e, gmm, rm
@@ -59,11 +62,12 @@ module pod_gravity_model_module
     
     type, public :: gravity_field
         real(DP), dimension(3) :: dr
+        type(AlgebraicVector) :: dr_da
         integer :: ncs, cen_body
     contains
         procedure, public, pass(gf) :: read_gravity_field
-        procedure, public, pass(gf) :: f_zonal
-        procedure, public, pass(gf) :: f_tesseral
+        procedure, public, pass(gf) :: f_zonal, f_zonal_da
+        procedure, public, pass(gf) :: f_tesseral, f_tesseral_da
     end type gravity_field
     
 contains
@@ -257,5 +261,186 @@ contains
             plm(l,l) = sqrt((l2+1.0_DP)/l2) * eta * plm(l-1,l-1)
         end do
     end subroutine PlmX
+
+    !!!! DA版本的引力加速度计算接口
+    subroutine f_zonal_da(gf, fl)
+        class(gravity_field), intent(in) :: gf
+        type(AlgebraicVector), intent(out) :: fl
+        type(AlgebraicVector) :: h, dr_da_tmp
+        integer :: l
+        type(DA), dimension(gf%ncs) :: pl
+        type(DA) :: r, r3, rl3, rg2, zr, tmp2, tmp3, ratio_tmp
+        real(DP) :: tmp1
+        
+        if (gf%cen_body == 3) then
+            cl0 = cl0e; rm = r_e; gmm = g_e
+        end if
+        if (gf%cen_body == 10) then
+            cl0 = cl0m; rm = r_m; gmm = g_m
+        end if
+        
+        call fl%init(3)
+        call h%init(3)
+
+        fl  = 0.0_DP
+
+        dr_da_tmp = gf%dr_da
+        r = dr_da_tmp%norm2()
+
+        zr = dr_da_tmp%elements(3) / r
+        r3 = r**3
+        rg2 = dr_da_tmp%elements(1)**2 + dr_da_tmp%elements(2)**2
+
+        h%elements(1) = dr_da_tmp%elements(1)*dr_da_tmp%elements(3)
+        h%elements(2) = dr_da_tmp%elements(2)*dr_da_tmp%elements(3)
+        h%elements(3) = -rg2
+
+        if (gf%ncs < 2) return
+        call plx_da(gf%ncs, zr, pl)
+        
+        do l = 2, gf%ncs
+            rl3 = ((r/rm)**l) * r3
+            tmp1 = sqrt((2.0_DP*l+1.0_DP)/(2.0_DP*real(l, DP)-1.0_DP))
+            tmp2 = (l+1.0_DP) * pl(l)
+            
+            ratio_tmp = rg2/r
+            if (ratio_tmp%cons() > 1.0e-14_DP) then 
+                tmp3 = real(l, DP)*r/rg2 * (tmp1*pl(l-1) - zr*pl(l))
+            else 
+                tmp3 = 1.0_DP
+            end if
+            fl = fl - cl0(l) * (tmp2*dr_da_tmp + tmp3*h) / rl3
+        end do
+        fl = fl * gmm 
+    end subroutine f_zonal_da
+
+    subroutine f_tesseral_da(gf, flm)
+        class(gravity_field), intent(in) :: gf
+        type(AlgebraicVector) :: dr_da_tmp
+        type(AlgebraicVector), intent(out) :: flm
+        
+
+        integer :: l, m
+        type(DA), dimension(gf%ncs) :: cosmlg, sinmlg
+        type(DA), dimension(gf%ncs, gf%ncs+1) :: plm
+        type(DA) :: coslg, sinlg, r, r2, zr, w11, w21, eta, dplm
+        type(AlgebraicVector) :: k_v, g_v, w1, w2
+        
+        ! --- 安全检查提前 ---
+        if (gf%ncs < 1) return ! 如果没有阶数，直接返回
+        
+        if (gf%cen_body == 3) then
+            clm = clme; slm = slme
+        else 
+            clm = clmm; slm = slmm
+        end if
+        
+        call flm%init(3)
+        flm = 0.0_DP
+
+        dr_da_tmp = gf%dr_da
+        r = dr_da_tmp%norm2()
+        r2 = sqrt(dr_da_tmp%elements(1)**2 + dr_da_tmp%elements(2)**2)
+        zr = dr_da_tmp%elements(3) / r
+        coslg = dr_da_tmp%elements(1) / r2
+        sinlg = dr_da_tmp%elements(2) / r2
+
+        call cosmlg(1)%init(); call sinmlg(1)%init()
+        cosmlg(1) = coslg; sinmlg(1) = sinlg
+    
+        if (gf%ncs < 2) return
+        if (gf%ncs > ndeg_max) stop
+        
+        call plmx_da(gf%ncs, zr, plm)
+        
+        call k_v%init(3)
+        call g_v%init(3)
+        k_v = 0.0_DP; k_v%elements(3) = 1.0_DP
+        g_v%elements(1) = -sinlg; g_v%elements(2) = coslg; g_v%elements(3) = 0.0_DP
+        eta = sqrt(1.0_DP - zr**2)
+
+        if (eta%cons() < 1e-7_DP) stop
+    
+        do l = 2, gf%ncs
+            call cosmlg(l)%init()
+            call sinmlg(l)%init()
+            cosmlg(l) = 0.0_DP; sinmlg(l) = 0.0_DP
+
+            if (l == 2) then
+                cosmlg(l) = 2.0_DP*coslg*cosmlg(l-1) - 1.0_DP
+                sinmlg(l) = 2.0_DP*coslg*sinmlg(l-1)
+            else
+                cosmlg(l) = 2.0_DP*coslg*cosmlg(l-1) - cosmlg(l-2)
+                sinmlg(l) = 2.0_DP*coslg*sinmlg(l-1) - sinmlg(l-2)
+            end if
+            
+            do m = 1, l
+                w11 = sqrt((l+m+1.0_DP)*(l-m))
+                w21 = real(m, DP)*zr/eta
+                dplm = (w11*plm(l,m+1) - w21*plm(l,m))/eta
+                w1 = (rm/r)**l/r**3 * (((l+1.0_DP)*plm(l,m)+zr*dplm)*dr_da_tmp - r*dplm*k_v)
+                w11 = clm(l,m)*cosmlg(m) + slm(l,m)*sinmlg(m)
+                w2 = real(m, DP)/r2/r*(rm/r)**l * plm(l,m)*g_v
+                w21 = clm(l,m)*sinmlg(m) - slm(l,m)*cosmlg(m)
+                flm = flm - (w1*w11 + w2*w21)
+            end do
+        end do
+        flm = flm * gmm
+    end subroutine f_tesseral_da
+    
+    subroutine plx_da(n, zr, pl)
+        integer, intent(in) :: n
+        type(DA), intent(in) :: zr
+        type(DA), intent(out) :: pl(n)
+        integer :: l
+        real(DP) :: w1, w2, l2
+        
+        do l = 1, n
+            call pl(l)%init()
+            pl(l) = 0.0_DP
+        end do
+
+        pl(1) = sqrt(3.0_DP) * zr
+        pl(2) = sqrt(5.0_DP)/2.0_DP * (3.0_DP*zr*zr - 1.0_DP)
+        if (n < 3) return
+        do l = 3, n
+            l2 = 2.0_DP * real(l, DP)
+            w1 = sqrt((l2+1.0_DP)/(l2-1.0_DP))
+            w2 = sqrt((l2-1.0_DP)/(l2-3.0_DP))
+            pl(l) = w1 * ((2.0_DP-1.0_DP/real(l, DP))*zr*pl(l-1) - w2*(1.0_DP-1.0_DP/real(l, DP))*pl(l-2))
+        end do
+    end subroutine plx_da
+
+    subroutine PlmX_da(n, zr, plm)
+        integer, intent(in) :: n
+        type(DA), intent(in) :: zr
+        type(DA), intent(out) :: plm(n,n)
+        integer :: l, m
+        type(DA) :: eta
+        real(DP) :: w1, w2, l2
+        
+        eta = sqrt(1.0_DP - zr*zr)
+
+        do l = 1, n
+            do m = 1, l
+                call plm(l,m)%init()
+                plm(l,m) = 0.0_DP
+            end do
+        end do
+        plm(1,1) = sqrt(3.0_DP) * eta
+        plm(2,1) = sqrt(5.0_DP) * zr * plm(1,1)
+        plm(2,2) = sqrt(5.0_DP)/2.0_DP * eta * plm(1,1)
+        if (n < 3) return
+        do l = 3, n
+            l2 = 2.0_DP * real(l, DP)
+            do m = 1, l-1
+                w1 = (l2+1.0_DP)*(l2-1.0_DP) / (real(l+m, DP)*real(l-m, DP))
+                w2 = (l2+1.0_DP)*(real(l-1+m, DP)*real(l-1-m, DP)) / ((l2-3.0_DP)*real(l+m, DP)*real(l-m, DP))
+                plm(l,m) = sqrt(w1)*zr*plm(l-1,m) - sqrt(w2)*plm(l-2,m)
+            end do
+            plm(l,l) = sqrt((l2+1.0_DP)/l2) * eta * plm(l-1,l-1)
+        end do
+    end subroutine PlmX_da
+
 
 end module pod_gravity_model_module
