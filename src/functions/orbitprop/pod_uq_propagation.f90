@@ -1,124 +1,151 @@
 module pod_uq_propagation
     use pod_global, only: DP, MAX_STRING_LEN, output_directory
-    use pod_utils,  only: print_separator, get_user_choice, get_user_real, confirm_action
+    use pod_utils,  only: print_separator, print_vector, print_matrix
     
-    ! 引入底层计算库 (核心黑盒)
-    use pod_uq_base_module,  only: uq_propagator_base
+    ! 引入底层计算库
+    use pod_uq_base_module,  only: uq_propagator_base, INTEG_RK4, INTEG_RKF45, INTEG_RKF78
     use pod_uq_da_module,    only: uq_da_propagator
     use pod_uq_mc_module,    only: uq_mc_propagator
     use pod_uq_state_module, only: uq_state_type
-
-    use pod_random_module, only: generate_multivariate_normal
+    use pod_random_module,   only: init_random_seed, generate_multivariate_normal
     
     implicit none
+
+    ! 传播算法常量定义 (对外暴露作为开关)
+    integer, parameter, public :: METHOD_MC = 1
+    integer, parameter, public :: METHOD_DA = 2
     
 contains
-    ! 位于 pod_uq_propagation.f90 或专门的 sampling 模块中
-    subroutine get_initial_uq_state(initial_state)
-        type(uq_state_type), intent(inout) :: initial_state
-        integer :: input_choice
-        character(len=MAX_STRING_LEN) :: filepath
-        real(DP), allocatable :: user_mean(:), user_cov(:,:)
-        integer :: n_particles, dim
-        
-        dim = 6 ! 默认轨道状态维度
-        
-        write(*,*) '请选择初始粒子分布的录入方式:'
-        write(*,*) '1. 从文件中读取大规模粒子点云'
-        write(*,*) '2. 手动输入/读取均值和协方差，并随机生成粒子'
-        input_choice = get_user_choice('请选择 (1-2): ', 1, 2)
-        
-        select case (input_choice)
-            case (1)
-                ! 用户输入文件路径
-                call get_user_string('请输入粒子文件路径: ', filepath)
-                
-                ! 解析文件获取粒子数，然后分配内存
-                ! call count_lines_in_file(filepath, n_particles)
-                ! call initial_state%allocate_memory(dim, n_particles)
-                
-                ! 将文件数据填入 initial_state%samples
-                ! call read_particles_from_csv(filepath, initial_state%samples)
-                
-            case (2)
-                n_particles = int(get_user_real('请输入要生成的粒子数量: ', 10.0_DP, 1000000.0_DP))
-                
-                ! 1. 在这里获取 user_mean 和 user_cov (可以通过终端输入或读取一个小配置文件)
-                ! ...
-                
-                ! 2. 分配状态容器内存
-                call initial_state%allocate_memory(dim, n_particles)
-                
-                ! 3. 调用你的随机数生成引擎 (例如 Cholesky分解 + Box-Muller)
-                call  generate_multivariate_normal(user_mean, user_cov, initial_state%samples)
-                
-        end select
-        
-        ! 生成或读取完样本后，立刻计算一次初始矩，以备后续比对
-        call initial_state%compute_moments()
-        
-    end subroutine get_initial_uq_state
 
-    subroutine run_uq_propagation()
-        type(uq_state_type) :: initial_state, final_state
+    ! ====================================================================
+    ! 核心 API：执行不确定性传播
+    ! 调用者只需传入标称状态、协方差矩阵以及控制开关，即可获得传播前后的完整分布状态
+    ! ====================================================================
+    subroutine run_uq_propagation(nominal_state, initial_cov, t_start, t_end, dt_init, &
+                                  method_switch, integrator_switch, n_particles, &
+                                  save_results_to_file, initial_state_out, final_state_out)
+        
+        real(DP), intent(in) :: nominal_state(6)   ! 标称轨道 (作为均值)
+        real(DP), intent(in) :: initial_cov(6,6)   ! 初始协方差矩阵
+        real(DP), intent(in) :: t_start, t_end     ! 积分起止时间
+        real(DP), intent(in) :: dt_init            ! 初始步长 (对 RK4 则是定步长)
+        integer,  intent(in) :: method_switch      ! 方法开关 (METHOD_MC 或 METHOD_DA)
+        integer,  intent(in) :: integrator_switch  ! 积分器开关 (INTEG_RK4, INTEG_RKF45 等)
+        integer,  intent(in) :: n_particles        ! 生成的粒子数量
+        logical,  intent(in) :: save_results_to_file ! 是否将结果落盘
+        
+        ! 输出参数 (将内存生命周期交还给上层，方便上层继续用于粒子滤波更新)
+        type(uq_state_type), intent(out) :: initial_state_out
+        type(uq_state_type), intent(out) :: final_state_out
+        
+        ! 局部变量
         class(uq_propagator_base), allocatable :: propagator
-        real(DP) :: t_start, t_end, dt
-        integer :: method_choice
-        logical :: save_to_file
+        real(DP) :: cpu_start, cpu_end
         
-        call print_separator('不确定性/误差传播 (UP/UQ)')
+        call print_separator('不确定性/误差传播 (UQ API)')
+        write(*,*) '[INFO] 正在初始化分布参数, 粒子数: ', n_particles
         
-        ! 1. [I/O] 获取初始分布 (比如输入均值和协方差，并在内部生成粒子)
-        call get_initial_uq_state(initial_state)
+        ! 1. 根据传入的标称轨道和协方差，生成初始粒子分布
+        call initial_state_out%allocate_memory(6, n_particles)
+        call init_random_seed(.true.) ! 如果你希望每次运行轨迹不同，可以改为 .false.
+        call generate_multivariate_normal(nominal_state, initial_cov, initial_state_out%samples)
+        call initial_state_out%compute_moments()
         
-        ! 2. [I/O] 获取传播参数和选择方法 (DA, MC, UT等)
-        call get_uq_parameters(t_start, t_end, dt, method_choice)
-        
-        ! 3. [业务逻辑] 多态实例化具体的传播器
-        select case(method_choice)
-            case(1)
+        ! 2. 实例化对应的传播器
+        select case(method_switch)
+            case(METHOD_MC)
                 allocate(uq_mc_propagator :: propagator)
-            case(2)
+            case(METHOD_DA)
                 allocate(uq_da_propagator :: propagator)
-                ! 如果是DA，还可以进一步获取阶数等参数
+            case default
+                write(*,*) '[ERROR] UQ API: 未知的传播方法开关!'
+                return
         end select
         
-        ! 4. [核心计算] 调用纯粹的底层数学库，不涉及任何屏幕输出或文件读写
-        write(*,*) '开始执行不确定性传播计算...'
-        call propagator%propagate(t_start, t_end, initial_state, final_state)
-        write(*,*) '传播计算完成！'
+        ! 3. 配置传播器参数
+        call propagator%set_integration_params(integ_type=integrator_switch, dt_init=dt_init)
+        call propagator%set_verbosity(.true.)
         
-        ! 5. [I/O] 计算统计矩并显示结果
-        call final_state%compute_moments()
-        call display_uq_results(initial_state, final_state)
+        ! 4. 核心计算
+        write(*,*) '--------------------------------------------------'
+        write(*,*) ' 🏃 开始执行传播计算...'
+        write(*,*) ' 使用算法: ', trim(propagator%get_method_name())
         
-        ! 6. [I/O] 询问并保存结果到文件
-        save_to_file = confirm_action('是否保存粒子分布和协方差矩阵到文件')
-        if (save_to_file) then
-            call save_uq_results(final_state)
+        call cpu_time(cpu_start)
+        call propagator%propagate(t_start, t_end, initial_state_out, final_state_out)
+        call cpu_time(cpu_end)
+        
+        write(*,*) ' ✅ 传播计算完成！耗时: ', cpu_end - cpu_start, ' 秒'
+        write(*,*) '--------------------------------------------------'
+        
+        ! 5. 计算并打印统计信息
+        call final_state_out%compute_moments()
+        call display_uq_results(initial_state_out, final_state_out)
+        
+        ! 6. 文件保存控制
+        if (save_results_to_file) then
+            call save_uq_results(final_state_out)
         end if
         
-        ! 7. 清理内存
-        ! ...
     end subroutine run_uq_propagation
     
-    ! ================= 以下为拆分出来的具体 I/O 函数 =================
-
-    subroutine get_initial_uq_state(initial_state)
-        type(uq_state_type), intent(out) :: initial_state
-        ! 在这里提示用户输入均值向量和协方差矩阵
-        ! 然后调用相关的数学工具库生成正态分布的初始粒子云
-    end subroutine get_initial_uq_state
-    
+    ! ====================================================================
+    ! 以下为内部辅助例程 (保持不变)
+    ! ====================================================================
     subroutine display_uq_results(initial_state, final_state)
         type(uq_state_type), intent(in) :: initial_state, final_state
-        ! 在屏幕上打印传播前后的均值和协方差矩阵的对比
+        real(DP) :: std_dev(6)
+        integer :: i
+        
+        call print_separator('传播结果统计摘要')
+        call print_vector(initial_state%mean, '初始均值 (Mean_0):', '(6(ES14.5, 1X))')
+        
+        do i = 1, 6
+            std_dev(i) = sqrt(initial_state%cov(i,i))
+        end do
+        call print_vector(std_dev, '初始标准差 (1-Sigma_0):', '(6(ES14.5, 1X))')
+        
+        write(*,*) '--------------------------------------------------'
+        call print_vector(final_state%mean, '最终均值 (Mean_f):', '(6(ES14.5, 1X))')
+        
+        do i = 1, 6
+            std_dev(i) = sqrt(final_state%cov(i,i))
+        end do
+        call print_vector(std_dev, '最终标准差 (1-Sigma_f):', '(6(ES14.5, 1X))')
     end subroutine display_uq_results
-    
+
     subroutine save_uq_results(final_state)
         type(uq_state_type), intent(in) :: final_state
-        ! 将 final_state%samples 写成 particles.csv
-        ! 将 final_state%mean 和 final_state%cov 写成 statistics.csv
+        integer :: file_unit, i, dim, n_particles
+        character(len=MAX_STRING_LEN) :: filepath_particles, filepath_stats
+        character(len=MAX_STRING_LEN), parameter :: base_filename = "uq_result"
+        
+        dim = size(final_state%samples, 1)
+        n_particles = size(final_state%samples, 2)
+        
+        ! 1. 存粒子
+        filepath_particles = trim(output_directory) // trim(base_filename) // '_particles.csv'
+        open(newunit=file_unit, file=trim(filepath_particles), status='replace', action='write')
+        write(file_unit, '(A)') 'x,y,z,vx,vy,vz'
+        do i = 1, n_particles
+            write(file_unit, '(*(ES22.14, :, ","))') final_state%samples(:, i)
+        end do
+        close(file_unit)
+        
+        ! 2. 存统计矩
+        filepath_stats = trim(output_directory) // trim(base_filename) // '_stats.csv'
+        open(newunit=file_unit, file=trim(filepath_stats), status='replace', action='write')
+        write(file_unit, '(A)') '# Mean'
+        write(file_unit, '(*(ES22.14, :, ","))') final_state%mean(:)
+        write(file_unit, '(A)') '# Covariance Matrix'
+        do i = 1, dim
+            write(file_unit, '(*(ES22.14, :, ","))') final_state%cov(i, :)
+        end do
+        close(file_unit)
+        
+        write(*,*) '结果已保存至:'
+        write(*,*) '  ', trim(filepath_particles)
+        write(*,*) '  ', trim(filepath_stats)
     end subroutine save_uq_results
 
 end module pod_uq_propagation

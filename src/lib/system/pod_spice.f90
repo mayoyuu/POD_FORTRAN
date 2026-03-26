@@ -68,6 +68,7 @@ module pod_spice
     public :: spice_init, spice_cleanup, is_spice_initialized
     public :: set_spice_kernel_path, get_spice_kernel_path
     public :: get_sun_position, get_moon_position  ! <--- 新增
+    public :: get_frame_transform  ! <--- 新增暴露这个封装
     
     ! SPICE函数接口声明
     interface
@@ -279,7 +280,9 @@ contains
         
         ! 调用 SPICE 核心接口
         ! 注意：J2000 系，无光差校正 (NONE)，因为我们在做动力学数值积分
+        !$omp critical(spice_lock)
         call spkezr(target, et, 'J2000', 'NONE', observer, state, lt)
+        !$omp end critical(spice_lock)
         
         ! SPICE 只要没报错退出，state 里就是绝对安全的物理值
         position = state(1:3)
@@ -292,8 +295,9 @@ contains
         real(DP), intent(in) :: et
         character(len=*), intent(in) :: observer
         real(DP), dimension(3), intent(out) :: position, velocity
-        
+        !$omp critical(spice_lock)
         call get_body_state('SUN', et, observer, position, velocity)
+        !$omp end critical(spice_lock)
     end subroutine get_sun_position
 
     !> 获取月球位置和速度 (用于第三体摄动)
@@ -301,9 +305,24 @@ contains
         real(DP), intent(in) :: et
         character(len=*), intent(in) :: observer
         real(DP), dimension(3), intent(out) :: position, velocity
-        
+        !$omp critical(spice_lock)
         call get_body_state('MOON', et, observer, position, velocity)
+        !$omp end critical(spice_lock)
     end subroutine get_moon_position
 
+    !> 获取坐标系转换矩阵 (带线程锁保护)
+    subroutine get_frame_transform(from_frame, to_frame, et, rot_matrix)
+        character(len=*), intent(in) :: from_frame
+        character(len=*), intent(in) :: to_frame
+        real(DP), intent(in) :: et
+        real(DP), dimension(3,3), intent(out) :: rot_matrix
+        
+        if (.not. spice_initialized) call spice_init()
+        
+        ! 必须使用和日月位置完全相同的锁名字 (spice_lock)
+        !$omp critical(spice_lock)
+        call pxform(from_frame, to_frame, et, rot_matrix)
+        !$omp end critical(spice_lock)
+    end subroutine get_frame_transform
     
 end module pod_spice

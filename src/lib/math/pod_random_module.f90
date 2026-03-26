@@ -10,6 +10,21 @@ module pod_random_module
 
     real(DP), parameter :: PI = 3.14159265358979323846_DP
 
+    ! ========================================================
+    ! 显式声明 LAPACK 外部接口 (解决 implicit-interface 报错)
+    ! ========================================================
+    interface
+        subroutine dpotrf(uplo, n, a, lda, info)
+            import :: DP
+            implicit none
+            character(len=1), intent(in) :: uplo
+            integer, intent(in)          :: n
+            real(DP), intent(inout)      :: a(lda, *)
+            integer, intent(in)          :: lda
+            integer, intent(out)         :: info
+        end subroutine dpotrf
+    end interface
+
 contains
 
     !> 初始化随机数种子 (支持 OpenMP 线程安全)

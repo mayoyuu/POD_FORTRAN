@@ -7,7 +7,7 @@ module pod_dace_classes
     
     public :: dace_initialize
     public :: da_var !! 直接暴露一个 da_var 函数，简化独立变量的创建
-    public :: DA, AlgebraicVector
+    public :: DA, AlgebraicVector,CompiledDA
     public :: operator(+), operator(-), operator(*), operator(/)
     public :: assignment(=)
     public :: operator(**)

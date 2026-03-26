@@ -20,3 +20,11 @@ library = false
 name = "dace_pipeline"
 main = "test_da_pipeline.f90"
 
+[extra.ford]
+project = "POD-Fortran"
+author = "Songyu"
+summary = "基于面向对象设计的轨道确定系统"
+exclude = ["kernels", "lib", "output", "logs"]
+display = "public"
+graph = true
+search = true 

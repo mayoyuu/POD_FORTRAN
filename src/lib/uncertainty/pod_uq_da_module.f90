@@ -48,6 +48,7 @@ contains
         type(AlgebraicVector) :: state_da_0, state_da_f, state_da_next
         real(DP), allocatable :: times(:)
         type(AlgebraicVector), allocatable :: states(:)
+        type(CompiledDA)      :: compiled_state
         integer :: n_steps, i, n_particles, dim
         real(DP) :: eval_inputs(6), eval_results(6)
         real(DP) :: t_current, dt_step
@@ -97,23 +98,35 @@ contains
         end select
 
         ! 3. OpenMP 多线程粒子映射求值 (替代 TBB)
-        if (this%verbose) write(*,*) '[DA Propagator] 积分完成，开始多线程粒子快速求值...'
+        ! ========================================================
+        ! 3. DA 多项式预编译与多线程快速求值
+        ! ========================================================
+        if (this%verbose) write(*,*) '[DA Propagator] 积分完成，开始预编译多项式...'
+        
+        ! 【核心修复】：在 OpenMP 循环之外，单线程下编译，生成只读的求值计划
+        compiled_state = state_da_f%compile()
+        
+        if (this%verbose) write(*,*) '[DA Propagator] 编译完成，开始多线程极速求值...'
         
         !$omp parallel do default(none) &
         !$omp private(i, eval_inputs, eval_results) &
-        !$omp shared(n_particles, dim, input_state, output_state, state_da_f)
+        !$omp shared(n_particles, dim, input_state, output_state, compiled_state) ! <-- 注意共享 compiled_state
         do i = 1, n_particles
             ! 获取当前粒子相对中心点的偏差向量
             eval_inputs(:) = input_state%samples(:, i) - input_state%mean(:)
             
-            ! 利用 DA 多项式快速求值
-            eval_results = state_da_f%eval(eval_inputs)
+            ! 【核心修复】：直接调用编译好对象的 eval 方法！
+            ! 它是纯粹的数学代入，绝对线程安全，且速度是之前的几百倍
+            eval_results = compiled_state%eval(eval_inputs)
             
             ! 存储结果
             output_state%samples(:, i) = eval_results
         end do
         !$omp end parallel do
         
+        ! 【核心修复】：循环结束后，统一释放一次内存
+        call compiled_state%destroy()
+
         if (this%verbose) write(*,*) '[DA Propagator] 误差传播计算完毕。'
 
     end subroutine da_propagate

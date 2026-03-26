@@ -1,7 +1,7 @@
 module pod_force_model_module
     use pod_global, only: DP
     use pod_config, only: config
-    use pod_spice, only: get_body_state, pxform, bodvrd, bodvcd
+    use pod_spice, only: get_body_state, pxform, bodvrd, bodvcd,get_frame_transform
     use pod_gravity_model_module, only: gravity_field
     
     implicit none
@@ -109,16 +109,16 @@ contains
                 
                 ! A.2 地球高阶非球形引力
                 if (fm_config%use_earth_nspheric) then
-                    call pxform('J2000', 'IAU_EARTH', time, rot_to_body)
+                    call get_frame_transform('J2000', 'IAU_EARTH', time, rot_to_body)
                     earth_grav%dr = matmul(rot_to_body, position)
 
-                    write(*,*) '>>> 卫星在地固系坐标为: ', earth_grav%dr
+                    ! write(*,*) '>>> 卫星在地固系坐标为: ', earth_grav%dr
                     
                     call earth_grav%f_zonal(acc_z)
                     call earth_grav%f_tesseral(acc_t)
 
-                    write(*,*) '>>> 地球非球形引力分量 (地固系), 带谐: ', acc_z
-                    write(*,*) '>>> 地球非球形引力分量 (地固系), 田谐: ', acc_t
+                    ! write(*,*) '>>> 地球非球形引力分量 (地固系), 带谐: ', acc_z
+                    ! write(*,*) '>>> 地球非球形引力分量 (地固系), 田谐: ', acc_t
                     
                     acc_grav = acc_grav + matmul(transpose(rot_to_body), acc_z + acc_t)
                 end if
@@ -144,7 +144,7 @@ contains
                 if (i == 10 .and. fm_config%use_moon_nspheric) then
                     ! 对于月球，必须转到月固系 (IAU_MOON 或 MOON_PA)
                     ! 注意：送给重力模型的位置是卫星相对于月球的位置 (r_rel)
-                    call pxform('J2000', 'IAU_MOON', time, rot_to_body)
+                    call get_frame_transform('J2000', 'IAU_MOON', time, rot_to_body)
                     moon_grav%dr = matmul(rot_to_body, r_rel)
                     call moon_grav%f_zonal(acc_z)
                     call moon_grav%f_tesseral(acc_t)

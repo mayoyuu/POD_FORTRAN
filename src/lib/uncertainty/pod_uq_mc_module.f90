@@ -2,6 +2,7 @@ module pod_uq_mc_module
     use pod_global, only: DP, MAX_STRING_LEN
     use pod_uq_base_module, only: uq_propagator_base, INTEG_RK4, INTEG_RKF45, INTEG_RKF78
     use pod_uq_state_module, only: uq_state_type
+    use pod_integrator_module, only: rk4_integrate, adaptive_step_integrate, METHOD_RKF45, METHOD_RKF78
     use pod_integrator_module
     implicit none
     private
@@ -60,14 +61,16 @@ contains
             current_state = input_state%samples(:, i)
             
             select case (this%integrator_type)
-                case (INTEG_RKF45, INTEG_RKF78)
-                    ! === 极简模式：一行调用你写好的自适应主循环 ===
-                    ! 注意：temp_times 和 temp_states 在 adaptive_step_integrate 内部会自动分配
+                case (INTEG_RKF45)
                     call adaptive_step_integrate(current_state, t_start, t_end, 500000, &
-                                                 this%abs_error, this%integrator_type, &
+                                                 this%abs_error, METHOD_RKF45, &
                                                  temp_times, temp_states, n_steps)
+                    current_state = temp_states(n_steps, :)
                     
-                    ! 直接取出自适应积分结束时的最后状态
+                case (INTEG_RKF78)
+                    call adaptive_step_integrate(current_state, t_start, t_end, 500000, &
+                                                 this%abs_error, METHOD_RKF78, &
+                                                 temp_times, temp_states, n_steps)
                     current_state = temp_states(n_steps, :)
                     
                 case (INTEG_RK4)
