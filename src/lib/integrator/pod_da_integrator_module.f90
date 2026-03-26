@@ -12,7 +12,7 @@ module pod_da_integrator_module
     integer, parameter, public :: METHOD_RKF78 = 2
     
 contains
-        ! =========================================================
+    ! =========================================================
     ! 计算导数 (DA版)
     ! =========================================================
     subroutine da_compute_derivatives(state, time, derivatives)
@@ -42,9 +42,6 @@ contains
             derivatives%elements(i+3) = acceleration%elements(i)
         end do
         
-        ! call position%destroy()
-        ! call velocity%destroy()
-        ! call acceleration%destroy()
     end subroutine da_compute_derivatives
     
     ! =========================================================

@@ -213,6 +213,67 @@ contains
         
         confirm_action = (response(1:1) == 'y' .or. response(1:1) == 'Y')
     end function confirm_action
+
+    subroutine save_uq_results(final_state, base_filename)
+        use pod_global, only: DP, MAX_STRING_LEN, output_directory
+        use pod_uq_state_module, only: uq_state_type
+        implicit none
+        
+        ! 传入参数
+        type(uq_state_type), intent(in) :: final_state
+        character(len=*), intent(in)    :: base_filename
+        
+        ! 局部变量
+        integer :: file_unit, i, dim, n_particles
+        character(len=MAX_STRING_LEN) :: filepath_particles, filepath_stats
+        
+        ! 获取维度信息
+        dim = size(final_state%samples, 1)
+        n_particles = size(final_state%samples, 2)
+        
+        ! ==========================================================
+        ! 任务 1：保存所有粒子 (Samples) 到 CSV
+        ! ==========================================================
+        ! 拼接完整文件路径 (例如: ./output/up_result_particles.csv)
+        filepath_particles = trim(output_directory) // trim(base_filename) // '_particles.csv'
+        
+        ! 打开文件
+        open(newunit=file_unit, file=trim(filepath_particles), status='replace', action='write')
+        
+        ! 写表头 (假设是 6 维)
+        write(file_unit, '(A)') 'x,y,z,vx,vy,vz'
+        
+        ! 遍历所有粒子写入文件
+        do i = 1, n_particles
+            ! 使用科学计数法，保留 14 位小数，逗号分隔
+            write(file_unit, '(ES22.14, 5(",", ES22.14))') final_state%samples(:, i)
+        end do
+        
+        close(file_unit)
+        
+        ! ==========================================================
+        ! 任务 2：保存统计矩 (Mean & Covariance) 到同一个 CSV
+        ! ==========================================================
+        filepath_stats = trim(output_directory) // trim(base_filename) // '_stats.csv'
+        open(newunit=file_unit, file=trim(filepath_stats), status='replace', action='write')
+        
+        ! 写入均值
+        write(file_unit, '(A)') '# Mean'
+        write(file_unit, '(ES22.14, 5(",", ES22.14))') final_state%mean(:)
+        
+        ! 写入协方差矩阵
+        write(file_unit, '(A)') '# Covariance Matrix'
+        do i = 1, dim
+            write(file_unit, '(ES22.14, 5(",", ES22.14))') final_state%cov(i, :)
+        end do
+        
+        close(file_unit)
+        
+        write(*,*) '[INFO] 不确定性传播结果已成功保存至:'
+        write(*,*) '       ', trim(filepath_particles)
+        write(*,*) '       ', trim(filepath_stats)
+
+    end subroutine save_uq_results
     
     subroutine pause_execution()
         character(len=1) :: dummy

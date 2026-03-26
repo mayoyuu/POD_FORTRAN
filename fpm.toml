@@ -11,7 +11,7 @@ auto-executables = true
 auto-tests = true
 auto-examples = true
 
-link = ["spicelib", "m", "dace_wrapper", "dace_s", "stdc++"]
+link = ["spicelib", "m", "dace_wrapper", "dace_s", "stdc++","blas", "lapack"]
 
 [install]
 library = false
