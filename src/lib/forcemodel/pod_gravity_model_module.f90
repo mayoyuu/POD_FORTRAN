@@ -265,7 +265,7 @@ contains
     !!!! DA版本的引力加速度计算接口
     subroutine f_zonal_da(gf, fl)
         class(gravity_field), intent(in) :: gf
-        type(AlgebraicVector), intent(out) :: fl
+        type(AlgebraicVector), intent(inout) :: fl
         type(AlgebraicVector) :: h, dr_da_tmp
         integer :: l
         type(DA), dimension(gf%ncs) :: pl
@@ -317,7 +317,7 @@ contains
     subroutine f_tesseral_da(gf, flm)
         class(gravity_field), intent(in) :: gf
         type(AlgebraicVector) :: dr_da_tmp
-        type(AlgebraicVector), intent(out) :: flm
+        type(AlgebraicVector), intent(inout) :: flm
         
 
         integer :: l, m
@@ -325,6 +325,10 @@ contains
         type(DA), dimension(gf%ncs, gf%ncs+1) :: plm
         type(DA) :: coslg, sinlg, r, r2, zr, w11, w21, eta, dplm
         type(AlgebraicVector) :: k_v, g_v, w1, w2
+
+        ! 在任何 return 之前，先建立安全防线！
+        if (flm%size /= 3) call flm%init(3)
+        flm = 0.0_DP
         
         ! --- 安全检查提前 ---
         if (gf%ncs < 1) return ! 如果没有阶数，直接返回
@@ -334,9 +338,6 @@ contains
         else 
             clm = clmm; slm = slmm
         end if
-        
-        call flm%init(3)
-        flm = 0.0_DP
 
         dr_da_tmp = gf%dr_da
         r = dr_da_tmp%norm2()
@@ -414,23 +415,26 @@ contains
     subroutine PlmX_da(n, zr, plm)
         integer, intent(in) :: n
         type(DA), intent(in) :: zr
-        type(DA), intent(out) :: plm(n,n)
+        type(DA), intent(out) :: plm(n,n+1)
         integer :: l, m
         type(DA) :: eta
         real(DP) :: w1, w2, l2
         
         eta = sqrt(1.0_DP - zr*zr)
 
-        do l = 1, n
-            do m = 1, l
+        do m = 1, n+1
+            do l = 1, n
                 call plm(l,m)%init()
                 plm(l,m) = 0.0_DP
             end do
         end do
         plm(1,1) = sqrt(3.0_DP) * eta
+        if (n < 2) return
+
         plm(2,1) = sqrt(5.0_DP) * zr * plm(1,1)
         plm(2,2) = sqrt(5.0_DP)/2.0_DP * eta * plm(1,1)
         if (n < 3) return
+
         do l = 3, n
             l2 = 2.0_DP * real(l, DP)
             do m = 1, l-1

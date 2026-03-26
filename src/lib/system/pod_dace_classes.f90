@@ -141,6 +141,18 @@ module pod_dace_classes
             import :: c_int, c_double; integer(c_int), value :: h; real(c_double), intent(out) :: val
         end subroutine c_fdace_get_cons
 
+        function c_fdace_get_coeff(handle, exponents) bind(c, name="c_fdace_get_coeff")
+            import :: c_int, c_double
+            integer(c_int), value :: handle
+            integer(c_int), dimension(*), intent(in) :: exponents
+            real(c_double) :: c_fdace_get_coeff
+        end function c_fdace_get_coeff
+        
+        function c_fdace_get_max_variables() bind(c, name="c_fdace_get_max_variables")
+            import :: c_int
+            integer(c_int) :: c_fdace_get_max_variables
+        end function c_fdace_get_max_variables
+
         subroutine c_fdace_print(h) bind(C, name="fdace_print")
             import :: c_int; integer(c_int), value :: h
         end subroutine c_fdace_print
@@ -182,6 +194,8 @@ module pod_dace_classes
         procedure :: deriv => da_deriv
         procedure, private :: da_eval_var
         procedure, private :: da_eval_all
+        procedure :: get_coeff => da_get_coeff
+        procedure :: get_deriv_value => da_get_deriv_value
         generic :: eval => da_eval_var, da_eval_all
 
         final :: da_auto_destroy
@@ -524,6 +538,41 @@ contains
         call res%init()
         call c_fdace_deriv(this%handle, int(var_idx, c_int), res%handle)
     end function da_deriv
+    
+    ! 核心：通用系数提取 (完全受控于 C++)
+    real(DP) function da_get_coeff(this, exponents)
+        class(DA), intent(in) :: this
+        integer(c_int), dimension(:), intent(in) :: exponents
+        
+        if (this%handle == -1) then
+            da_get_coeff = 0.0_DP
+            return
+        end if
+        da_get_coeff = c_fdace_get_coeff(this%handle, exponents)
+    end function da_get_coeff
+
+    ! 业务层：极速组装一阶偏导数对应的指数数组
+    real(DP) function da_get_deriv_value(this, var_idx)
+        class(DA), intent(in) :: this
+        integer, intent(in) :: var_idx
+        integer(c_int) :: nvar
+        integer(c_int), allocatable :: jj(:)
+        
+        if (this%handle == -1) then
+            da_get_deriv_value = 0.0_DP
+            return
+        end if
+        
+        ! 获取系统变量数并构造指数数组 [0,0,1,0,0...]
+        nvar = c_fdace_get_max_variables()
+        allocate(jj(nvar))
+        jj = 0
+        if (var_idx >= 1 .and. var_idx <= nvar) jj(var_idx) = 1
+        
+        ! 调用上面的基础接口
+        da_get_deriv_value = this%get_coeff(jj)
+        deallocate(jj)
+    end function da_get_deriv_value
 
     ! --- 工具函数 ---
     real(8) function da_get_cons(this)
@@ -543,12 +592,26 @@ contains
         class(AlgebraicVector), intent(inout) :: this
         integer, intent(in) :: n
         integer :: i
-        this%size = n
+        
+        ! 🚀 【终极防弹衣】检查是否已经被分配过了
+        if (allocated(this%elements)) then
+            ! 如果大小刚好一样，说明是重复调用（比如在循环里），直接复用！(极其省时)
+            if (this%size == n) return
+            
+            ! 如果大小变了，必须先释放旧的内存
+            deallocate(this%elements)
+        end if
+        
+        ! 安全地进行全新分配
         allocate(this%elements(n))
+        this%size = n
+        
+        ! 触发内部 DA 元素的 C++ 句柄初始化
         do i = 1, n
             call this%elements(i)%init()
         end do
     end subroutine vector_init
+
 
     subroutine vector_destroy(this)
         class(AlgebraicVector), intent(inout) :: this

@@ -55,7 +55,7 @@ module pod_da_force_model_module
 
 contains
         !> 计算总加速度的主函数
-    subroutine compute_acceleration(position, velocity, time, acceleration)
+    subroutine da_compute_acceleration(position, velocity, time, acceleration)
         type(AlgebraicVector), intent(in) :: position, velocity
         real(DP), intent(in) :: time  ! 这里的 time 必须是绝对 TDB 秒数
         type(AlgebraicVector), intent(out) :: acceleration
@@ -72,25 +72,32 @@ contains
         if (.not. is_gravity_network_loaded) call init_gravity_network()
         
         ! 1. 计算多体统一引力 (包含中心点质量、第三体点质量、地月高阶非球形)
-        call compute_gravity_network(position, time, acc_grav)
+        call da_compute_gravity_network(position, time, acc_grav)
         
         ! 2. 算非引力项 (后续完善)
                 ! 大气阻力加速度
         if (fm_config%use_drag) then
-            call compute_atmospheric_drag(position, velocity, acc_drag)
+            call da_compute_atmospheric_drag(position, velocity, acc_drag)
         else
             acc_drag = 0.0_DP
+        end if
+
+        ! 2.2 太阳辐射压 (SRP)
+        if (fm_config%use_srp) then
+            call da_compute_solar_radiation_pressure(position, time, acc_srp)
+        else
+            acc_srp = 0.0_DP
         end if
         
         ! 3. 总和
         acceleration = acc_grav + acc_drag + acc_srp
-    end subroutine compute_acceleration
+    end subroutine da_compute_acceleration
 
     !> 核心：多体统一引力网计算 (对标深空架构)
-    subroutine compute_gravity_network(position, time, acc_grav)
+    subroutine da_compute_gravity_network(position, time, acc_grav)
         type(AlgebraicVector), intent(in) :: position
         real(DP), intent(in) :: time
-        type(AlgebraicVector), intent(out) :: acc_grav
+        type(AlgebraicVector), intent(inout) :: acc_grav
         
         integer :: i
         real(DP) :: r_body_mag
@@ -100,8 +107,11 @@ contains
         type(AlgebraicVector) :: acc_z, acc_t
         real(DP), dimension(3,3) :: rot_to_body
 
-        call acc_grav%init(3)
         acc_grav = 0.0_DP
+
+        ! 必须分配内存，否则传给底层的引力场计算必崩
+        call acc_z%init(3)
+        call acc_t%init(3)
         
         do i = 1, MAX_BODIES
             if (.not. fm_config%use_planet(i)) cycle
@@ -122,13 +132,16 @@ contains
                     call pxform('J2000', 'IAU_EARTH', time, rot_to_body)
                     earth_grav%dr_da = matmul(rot_to_body, position)
 
-                    write(*,*) '>>> 卫星在地固系坐标为: ', earth_grav%dr_da%elements(1), earth_grav%dr_da%elements(2), earth_grav%dr_da%elements(3)
+                    ! write(*,*) '>>> 卫星在地固系坐标为: ', earth_grav%dr_da%elements(1), earth_grav%dr_da%elements(2), &
+                    ! earth_grav%dr_da%elements(3)
                     
                     call earth_grav%f_zonal_da(acc_z)
                     call earth_grav%f_tesseral_da(acc_t)
 
-                    write(*,*) '>>> 地球非球形引力分量 (地固系), 带谐: ', acc_z%elements(1), acc_z%elements(2), acc_z%elements(3)
-                    write(*,*) '>>> 地球非球形引力分量 (地固系), 田谐: ', acc_t%elements(1), acc_t%elements(2), acc_t%elements(3)
+                    ! write(*,*) '>>> 地球非球形引力分量 (地固系), 带谐: ', acc_z%elements(1), acc_z%elements(2), &
+                    ! acc_z%elements(3)
+                    ! write(*,*) '>>> 地球非球形引力分量 (地固系), 田谐: ', acc_t%elements(1), acc_t%elements(2), &
+                    ! acc_t%elements(3)
                     
                     acc_grav = acc_grav + matmul(transpose(rot_to_body), acc_z + acc_t)
                 end if
@@ -143,7 +156,7 @@ contains
                 ! 向量 r_rel = 卫星位置 - 天体位置 (从天体指向卫星)
                 r_rel = position - body_pos
                 r_body_mag = norm2(body_pos)
-                r_rel_mag  = norm2(r_rel)
+                r_rel_mag  = r_rel%norm2()
 
                 ! write(*,*) '>>> 天体位置为: ', r_body_mag, ' km; 卫星相对位置为: ', r_rel_mag, ' km'
                 
@@ -155,15 +168,15 @@ contains
                     ! 对于月球，必须转到月固系 (IAU_MOON 或 MOON_PA)
                     ! 注意：送给重力模型的位置是卫星相对于月球的位置 (r_rel)
                     call pxform('J2000', 'IAU_MOON', time, rot_to_body)
-                    moon_grav%dr = matmul(rot_to_body, r_rel)
-                    call moon_grav%f_zonal(acc_z)
-                    call moon_grav%f_tesseral(acc_t)
+                    moon_grav%dr_da = matmul(rot_to_body, r_rel)
+                    call moon_grav%f_zonal_da(acc_z)
+                    call moon_grav%f_tesseral_da(acc_t)
                     acc_grav = acc_grav + matmul(transpose(rot_to_body), acc_z + acc_t)
                 end if
                 
             end if
         end do
-    end subroutine compute_gravity_network
+    end subroutine da_compute_gravity_network
 
         !> 初始化多体引力网与高阶重力场
     subroutine init_gravity_network()
@@ -211,21 +224,22 @@ contains
     end subroutine init_gravity_network
 
     ! ... (保留原来的 options/status 打印等辅助函数) ... 
-    subroutine compute_atmospheric_drag(position, velocity, acceleration)
+    subroutine da_compute_atmospheric_drag(position, velocity, acceleration)
         type(AlgebraicVector), intent(in) :: position, velocity
-        type(AlgebraicVector), intent(out) :: acceleration
+        type(AlgebraicVector), intent(inout) :: acceleration
         
         real(DP) :: altitude, density, velocity_mag, drag_coefficient, area_mass_ratio
         real(DP) :: drag_factor
+
         
         ! 计算高度
-        altitude = sqrt(sum(position**2)) - EARTH_RADIUS
+        altitude = norm2(position%cons()) - EARTH_RADIUS
         
         ! 计算大气密度 (简化模型)
         call compute_atmospheric_density(altitude, density)
         
         ! 计算相对速度大小
-        velocity_mag = sqrt(sum(velocity**2))
+        velocity_mag = norm2(velocity%cons())
         
         ! 阻力系数和面积质量比 (需要根据具体卫星参数设置)
         drag_coefficient = 2.2_DP  ! 典型值
@@ -236,7 +250,7 @@ contains
         
         ! 阻力加速度
         acceleration = drag_factor * velocity
-    end subroutine compute_atmospheric_drag
+    end subroutine da_compute_atmospheric_drag
     
     subroutine compute_atmospheric_density(altitude, density)
         real(DP), intent(in) :: altitude
@@ -257,18 +271,22 @@ contains
     ! ======================================================================
     ! 计算太阳辐射压 (SRP) 加速度
     ! ======================================================================
-    subroutine compute_solar_radiation_pressure(position, time, acceleration)
+    subroutine da_compute_solar_radiation_pressure(position, time, acceleration)
         type(AlgebraicVector), intent(in) :: position
         real(DP), intent(in) :: time  ! 必须传入时间以获取动态太阳位置
-        type(AlgebraicVector), intent(out) :: acceleration
+        type(AlgebraicVector), intent(inout) :: acceleration
         
         real(DP) :: solar_distance, solar_factor, reflectivity, area_mass_ratio
         real(DP) :: nominal_srp_pressure
-        type(AlgebraicVector) :: sun_position, sun_velocity
+        real(DP), dimension(3) :: sun_position, sun_velocity
         type(AlgebraicVector) :: relative_pos, solar_direction
         
         ! 1 AU 的标准距离 (单位: km)
-        real(DP), parameter :: AU_KM = 149597870.7_DP 
+        real(DP), parameter :: AU_KM = 149597870.7_DP
+
+        
+        call relative_pos%init(3)
+        call solar_direction%init(3)
         
         ! 1. 动态获取当前时刻太阳相对于地球的位置
         call get_body_state('SUN', time, 'EARTH', sun_position, sun_velocity)
@@ -276,7 +294,7 @@ contains
         ! 2. 计算从太阳指向卫星的相对位置向量
         ! 注意：位置相减 (Sat - Sun) 得到的是背离太阳的方向，正是光压的推力方向
         relative_pos = position - sun_position
-        solar_distance = norm2(relative_pos)
+        solar_distance = norm2(relative_pos%cons())  ! 计算太阳距离 (km)
         
         ! 提取单位方向向量
         solar_direction = relative_pos / solar_distance
@@ -319,7 +337,7 @@ contains
         ! acceleration = nu_total * (solar_factor * 1.0e-3_DP) * solar_direction
         
         
-    end subroutine compute_solar_radiation_pressure
+    end subroutine da_compute_solar_radiation_pressure
 
     ! ======================================================================
     ! 计算极其严密的圆锥形光照因子 (视圆面相交法)
