@@ -24,7 +24,12 @@ main = "test_da_pipeline.f90"
 project = "POD-Fortran"
 author = "Songyu"
 summary = "基于面向对象设计的轨道确定系统"
-exclude = ["kernels", "lib", "output", "logs"]
+preprocess = false
+# 使用 **/ 语法消除警告
+exclude = ["**/kernels", "**/lib", "**/output", "**/logs", "**/test"]
+src_dir = ["src", "app"]
+# 确保系统已安装 graphviz
+graph = true 
+search = true
+# 如果你想让文档更简洁，可以加上：
 display = "public"
-graph = true
-search = true 
