@@ -95,31 +95,66 @@ contains
         end if
     end subroutine rkf78_integrate
     
-    subroutine adaptive_step_integrate(state, t_start, t_end, max_steps, tolerance, &
-                                       integrator_method, times, states, n_steps)
-        ! ... 前面的参数声明保持不变 ...
+    subroutine adaptive_step_integrate(state, t_start, t_end, integrator_method, &
+                                       times, states, n_steps, &
+                                       max_steps_in, tolerance_in, dt_min_in, dt_max_in)
+        ! 核心物理参数
         real(DP), dimension(6), intent(in) :: state
-        real(DP), intent(in) :: t_start, t_end, tolerance
-        integer, intent(in) :: max_steps
-        integer, intent(in) :: integrator_method  ! 新增参数：选择使用 RKF45 还是 RKF78
+        real(DP), intent(in) :: t_start, t_end
+        integer, intent(in) :: integrator_method
+        
+        ! 输出参数
         real(DP), allocatable, dimension(:), intent(out) :: times
         real(DP), allocatable, dimension(:,:), intent(out) :: states
         integer, intent(out) :: n_steps
         
-        real(DP) :: current_time, dt, dt_min, dt_max
-        ! 新增  exp_power
+        ! 可选的控制参数 (如果外部不传，就用 config 里的默认值)
+        integer, intent(in), optional :: max_steps_in
+        real(DP), intent(in), optional :: tolerance_in, dt_min_in, dt_max_in
+        
+        ! 内部工作变量
+        integer :: max_steps
+        real(DP) :: tolerance, dt_min, dt_max, safety_factor
+        real(DP) :: current_time, dt
         real(DP), dimension(6) :: current_state
         real(DP), dimension(6) :: next_state_4th, next_state_5th, next_state_7th, next_state_8th
         real(DP), dimension(6) :: next_state_high ! 用于统一暂存不同算法的高阶输出
-        real(DP) :: error_estimate, safety_factor, exp_power
+        real(DP) :: error_estimate,  exp_power
         integer :: i
         
-        ! 初始化
-        dt_min = 1.0_DP  ! 最小步长 (秒)
-        dt_max = 3600.0_DP  ! 最大步长 (秒)
-        safety_factor = 0.9_DP
+       ! ==========================================
+        ! 1. 智能参数绑定 (结合 optional 与全局 config)
+        ! ==========================================
+        max_steps = config%max_propagation_steps
+        if (present(max_steps_in)) max_steps = max_steps_in
         
-        ! 分配内存
+        ! 根据不同的积分器，从 config 中提取专属的默认参数
+        if (integrator_method == METHOD_RKF45) then
+            tolerance = config%rkf45_tolerance
+            dt_min = config%rkf45_min_step
+            dt_max = config%rkf45_max_step
+        else if (integrator_method == METHOD_RKF78) then
+            tolerance = config%rkf78_tolerance
+            dt_min = config%rkf78_min_step
+            dt_max = config%rkf78_max_step
+        else
+            print *, "Error: Unsupported integrator method!"
+            stop
+        end if
+        
+        ! 如果用户显式传入了参数，则覆盖 config 的默认设定
+        if (present(tolerance_in)) tolerance = tolerance_in
+        if (present(dt_min_in)) dt_min = dt_min_in
+        if (present(dt_max_in)) dt_max = dt_max_in
+        
+        safety_factor = 0.9_DP ! 这个也可以未来加进 config 里
+        
+        ! ==========================================
+        ! 2. 内存由积分器全权管理
+        ! ==========================================
+        ! 确保外部传入的 times 和 states 是未分配状态，积分器自己负责分配
+        if (allocated(times)) deallocate(times)
+        if (allocated(states)) deallocate(states)
         allocate(times(max_steps))
         allocate(states(max_steps, 6))
         

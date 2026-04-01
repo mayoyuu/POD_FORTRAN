@@ -1,6 +1,6 @@
-!> # CAT Configuration Management Module
+!> # POD Configuration Management Module
 !> 
-!> This module provides comprehensive configuration management for the CAT Fortran
+!> This module provides comprehensive configuration management for the POD Fortran
 !> space object monitoring system. It handles loading, saving, and validation
 !> of configuration parameters including numerical methods, output formats,
 !> and system settings.
@@ -13,12 +13,12 @@
 !> - **Configuration Display**: Formatted display of all configuration parameters
 !> - **Parameter Access**: Get and set individual configuration parameters
 !> 
-!> ## Configuration Categories
+!> ## Configuration PODegories
 !> 
 !> - **Orbit Propagation**: Step sizes, tolerances, integrator parameters
 !> - **Orbit Improvement**: Convergence criteria, iteration limits, damping
 !> - **Coordinate Systems**: Reference frames, time systems, corrections
-!> - **Output Control**: Formats, precision, file locations
+!> - **Output Control**: Formats, precision, file loPODions
 !> - **Numerical Methods**: Tolerances, matrix sizes, precision
 !> - **Performance**: Threading, memory limits, GPU acceleration
 !> - **Force Models**: Perturbation models, atmospheric drag, radiation pressure
@@ -45,7 +45,7 @@
 !> - **Ref**: [待添加参考文献]
 !> 
 !> @note This module provides 50+ configuration parameters covering all aspects
-!>       of the CAT Fortran system operation.
+!>       of the POD Fortran system operation.
 !> 
 !> @warning Configuration validation is performed automatically when loading
 !>          configuration files. Invalid parameters will be reported and
@@ -58,8 +58,8 @@ module pod_config
     
     !> Configuration parameters structure
     !!
-    !! This derived type contains all configuration parameters for the CAT Fortran
-    !! system, organized into logical categories for easy management and validation.
+    !! This derived type contains all configuration parameters for the POD Fortran
+    !! system, organized into logical PODegories for easy management and validation.
     type config_params
         ! 轨道传播参数
         real(DP) :: propagation_step = 60.0_DP  ! 传播步长（秒）
@@ -69,7 +69,10 @@ module pod_config
         real(DP) :: rkf45_tolerance = 1.0e-12_DP  ! RKF45积分器容差
         real(DP) :: rkf45_min_step = 1.0e-6_DP  ! RKF45最小步长
         real(DP) :: rkf45_max_step = 3600.0_DP  ! RKF45最大步长
-        
+        real(DP) :: rkf78_tolerance = 1.0e-12_DP  ! RKF78积分器容差
+        real(DP) :: rkf78_min_step = 1.0e-6_DP  ! RKF78最小步长
+        real(DP) :: rkf78_max_step = 3600.0_DP  ! RKF78最大步长
+
         ! 轨道改进参数
         real(DP) :: convergence_tolerance = 1.0e-8_DP  ! 收敛容差
         integer :: max_iterations = 100  ! 最大迭代次数
@@ -105,12 +108,21 @@ module pod_config
         logical :: use_gpu = .false.  ! 使用GPU加速
         
         ! 力模型参数
-        logical :: use_j2_perturbation = .true.  ! 使用J2摄动
-        logical :: use_atmospheric_drag = .false.  ! 使用大气阻力
-        logical :: use_solar_radiation_pressure = .false.  ! 使用太阳辐射压
-        logical :: use_third_body_gravity = .false.  ! 使用第三体引力
-        integer :: j2_degree = 2  ! J2展开阶数
-        integer :: j2_order = 2  ! J2展开次数
+        ! =====================================
+        ! N体与高阶引力场参数 (Cislunar 特化)
+        ! =====================================
+        logical :: use_earth_nspheric = .true.
+        logical :: use_moon_nspheric  = .true.
+        logical :: use_third_body     = .true.
+        logical :: use_srp            = .true.
+        logical :: use_drag           = .false.
+        logical :: use_relativity     = .false.
+        
+        integer :: earth_degree = 10
+        integer :: moon_degree  = 10
+        
+        ! 激活的天体列表 (1:水星, ..., 3:地球, ..., 10:月球, 11:太阳)
+        logical, dimension(11) :: use_planet = .false.
         
         ! 测量模型参数
         real(DP) :: measurement_noise_std = 1.0e-3_DP  ! 测量噪声标准差
@@ -237,14 +249,16 @@ contains
         config%memory_limit = 1.0e9_DP
         config%use_gpu = .false.
         
-        ! 力模型参数
-        config%use_j2_perturbation = .true.
-        config%use_atmospheric_drag = .false.
-        config%use_solar_radiation_pressure = .false.
-        config%use_third_body_gravity = .false.
-        config%j2_degree = 2
-        config%j2_order = 2
-        
+        config%use_earth_nspheric = .true.
+        config%use_moon_nspheric = .true.
+        config%use_third_body = .true.
+        config%use_srp = .true.
+        config%use_drag = .false.
+        config%use_relativity = .false.
+        config%earth_degree = 10
+        config%moon_degree = 10
+        config%use_planet = .false.
+  
         ! 测量模型参数
         config%measurement_noise_std = 1.0e-3_DP
         config%use_measurement_weights = .true.
@@ -275,7 +289,7 @@ contains
             return
         end if
         
-        write(unit, '(A)') '# CAT Fortran 配置文件'
+        write(unit, '(A)') '# POD Fortran 配置文件'
         write(unit, '(A)') '# 生成时间: ' // get_current_time()
         write(unit, '(A)') ''
         

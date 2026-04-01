@@ -1,5 +1,6 @@
 module pod_statistics_module
     use pod_global, only: DP
+    use pod_basicmath, only: inverse_matrix
     
     implicit none
     
@@ -13,7 +14,7 @@ contains
         
         real(DP), dimension(:,:), allocatable :: ATA, ATA_inv
         real(DP), dimension(:), allocatable :: ATb
-        integer :: m, n
+        integer :: m, n,info
         
         m = size(A, 1)
         n = size(A, 2)
@@ -28,7 +29,7 @@ contains
         ATb = matmul(transpose(A), b)
         
         ! 计算 (A^T * A)^(-1)
-        call matrix_inverse(ATA, ATA_inv)
+        call inverse_matrix(ATA, ATA_inv, info)
         
         ! 计算解: x = (A^T * A)^(-1) * A^T * b
         x = matmul(ATA_inv, ATb)
@@ -48,7 +49,7 @@ contains
         
         real(DP), dimension(:,:), allocatable :: ATWA, ATWA_inv
         real(DP), dimension(:), allocatable :: ATWb
-        integer :: m, n
+        integer :: m, n,info
         
         m = size(A, 1)
         n = size(A, 2)
@@ -63,7 +64,7 @@ contains
         ATWb = matmul(matmul(transpose(A), W), b)
         
         ! 计算 (A^T * W * A)^(-1)
-        call matrix_inverse(ATWA, ATWA_inv)
+        call inverse_matrix(ATWA, ATWA_inv,info)
         
         ! 计算解: x = (A^T * W * A)^(-1) * A^T * W * b
         x = matmul(ATWA_inv, ATWb)
@@ -74,28 +75,6 @@ contains
         deallocate(ATWA, ATWA_inv, ATWb)
     end subroutine weighted_least_squares_fit
     
-    subroutine matrix_inverse(A, A_inv)
-        real(DP), dimension(:,:), intent(in) :: A
-        real(DP), dimension(:,:), intent(out) :: A_inv
-        integer :: n, info, i
-        real(DP), allocatable, dimension(:) :: work
-        real(DP), allocatable, dimension(:,:) :: A_copy
-        
-        n = size(A, 1)
-        allocate(A_copy(n, n), work(n))
-        
-        A_copy = A
-        A_inv = 0.0_DP
-        do i = 1, n
-            A_inv(i, i) = 1.0_DP
-        end do
-        
-        ! 简化实现，不使用LAPACK
-        ! 这里应该实现矩阵求逆算法
-        A_inv = A_copy  ! 临时简化
-        
-        deallocate(A_copy, work)
-    end subroutine matrix_inverse
     
     subroutine compute_covariance_matrix(A, W, covariance)
         real(DP), dimension(:,:), intent(in) :: A
@@ -103,7 +82,7 @@ contains
         real(DP), dimension(:,:), intent(out) :: covariance
         
         real(DP), dimension(:,:), allocatable :: ATWA, ATWA_inv
-        integer :: n
+        integer :: n, info
         
         n = size(A, 2)
         allocate(ATWA(n, n), ATWA_inv(n, n))
@@ -112,7 +91,7 @@ contains
         ATWA = matmul(matmul(transpose(A), W), A)
         
         ! 计算 (A^T * W * A)^(-1)
-        call matrix_inverse(ATWA, ATWA_inv)
+        call inverse_matrix(ATWA, ATWA_inv, info)
         
         ! 协方差矩阵就是 (A^T * W * A)^(-1)
         covariance = ATWA_inv

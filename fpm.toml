@@ -11,7 +11,7 @@ auto-executables = true
 auto-tests = true
 auto-examples = true
 
-link = ["spicelib", "m", "dace_wrapper", "dace_s", "stdc++","blas", "lapack"]
+link = ["spicelib", "m", "dace_wrapper", "dace_s", "stdc++","openblas"]
 
 [install]
 library = false
@@ -20,16 +20,3 @@ library = false
 name = "dace_pipeline"
 main = "test_da_pipeline.f90"
 
-[extra.ford]
-project = "POD-Fortran"
-author = "Songyu"
-summary = "基于面向对象设计的轨道确定系统"
-preprocess = false
-# 使用 **/ 语法消除警告
-exclude = ["**/kernels", "**/lib", "**/output", "**/logs", "**/test"]
-src_dir = ["src", "app"]
-# 确保系统已安装 graphviz
-graph = true 
-search = true
-# 如果你想让文档更简洁，可以加上：
-display = "public"

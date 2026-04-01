@@ -1,8 +1,8 @@
 !--------------------------------------------------------------------------------------------------------------
 !--------------------------------------------------------------------------------------------------------------
-!> # CAT Basic Mathematics Module
+!> # POD Basic Mathematics Module
 !> 
-!> This module provides fundamental mathematical operations for the CAT Fortran
+!> This module provides fundamental mathematical operations for the POD Fortran
 !> space object monitoring system. It contains basic vector and matrix operations
 !> that are commonly used in astrodynamics and numerical computations.
 !> 
@@ -39,7 +39,7 @@
 !>            3. Fundamentals of Astrodynamics and Applications by David A. Vallado
 !> 
 !> @note This module provides the fundamental mathematical building blocks for
-!>       all higher-level computations in the CAT Fortran system.
+!>       all higher-level computations in the POD Fortran system.
 !> 
 !> @warning All functions use double precision arithmetic. Ensure consistent
 !>          precision throughout the calling code.
@@ -54,9 +54,33 @@ module pod_basicmath
     use pod_global, only: DP
     implicit none
     
+    !========================================================
+    ! LAPACK Interfaces for Matrix Inversion
+    !========================================================
+    interface
+        subroutine dgetrf(m, n, a, lda, ipiv, info)
+            import :: DP
+            implicit none
+            integer, intent(in)          :: m, n, lda
+            real(DP), intent(inout)      :: a(lda, *)
+            integer, intent(out)         :: ipiv(*)
+            integer, intent(out)         :: info
+        end subroutine dgetrf
+
+        subroutine dgetri(n, a, lda, ipiv, work, lwork, info)
+            import :: DP
+            implicit none
+            integer, intent(in)          :: n, lda, lwork
+            real(DP), intent(inout)      :: a(lda, *)
+            integer, intent(in)          :: ipiv(*)
+            real(DP), intent(out)        :: work(*)
+            integer, intent(out)         :: info
+        end subroutine dgetri
+    end interface
+
     private
     public :: cross_product, dot_product_3d, vector_magnitude, normalize_vector
-    public :: norm_vector, norm_matrix
+    public :: norm_vector, norm_matrix, inverse_matrix, matrix_determinant, inverse_and_determinant
     
 contains
 
@@ -212,5 +236,147 @@ contains
         real(DP) :: norm_matrix
         norm_matrix = sqrt(sum(matrix**2))
     end function norm_matrix
+
+    !> Calculate the inverse of a square matrix using LAPACK
+    !> 
+    !> @param[in]  A        Input square matrix
+    !> @param[out] A_inv    Inverse of the matrix
+    !> @param[out] info     Status code (0 = success, >0 = singular matrix)
+    subroutine inverse_matrix(A, A_inv, info)
+        real(DP), dimension(:,:), intent(in)  :: A
+        real(DP), dimension(:,:), intent(out) :: A_inv
+        integer, intent(out)                  :: info
+        
+        integer :: n, lwork
+        integer, allocatable :: ipiv(:)
+        real(DP), allocatable :: work(:)
+        real(DP) :: work_query(1)
+        
+        n = size(A, 1)
+        A_inv = A  ! LAPACK routines overwrite the input matrix
+        
+        allocate(ipiv(n))
+        
+        ! 1. LU Factorization
+        call dgetrf(n, n, A_inv, n, ipiv, info)
+        if (info /= 0) then
+            deallocate(ipiv)
+            return
+        end if
+        
+        ! 2. Workspace query for optimal performance
+        call dgetri(n, A_inv, n, ipiv, work_query, -1, info)
+        lwork = int(work_query(1))
+        allocate(work(lwork))
+        
+        ! 3. Compute Inverse
+        call dgetri(n, A_inv, n, ipiv, work, lwork, info)
+        
+        deallocate(ipiv)
+        deallocate(work)
+    end subroutine inverse_matrix
+
+    !> Calculate the determinant of a square matrix using LAPACK LU factorization
+    !> 
+    !> @param[in]  A        Input square matrix
+    !> @param[out] det      Determinant of the matrix
+    !> @param[out] info     Status code (0 = success, >0 = singular matrix)
+    subroutine matrix_determinant(A, det, info)
+        real(DP), dimension(:,:), intent(in)  :: A
+        real(DP), intent(out)                 :: det
+        integer, intent(out)                  :: info
+        
+        integer :: n, i
+        real(DP), dimension(:,:), allocatable :: LU
+        integer, dimension(:), allocatable    :: ipiv
+        real(DP) :: det_sign
+        
+        n = size(A, 1)
+        allocate(LU(n, n), ipiv(n))
+        
+        LU = A ! 复制输入矩阵，因为 dgetrf 会覆盖它
+        
+        ! 1. 进行 LU 分解
+        call dgetrf(n, n, LU, n, ipiv, info)
+        
+        if (info > 0) then
+            ! 矩阵是奇异的，行列式为 0
+            det = 0.0_DP
+            deallocate(LU, ipiv)
+            return
+        end if
+        
+        ! 2. 从 U 的对角线和行交换记录中计算行列式
+        det = 1.0_DP
+        det_sign = 1.0_DP
+        
+        do i = 1, n
+            det = det * LU(i, i)
+            ! LAPACK 的 ipiv 记录了置换操作，如果不等于当前索引 i，说明发生了行交换
+            if (ipiv(i) /= i) then
+                det_sign = -det_sign
+            end if
+        end do
+        
+        det = det * det_sign
+        
+        deallocate(LU, ipiv)
+    end subroutine matrix_determinant
+
+    !> Calculate both the inverse and determinant of a square matrix simultaneously
+    !> Highly optimized for multivariate Gaussian PDF calculations where both are needed.
+    !> 
+    !> @param[in]  A        Input square matrix (e.g., Covariance matrix)
+    !> @param[out] A_inv    Inverse of the matrix
+    !> @param[out] det      Determinant of the matrix
+    !> @param[out] info     Status code (0 = success, >0 = singular matrix)
+    subroutine inverse_and_determinant(A, A_inv, det, info)
+        real(DP), dimension(:,:), intent(in)  :: A
+        real(DP), dimension(:,:), intent(out) :: A_inv
+        real(DP), intent(out)                 :: det
+        integer, intent(out)                  :: info
+        
+        integer :: n, i, lwork
+        integer, allocatable :: ipiv(:)
+        real(DP), allocatable :: work(:)
+        real(DP) :: work_query(1)
+        real(DP) :: det_sign
+        
+        n = size(A, 1)
+        A_inv = A  ! 复制输入矩阵
+        
+        allocate(ipiv(n))
+        
+        ! 1. LU 分解 (只做一次!)
+        call dgetrf(n, n, A_inv, n, ipiv, info)
+        
+        if (info > 0) then
+            det = 0.0_DP
+            deallocate(ipiv)
+            return
+        end if
+        
+        ! 2. 趁着 A_inv 里面还装着 U 矩阵，先把行列式算出来
+        det = 1.0_DP
+        det_sign = 1.0_DP
+        do i = 1, n
+            det = det * A_inv(i, i)
+            if (ipiv(i) /= i) then
+                det_sign = -det_sign
+            end if
+        end do
+        det = det * det_sign
+        
+        ! 3. 查询求逆最优工作空间大小
+        call dgetri(n, A_inv, n, ipiv, work_query, -1, info)
+        lwork = int(work_query(1))
+        allocate(work(lwork))
+        
+        ! 4. 原地计算逆矩阵
+        call dgetri(n, A_inv, n, ipiv, work, lwork, info)
+        
+        deallocate(ipiv)
+        deallocate(work)
+    end subroutine inverse_and_determinant
 
 end module pod_basicmath
