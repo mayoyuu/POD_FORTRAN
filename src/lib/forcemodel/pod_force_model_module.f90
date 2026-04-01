@@ -6,7 +6,7 @@ module pod_force_model_module
     
     implicit none
     
-! =========================================================
+    ! =========================================================
     ! N 体常量定义
     ! =========================================================
     integer, parameter :: MAX_BODIES = 11
@@ -104,9 +104,9 @@ contains
             ! 情形 B: 第三体摄动 (如月球、太阳、木星)
             ! ==========================================
             else
-                call get_body_state(body_names(i), time, 'EARTH', body_pos, body_vel)
+                if (.not. config%use_third_body) cycle
 
-                
+                call get_body_state(body_names(i), time, 'EARTH', body_pos, body_vel)
                 ! 向量 r_rel = 卫星位置 - 天体位置 (从天体指向卫星)
                 r_rel = position - body_pos
                 r_body_mag = norm2(body_pos)
@@ -117,7 +117,7 @@ contains
                 ! B.1 第三体点质量引力 (直接项 + 间接项)
                 acc_grav = acc_grav - gm_planets(i) * (r_rel / r_rel_mag**3 + body_pos / r_body_mag**3)
                 
-                ! B.2 [Cislunar 杀手锏] 月球高阶非球形引力
+                ! B.2 月球高阶非球形引力
                 if (i == 10 .and. config%use_moon_nspheric) then
                     ! 对于月球，必须转到月固系 (IAU_MOON 或 MOON_PA)
                     ! 注意：送给重力模型的位置是卫星相对于月球的位置 (r_rel)
@@ -254,7 +254,7 @@ contains
         real(DP), dimension(3) :: relative_pos, solar_direction
         
         ! 1 AU 的标准距离 (单位: km)
-        real(DP), parameter :: AU_KM = 149597870.7_DP 
+        ! real(DP), parameter :: AU_KM = 149597870.7_DP 
         
         ! 1. 动态获取当前时刻太阳相对于地球的位置
         call get_body_state('SUN', time, 'EARTH', sun_position, sun_velocity)
@@ -371,93 +371,5 @@ contains
         
     end subroutine compute_illumination_factor
     
-    
-!> 接口 1：统一设置摄动总开关
-    subroutine set_perturbation_switches(earth_grav, moon_grav, third_body, srp, drag, relativity)
-        logical, intent(in) :: earth_grav, moon_grav, third_body, srp, drag, relativity
-        
-        config%use_earth_nspheric = earth_grav
-        config%use_moon_nspheric  = moon_grav
-        config%use_third_body     = third_body
-        config%use_srp            = srp
-        config%use_drag           = drag
-        config%use_relativity     = relativity
-        
-        ! 任何开关的改动，都标记需要重新校验引力网
-        is_gravity_network_loaded = .false. 
-    end subroutine set_perturbation_switches
-
-    !> 接口 2：统一设置高阶重力场截断阶数
-    subroutine set_gravity_degrees(earth_deg, moon_deg)
-        integer, intent(in) :: earth_deg, moon_deg
-        
-        config%earth_degree = earth_deg
-        config%moon_degree  = moon_deg
-        is_gravity_network_loaded = .false. 
-    end subroutine set_gravity_degrees
-
-    !> 接口 3：配置多体引力网的激活天体 (传入需要激活的天体编号数组)
-    subroutine set_active_planets(active_body_ids)
-        integer, dimension(:), intent(in) :: active_body_ids
-        integer :: i, body_id
-        
-        config%use_planet = .false. ! 先全量清空
-        
-        do i = 1, size(active_body_ids)
-            body_id = active_body_ids(i)
-            if (body_id >= 1 .and. body_id <= MAX_BODIES) then
-                config%use_planet(body_id) = .true.
-            end if
-        end do
-        is_gravity_network_loaded = .false.
-    end subroutine set_active_planets
-
-    !> 打印当前力模型状态
-    subroutine print_force_model_status()
-        integer :: i
-        character(len=64) :: status_str
-        
-        write(*, *) '=================================================='
-        write(*, *) '             POD 力模型状态监控面板               '
-        write(*, *) '=================================================='
-        
-        write(*, *) '[1. 引力与多体摄动]'
-        write(*, *) '  中心引力 (点质量) : 默认启用'
-        write(*, *) '  第三体摄动总开关  : ', merge('启用', '禁用', config%use_third_body)
-        
-        ! 动态格式化地球高阶场状态
-        if (config%use_earth_nspheric) then
-            write(status_str, "(A,I3,A)") '启用 (', config%earth_degree, ' 阶)'
-        else
-            status_str = '禁用'
-        end if
-        write(*, *) '  地球高阶非球形    : ', trim(status_str)
-        
-        ! 动态格式化月球高阶场状态
-        if (config%use_moon_nspheric) then
-            write(status_str, "(A,I3,A)") '启用 (', config%moon_degree, ' 阶)'
-        else
-            status_str = '禁用'
-        end if
-        write(*, *) '  月球高阶非球形    : ', trim(status_str)
-        
-        write(*, *) ''
-        write(*, *) '[2. 表面力与其他效应]'
-        write(*, *) '  太阳辐射压 (SRP)  : ', merge('启用', '禁用', config%use_srp)
-        write(*, *) '  大气阻力 (Drag)   : ', merge('启用', '禁用', config%use_drag)
-        write(*, *) '  相对论效应 (PNE)  : ', merge('启用', '禁用', config%use_relativity)
-        
-        write(*, *) ''
-        write(*, *) '[3. 动态引力网激活清单]'
-        write(*, "(A)", advance='no') '  包含天体: '
-        do i = 1, MAX_BODIES
-            if (config%use_planet(i)) then
-                write(*, "(A)", advance='no') trim(body_names(i)) // ' '
-            end if
-        end do
-        write(*, *) '' ! 补一个换行
-        
-        write(*, *) '=================================================='
-    end subroutine print_force_model_status
 
 end module pod_force_model_module

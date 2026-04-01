@@ -62,14 +62,24 @@ module pod_config
     !! system, organized into logical PODegories for easy management and validation.
     type config_params
         ! 轨道传播参数
+        ! 归一化单位
+        real(DP) :: LU = 384400.0_DP
+        real(DP) :: TU = 375190.26189464843_DP
+        real(DP) :: MU = 6.045626292270688E+24_DP
+        real(DP) :: VU = 1.024546847401753_DP
+        real(DP) :: AccU = 2.730739444643263E-06_DP
+        !积分器参数
         real(DP) :: propagation_step = 60.0_DP  ! 传播步长（秒）
-        real(DP) :: propagation_tolerance = 1.0e-12_DP  ! 积分器容差
+        real(DP) :: propagation_abs_tol = 1.0e-12_DP  ! 积分器容差
+        real(DP) :: propagation_rel_tol = 1.0e-12_DP  ! 积分器相对容差
         integer :: max_propagation_steps = 10000  ! 最大传播步数
         real(DP) :: rk4_step_size = 60.0_DP  ! RK4积分器步长
-        real(DP) :: rkf45_tolerance = 1.0e-12_DP  ! RKF45积分器容差
+        real(DP) :: rkf45_abs_tol = 1.0e-12_DP  ! RKF45积分器容差
+        real(DP) :: rkf45_rel_tol = 1.0e-12_DP  ! RKF45积分器相对容差
         real(DP) :: rkf45_min_step = 1.0e-6_DP  ! RKF45最小步长
         real(DP) :: rkf45_max_step = 3600.0_DP  ! RKF45最大步长
-        real(DP) :: rkf78_tolerance = 1.0e-12_DP  ! RKF78积分器容差
+        real(DP) :: rkf78_abs_tol = 1.0e-7_DP  ! RKF78积分器容差
+        real(DP) :: rkf78_rel_tol = 1.0e-7_DP  ! RKF78积分器相对容差
         real(DP) :: rkf78_min_step = 1.0e-6_DP  ! RKF78最小步长
         real(DP) :: rkf78_max_step = 3600.0_DP  ! RKF78最大步长
 
@@ -207,13 +217,25 @@ contains
     
     subroutine set_default_config()
         ! 轨道传播参数
+        config%LU = 384400.0_DP
+        config%TU = 375190.26189464843_DP
+        config%MU = 6.045626292270688E+24_DP
+        config%VU = 1.024546847401753_DP
+        config%AccU = 2.730739444643263E-06_DP
+
         config%propagation_step = 60.0_DP
-        config%propagation_tolerance = 1.0e-12_DP
+        config%propagation_abs_tol = 1.0e-12_DP
+        config%propagation_rel_tol = 1.0e-12_DP
         config%max_propagation_steps = 10000
         config%rk4_step_size = 60.0_DP
-        config%rkf45_tolerance = 1.0e-12_DP
+        config%rkf45_abs_tol = 1.0e-12_DP
+        config%rkf45_rel_tol = 1.0e-12_DP
         config%rkf45_min_step = 1.0e-6_DP
         config%rkf45_max_step = 3600.0_DP
+        config%rkf78_abs_tol = 1.0e-7_DP
+        config%rkf78_rel_tol = 1.0e-7_DP
+        config%rkf78_min_step = 1.0e-6_DP
+        config%rkf78_max_step = 3600.0_DP
         
         ! 轨道改进参数
         config%convergence_tolerance = 1.0e-8_DP
@@ -249,6 +271,7 @@ contains
         config%memory_limit = 1.0e9_DP
         config%use_gpu = .false.
         
+        ! 力模型参数
         config%use_earth_nspheric = .true.
         config%use_moon_nspheric = .true.
         config%use_third_body = .true.
@@ -258,6 +281,9 @@ contains
         config%earth_degree = 10
         config%moon_degree = 10
         config%use_planet = .false.
+        config%use_planet(3)  = .true.  ! 默认给地球
+        config%use_planet(10) = .true.  ! 默认给月球
+        config%use_planet(11) = .true.  ! 默认给太阳
   
         ! 测量模型参数
         config%measurement_noise_std = 1.0e-3_DP
@@ -275,9 +301,34 @@ contains
         config%debug_level = 1
         config%save_intermediate_results = .false.
         config%debug_directory = './debug/'
-        
+        call resolve_config_dependencies()
+
         write(*, *) '默认配置已设置'
     end subroutine set_default_config
+
+    ! 配置依赖决议与修正
+    subroutine resolve_config_dependencies()
+        ! 1. 月球高阶场依赖检查
+        if (config%use_moon_nspheric) then
+            ! 如果第三体总开关没开，或者月球(10)没有被激活
+            if (.not. config%use_third_body .or. .not. config%use_planet(10)) then
+                write(*, *) '⚠️ 警告: 启用了月球高阶场，但未激活第三体摄动或未包含月球(10)。'// &
+                '已自动强制禁用月球高阶场！'
+                config%use_moon_nspheric = .false.
+            end if
+        end if
+        
+        ! 2. 地球高阶场依赖检查 (以防万一有人把地球中心引力给关了)
+        if (config%use_earth_nspheric) then
+            if (.not. config%use_planet(3)) then
+                write(*, *) '⚠️ 警告: 启用了地球高阶场，但未激活地球(3)。'// &
+                '已自动强制禁用地球高阶场！'
+                config%use_earth_nspheric = .false.
+            end if
+        end if
+        
+        ! 如果未来有别的依赖，比如用了大气阻力就必须指定迎风面积，也可以写在这里
+    end subroutine resolve_config_dependencies
     
     subroutine save_default_config(config_file)
         character(len=*), intent(in) :: config_file
@@ -294,13 +345,24 @@ contains
         write(unit, '(A)') ''
         
         write(unit, '(A)') '# 轨道传播参数'
+        write(unit, '(A)') 'LU = 384400.0'
+        write(unit, '(A)') 'TU = 375190.26189464843'
+        write(unit, '(A)') 'MU = 6.045626292270688E+24'
+        write(unit, '(A)') 'VU = 1.024546847401753'
+        write(unit, '(A)') 'AccU = 2.730739444643263E-06'
         write(unit, '(A)') 'propagation_step = 60.0'
-        write(unit, '(A)') 'propagation_tolerance = 1.0e-12'
+        write(unit, '(A)') 'propagation_abs_tol = 1.0e-12'
+        write(unit, '(A)') 'propagation_rel_tol = 1.0e-12'
         write(unit, '(A)') 'max_propagation_steps = 10000'
         write(unit, '(A)') 'rk4_step_size = 60.0'
-        write(unit, '(A)') 'rkf45_tolerance = 1.0e-12'
+        write(unit, '(A)') 'rkf45_abs_tol = 1.0e-12'
+        write(unit, '(A)') 'rkf45_rel_tol = 1.0e-12'
         write(unit, '(A)') 'rkf45_min_step = 1.0e-6'
         write(unit, '(A)') 'rkf45_max_step = 3600.0'
+        write(unit, '(A)') 'rkf78_abs_tol = 1.0e-8'
+        write(unit, '(A)') 'rkf78_rel_tol = 1.0e-8'
+        write(unit, '(A)') 'rkf78_min_step = 1.0e-6'
+        write(unit, '(A)') 'rkf78_max_step = 3600.0'
         write(unit, '(A)') ''
         
         write(unit, '(A)') '# 轨道改进参数'
@@ -341,13 +403,16 @@ contains
         write(unit, '(A)') 'use_gpu = false'
         write(unit, '(A)') ''
         
-        write(unit, '(A)') '# 力模型参数'
-        write(unit, '(A)') 'use_j2_perturbation = true'
-        write(unit, '(A)') 'use_atmospheric_drag = false'
-        write(unit, '(A)') 'use_solar_radiation_pressure = false'
-        write(unit, '(A)') 'use_third_body_gravity = false'
-        write(unit, '(A)') 'j2_degree = 2'
-        write(unit, '(A)') 'j2_order = 2'
+        write(unit, '(A)') '# 力模型参数 (地月空间 Cislunar 特化)'
+        write(unit, '(A)') 'use_earth_nspheric = true'
+        write(unit, '(A)') 'use_moon_nspheric = true'
+        write(unit, '(A)') 'use_third_body = true'
+        write(unit, '(A)') 'use_srp = true'
+        write(unit, '(A)') 'use_drag = false'
+        write(unit, '(A)') 'use_relativity = false'
+        write(unit, '(A)') 'earth_degree = 10'
+        write(unit, '(A)') 'moon_degree = 10'
+        write(unit, '(A)') 'active_planets = 3, 10, 11'
         write(unit, '(A)') ''
         
         write(unit, '(A)') '# 测量模型参数'
@@ -406,20 +471,42 @@ contains
         
         select case (trim(key))
             ! 轨道传播参数
+            case ('LU')
+                read(value, *, iostat=ios) config%LU
+            case ('TU')
+                read(value, *, iostat=ios) config%TU
+            case ('MU')
+                read(value, *, iostat=ios) config%MU
+            case ('VU')
+                read(value, *, iostat=ios) config%VU
+            case ('AccU')
+                read(value, *, iostat=ios) config%AccU
             case ('propagation_step')
                 read(value, *, iostat=ios) config%propagation_step
-            case ('propagation_tolerance')
-                read(value, *, iostat=ios) config%propagation_tolerance
+            case ('propagation_abs_tol')
+                read(value, *, iostat=ios) config%propagation_abs_tol
+            case ('propagation_rel_tol')
+                read(value, *, iostat=ios) config%propagation_rel_tol
             case ('max_propagation_steps')
                 read(value, *, iostat=ios) config%max_propagation_steps
             case ('rk4_step_size')
                 read(value, *, iostat=ios) config%rk4_step_size
-            case ('rkf45_tolerance')
-                read(value, *, iostat=ios) config%rkf45_tolerance
+            case ('rkf45_abs_tol')
+                read(value, *, iostat=ios) config%rkf45_abs_tol
+            case ('rkf45_rel_tol')
+                read(value, *, iostat=ios) config%rkf45_rel_tol
             case ('rkf45_min_step')
                 read(value, *, iostat=ios) config%rkf45_min_step
             case ('rkf45_max_step')
                 read(value, *, iostat=ios) config%rkf45_max_step
+            case ('rkf78_abs_tol')
+                read(value, *, iostat=ios) config%rkf78_abs_tol
+            case ('rkf78_rel_tol')
+                read(value, *, iostat=ios) config%rkf78_rel_tol
+            case ('rkf78_min_step')
+                read(value, *, iostat=ios) config%rkf78_min_step
+            case ('rkf78_max_step')
+                read(value, *, iostat=ios) config%rkf78_max_step
             
             ! 轨道改进参数
             case ('convergence_tolerance')
@@ -478,18 +565,28 @@ contains
                 config%use_gpu = (trim(value) == 'true')
             
             ! 力模型参数
-            case ('use_j2_perturbation')
-                config%use_j2_perturbation = (trim(value) == 'true')
-            case ('use_atmospheric_drag')
-                config%use_atmospheric_drag = (trim(value) == 'true')
-            case ('use_solar_radiation_pressure')
-                config%use_solar_radiation_pressure = (trim(value) == 'true')
-            case ('use_third_body_gravity')
-                config%use_third_body_gravity = (trim(value) == 'true')
-            case ('j2_degree')
-                read(value, *, iostat=ios) config%j2_degree
-            case ('j2_order')
-                read(value, *, iostat=ios) config%j2_order
+            ! =====================================
+            ! 力模型参数 (地月空间 Cislunar 特化)
+            ! =====================================
+            case ('use_earth_nspheric')
+                config%use_earth_nspheric = (trim(value) == 'true')
+            case ('use_moon_nspheric')
+                config%use_moon_nspheric = (trim(value) == 'true')
+            case ('use_third_body')
+                config%use_third_body = (trim(value) == 'true')
+            case ('use_srp')
+                config%use_srp = (trim(value) == 'true')
+            case ('use_drag')
+                config%use_drag = (trim(value) == 'true')
+            case ('use_relativity')
+                config%use_relativity = (trim(value) == 'true')
+            case ('earth_degree')
+                read(value, *, iostat=ios) config%earth_degree
+            case ('moon_degree')
+                read(value, *, iostat=ios) config%moon_degree
+            case ('active_planets')
+                ! 读取天体ID列表 (支持逗号或空格分隔，如 "3, 10, 11")
+                call parse_active_planets(value)
             
             ! 测量模型参数
             case ('measurement_noise_std')
@@ -526,7 +623,48 @@ contains
         if (ios /= 0) then
             write(*, *) '错误: 配置参数解析错误: ', trim(key), ' = ', trim(value)
         end if
+
+        call resolve_config_dependencies()  ! 每次设置参数后检查依赖关系
     end subroutine set_config_value
+
+    subroutine parse_active_planets(val_str)
+        character(len=*), intent(in) :: val_str
+        integer :: id, i, ios
+        character(len=MAX_STRING_LEN) :: temp_str
+        
+        ! 先清空所有的激活状态
+        config%use_planet = .false.
+        temp_str = val_str
+        
+        ! 将所有逗号替换为空格，方便 list-directed read
+        do i = 1, len_trim(temp_str)
+            if (temp_str(i:i) == ',') temp_str(i:i) = ' '
+        end do
+        
+        ! 循环读取 ID
+        do
+            if (len_trim(temp_str) == 0) exit
+            read(temp_str, *, iostat=ios) id
+            if (ios /= 0) exit
+            
+            if (id >= 1 .and. id <= 11) then
+                config%use_planet(id) = .true.
+            end if
+            
+            ! 截断已经读过的数字，准备读下一个
+            i = scan(trim(temp_str), '0123456789') ! 找到第一个数字
+            if (i > 0) then
+                i = i + scan(trim(temp_str(i:)), ' ') - 1 ! 找到数字后的第一个空格
+                if (i > 0) then
+                    temp_str = adjustl(temp_str(i:))
+                else
+                    exit
+                end if
+            else
+                exit
+            end if
+        end do
+    end subroutine parse_active_planets
     
     logical function file_exists(filename)
         character(len=*), intent(in) :: filename
@@ -534,16 +672,29 @@ contains
     end function file_exists
     
     subroutine print_config()
+        integer :: i
+
         write(*, *) '=== 当前配置 ==='
         write(*, *) ''
         write(*, *) '轨道传播参数:'
+        write(*, *) '  长度单位 (LU): ', config%LU, ' km'
+        write(*, *) '  时间单位 (TU): ', config%TU, ' 秒'
+        write(*, *) '  质量单位 (MU): ', config%MU, ' kg'
+        write(*, *) '  速度单位 (VU): ', config%VU, ' km/s'
+        write(*, *) '  加速度单位 (AccU): ', config%AccU, ' km/s²'
         write(*, *) '  传播步长: ', config%propagation_step, ' 秒'
-        write(*, *) '  传播容差: ', config%propagation_tolerance
+        write(*, *) '  传播绝对容差: ', config%propagation_abs_tol
+        write(*, *) '  传播相对容差: ', config%propagation_rel_tol
         write(*, *) '  最大传播步数: ', config%max_propagation_steps
         write(*, *) '  RK4步长: ', config%rk4_step_size, ' 秒'
-        write(*, *) '  RKF45容差: ', config%rkf45_tolerance
+        write(*, *) '  RKF45绝对容差: ', config%rkf45_abs_tol
+        write(*, *) '  RKF45相对容差: ', config%rkf45_rel_tol
         write(*, *) '  RKF45最小步长: ', config%rkf45_min_step, ' 秒'
         write(*, *) '  RKF45最大步长: ', config%rkf45_max_step, ' 秒'
+        write(*, *) '  RKF78绝对容差: ', config%rkf78_abs_tol
+        write(*, *) '  RKF78相对容差: ', config%rkf78_rel_tol
+        write(*, *) '  RKF78最小步长: ', config%rkf78_min_step, ' 秒'
+        write(*, *) '  RKF78最大步长: ', config%rkf78_max_step, ' 秒'
         write(*, *) ''
         write(*, *) '轨道改进参数:'
         write(*, *) '  收敛容差: ', config%convergence_tolerance
@@ -578,13 +729,32 @@ contains
         write(*, *) '  内存限制: ', config%memory_limit, ' bytes'
         write(*, *) '  GPU加速: ', config%use_gpu
         write(*, *) ''
-        write(*, *) '力模型参数:'
-        write(*, *) '  J2摄动: ', config%use_j2_perturbation
-        write(*, *) '  大气阻力: ', config%use_atmospheric_drag
-        write(*, *) '  太阳辐射压: ', config%use_solar_radiation_pressure
-        write(*, *) '  第三体引力: ', config%use_third_body_gravity
-        write(*, *) '  J2展开阶数: ', config%j2_degree
-        write(*, *) '  J2展开次数: ', config%j2_order
+        write(*, *) '力模型参数 :'
+        ! 地球高阶场状态输出
+        if (.not. config%use_planet(3)) then
+            write(*, *) '  地球高阶引力场: [未激活地球本体, 强制禁用]'
+        else if (config%use_earth_nspheric) then
+            write(*, *) '  地球高阶引力场: 启用 (', config%earth_degree, '阶)'
+        else
+            write(*, *) '  地球高阶引力场: 禁用'
+        end if
+        ! 月球高阶场状态输出
+        if (.not. config%use_third_body .or. .not. config%use_planet(10)) then
+            write(*, *) '  月球高阶引力场: [未激活月球第三体, 强制禁用]'
+        else if (config%use_moon_nspheric) then
+            write(*, *) '  月球高阶引力场: 启用 (', config%moon_degree, '阶)'
+        else
+            write(*, *) '  月球高阶引力场: 禁用'
+        end if
+        write(*, *) '  第三体摄动: ', config%use_third_body
+        write(*, *) '  太阳辐射压: ', config%use_srp
+        write(*, *) '  大气阻力: ', config%use_drag
+        write(*, *) '  相对论效应: ', config%use_relativity
+        write(*, "(A)", advance='no') '  已激活的引力网络节点 (ID): '
+        do i = 1, 11
+            if (config%use_planet(i)) write(*, "(I3)", advance='no') i
+        end do
+        write(*, *) '' ! 换行
         write(*, *) ''
         write(*, *) '测量模型参数:'
         write(*, *) '  测量噪声标准差: ', config%measurement_noise_std
@@ -615,11 +785,16 @@ contains
             validate_config = .false.
         end if
         
-        if (config%propagation_tolerance <= 0.0_DP) then
-            write(*, *) '错误: 传播容差必须大于0'
+        if (config%propagation_abs_tol <= 0.0_DP) then
+            write(*, *) '错误: 传播绝对容差必须大于0'
             validate_config = .false.
         end if
-        
+
+        if (config%propagation_rel_tol <= 0.0_DP) then
+            write(*, *) '错误: 传播相对容差必须大于0'
+            validate_config = .false.
+        end if
+
         if (config%max_propagation_steps <= 0) then
             write(*, *) '错误: 最大传播步数必须大于0'
             validate_config = .false.
@@ -631,13 +806,33 @@ contains
             validate_config = .false.
         end if
         
-        if (config%rkf45_tolerance <= 0.0_DP) then
-            write(*, *) '错误: RKF45容差必须大于0'
+        if (config%rkf45_abs_tol <= 0.0_DP) then
+                        write(*, *) '错误: RKF45绝对容差必须大于0'
+            validate_config = .false.
+        end if
+
+        if (config%rkf45_rel_tol <= 0.0_DP) then
+                        write(*, *) '错误: RKF45相对容差必须大于0'
             validate_config = .false.
         end if
         
         if (config%rkf45_min_step >= config%rkf45_max_step) then
             write(*, *) '错误: RKF45最小步长必须小于最大步长'
+            validate_config = .false.
+        end if
+        
+        if (config%rkf78_abs_tol <= 0.0_DP) then
+            write(*, *) '错误: RKF78绝对容差必须大于0'
+            validate_config = .false.
+        end if
+
+        if (config%rkf78_rel_tol <= 0.0_DP) then
+            write(*, *) '错误: RKF78相对容差必须大于0'
+            validate_config = .false.
+        end if
+        
+        if (config%rkf78_min_step >= config%rkf78_max_step) then
+            write(*, *) '错误: RKF78最小步长必须小于最大步长'
             validate_config = .false.
         end if
         
@@ -684,15 +879,21 @@ contains
             validate_config = .false.
         end if
         
-        ! 验证力模型参数
-        if (config%j2_degree < 0 .or. config%j2_degree > 10) then
-            write(*, *) '错误: J2展开阶数必须在0到10之间'
+        ! ! 验证力模型参数
+        if (config%use_earth_nspheric .and. (config%earth_degree < 2 .or. config%earth_degree > 300)) then
+            write(*, *) '错误: 地球重力场阶数设置不合理 (通常在 2-300 之间)'
             validate_config = .false.
         end if
         
-        if (config%j2_order < 0 .or. config%j2_order > config%j2_degree) then
-            write(*, *) '错误: J2展开次数必须在0到阶数之间'
+        if (config%use_moon_nspheric .and. (config%moon_degree < 2 .or. config%moon_degree > 300)) then
+            write(*, *) '错误: 月球重力场阶数设置不合理 (通常在 2-300 之间)'
             validate_config = .false.
+        end if
+        
+        ! 校验多体引力网
+        if (.not. any(config%use_planet)) then
+            write(*, *) '警告: 未激活任何天体的引力！系统处于无重力环境。'
+            ! 这里给警告即可，因为有时候单纯测光压的时候可能会故意关掉引力
         end if
         
         ! 验证测量模型参数
@@ -744,12 +945,12 @@ contains
         end if
         
         ! 容差范围检查
-        if (config%propagation_tolerance < 1.0e-15_DP) then
-            config%propagation_tolerance = 1.0e-15_DP
-            write(*, *) '警告: 传播容差已调整为最小值: 1.0e-15'
-        else if (config%propagation_tolerance > 1.0e-6_DP) then
-            config%propagation_tolerance = 1.0e-6_DP
-            write(*, *) '警告: 传播容差已调整为最大值: 1.0e-6'
+        if (config%propagation_abs_tol < 1.0e-15_DP) then
+            config%propagation_abs_tol = 1.0e-15_DP
+            write(*, *) '警告: 传播绝对容差已调整为最小值: 1.0e-15'
+        else if (config%propagation_rel_tol > 1.0e-6_DP) then
+            config%propagation_rel_tol = 1.0e-6_DP
+            write(*, *) '警告: 传播相对容差已调整为最大值: 1.0e-6'
         end if
         
         ! 最大传播步数范围检查
@@ -790,8 +991,10 @@ contains
         select case (trim(key))
             case ('propagation_step')
                 write(value, '(F20.12)') config%propagation_step
-            case ('propagation_tolerance')
-                write(value, '(E20.12)') config%propagation_tolerance
+            case ('propagation_abs_tol')
+                write(value, '(E20.12)') config%propagation_abs_tol
+            case ('propagation_rel_tol')
+                write(value, '(E20.12)') config%propagation_rel_tol
             case ('max_propagation_steps')
                 write(value, '(I10)') config%max_propagation_steps
             case ('convergence_tolerance')

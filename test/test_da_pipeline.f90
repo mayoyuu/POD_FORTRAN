@@ -74,7 +74,7 @@ program test_da_pipeline
     ! 设置积分任务参数 (例如：向前推演 1 天)
     t_start = tdb_epoch
     t_end = tdb_epoch + 86400.0_DP 
-    tolerance = 1.0D-7  ! 设置一个极其严格的容差
+    tolerance = 1.0D-7  
     max_steps = 500000
     dt = 60.0_DP  ! RK4 固定步长测试用
 

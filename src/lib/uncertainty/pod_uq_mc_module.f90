@@ -49,8 +49,6 @@ contains
 
         ! 2. 开启 OpenMP 并行域
         ! 注意：default(none) 强制要求我们显式声明每一个变量的共享/私有属性，极其安全
-       ! 必须新增这三个局部变量用于接收底层积分器的输出
-        
         ! ... [分配 output_state 内存等常规操作] ...
 
         !$omp parallel do default(none) &
@@ -62,14 +60,12 @@ contains
             
             select case (this%integrator_type)
                 case (INTEG_RKF45)
-                    call adaptive_step_integrate(current_state, t_start, t_end, 500000, &
-                                                 this%abs_error, METHOD_RKF45, &
+                    call adaptive_step_integrate(current_state, t_start, t_end, METHOD_RKF45, &
                                                  temp_times, temp_states, n_steps)
                     current_state = temp_states(n_steps, :)
                     
                 case (INTEG_RKF78)
-                    call adaptive_step_integrate(current_state, t_start, t_end, 500000, &
-                                                 this%abs_error, METHOD_RKF78, &
+                    call adaptive_step_integrate(current_state, t_start, t_end, METHOD_RKF78, &
                                                  temp_times, temp_states, n_steps)
                     current_state = temp_states(n_steps, :)
                     
@@ -84,9 +80,10 @@ contains
                         current_state = next_state
                     end do
                     
+                    ! 处理尾部残余步长
                     t_current = t_start + real(n_steps, DP) * dt_step
                     dt_step = t_end - t_current
-                    if (dt_step > 1.0D-6) then
+                    if (dt_step > 1.0e-6_DP) then
                         call rk4_integrate(current_state, dt_step, t_current, next_state)
                         current_state = next_state
                     end if

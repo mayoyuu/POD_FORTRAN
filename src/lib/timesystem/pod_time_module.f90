@@ -103,6 +103,19 @@ module pod_time_module
     character(len=20), parameter :: DEFAULT_TIME_SYSTEM = 'TDB'
     character(len=20), parameter :: DEFAULT_TIME_FORMAT = 'ISOC'
     
+    !> 面向对象的积分时间管理器 (隔离绝对历元与相对时间)
+    !> 面向对象的积分时间管理器 (隔离绝对历元与相对时间)
+    type, public :: pod_time
+        real(DP) :: epoch0 = 0.0_DP      ! 物理历元基准 (TDB 秒，距离 J2000)
+        real(DP) :: rel_time = 0.0_DP    ! 积分器当前推进的相对时间 (归一化无量纲)
+        real(DP) :: time_scale = 1.0_DP          ! 时间归一化常数 (默认为 1.0_DP，即不缩放)
+    contains
+        procedure :: get_real_tdb => time_get_real_tdb
+        procedure :: advance      => time_advance
+        ! 绑定私有方法，对外暴露重载的加法运算符 "+"
+        procedure, private :: add_time_scalar
+        generic   :: operator(+) => add_time_scalar
+    end type pod_time
 contains
 
     !> Transfer time between different time systems
@@ -351,5 +364,34 @@ contains
         get_current_utc = trim(time_str)
         
     end function get_current_utc
+
+    !> 获取当前真实的物理 TDB 时间 (隔离了大数吃小数的风险)
+    function time_get_real_tdb(this) result(real_time)
+        class(pod_time), intent(in) :: this
+        real(DP) :: real_time
+        ! 只有在这里才将 大数(epoch0) 与 小数(rel_time * scale) 相加
+        real_time = this%epoch0 + (this%rel_time * this%time_scale)
+    end function time_get_real_tdb
+    
+    !> 推进自身时间 (用于积分器一步成功后的更新)
+    subroutine time_advance(this, dt_nondim)
+        class(pod_time), intent(inout) :: this
+        real(DP), intent(in) :: dt_nondim
+        this%rel_time = this%rel_time + dt_nondim
+    end subroutine time_advance
+
+    !> 重载加法运算符: pod_time + real(DP)
+    !> 返回一个带有时间偏移的新对象，原对象不改变！(完美替代 clone)
+    function add_time_scalar(this, dt) result(new_time)
+        class(pod_time), intent(in) :: this
+        real(DP), intent(in) :: dt
+        type(pod_time) :: new_time
+        
+        ! 继承原有的物理基准和缩放系数
+        new_time%epoch0     = this%epoch0
+        new_time%time_scale = this%time_scale
+        ! 仅仅在相对时间上加上偏移量
+        new_time%rel_time   = this%rel_time + dt
+    end function add_time_scalar
 
 end module pod_time_module

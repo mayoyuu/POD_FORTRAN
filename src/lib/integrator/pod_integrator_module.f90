@@ -11,23 +11,25 @@ module pod_integrator_module
     
 contains
 
-    subroutine compute_derivatives(state, time, derivatives)
-        real(DP), dimension(6), intent(in) :: state
-        real(DP), intent(in) :: time
-        real(DP), dimension(6), intent(out) :: derivatives
+    subroutine compute_derivatives(state_unit, epoch0, time_unit, derivatives_unit)
+        real(DP), dimension(6), intent(in) :: state_unit
+        real(DP), intent(in) :: epoch0, time_unit
+        real(DP), dimension(6), intent(out) :: derivatives_unit
         
+        real(DP) :: time
         real(DP), dimension(3) :: position, velocity, acceleration
         
-        ! 提取位置和速度
-        position = state(1:3)
-        velocity = state(4:6)
+        ! 提取位置和速度 以及真实的时间
+        position = state_unit(1:3)*LU
+        velocity = state_unit(4:6)*VU
+        time = epoch0 + time_unit*TU
         
         ! 计算加速度
         call compute_acceleration(position, velocity, time, acceleration)
         
         ! 构建导数向量 [dx/dt, dy/dt, dz/dt, dvx/dt, dvy/dt, dvz/dt]
-        derivatives(1:3) = velocity
-        derivatives(4:6) = acceleration
+        derivatives_unit(1:3) = velocity/VU
+        derivatives_unit(4:6) = acceleration/AccU
     end subroutine compute_derivatives
     
 
@@ -114,12 +116,13 @@ contains
         
         ! 内部工作变量
         integer :: max_steps
-        real(DP) :: tolerance, dt_min, dt_max, safety_factor
+        real(DP) :: tolerance, dt_min, dt_max
         real(DP) :: current_time, dt
         real(DP), dimension(6) :: current_state
         real(DP), dimension(6) :: next_state_4th, next_state_5th, next_state_7th, next_state_8th
         real(DP), dimension(6) :: next_state_high ! 用于统一暂存不同算法的高阶输出
-        real(DP) :: error_estimate,  exp_power
+        real(DP) :: error_estimate, safety_factor, exp_power
+        ! real(DP) :: weight_scale, allowed_error
         integer :: i
         
        ! ==========================================

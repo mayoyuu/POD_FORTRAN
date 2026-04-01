@@ -1,6 +1,6 @@
 module pod_gmm_math_module
     use pod_global, only: DP
-    use pod_basicmath_module
+    use pod_basicmath
     use pod_uq_gmm_state_module, only: uq_gmm_state_type, gaussian_component
     
     implicit none   
