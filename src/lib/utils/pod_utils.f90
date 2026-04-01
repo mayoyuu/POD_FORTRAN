@@ -140,7 +140,7 @@ contains
         if (present(format_str)) then
             fmt = format_str
         else
-            fmt = '(F12.6)'
+            fmt = '(F18.6)'
         end if
         
         write(*, '(A)', advance='no') 'Vector: '

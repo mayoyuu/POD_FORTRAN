@@ -1,206 +1,176 @@
 module pod_orbit_propagation
     use pod_global, only: DP, MAX_STRING_LEN, output_directory
     use pod_config, only: config
-    use pod_utils, only: print_separator, print_vector, save_matrix_to_file, &
+    use pod_utils, only: print_separator, print_vector, &
                         get_user_choice, get_user_real, get_user_string, &
                         confirm_action, pause_execution
-    use pod_frame_module, only: cartesian_to_keplerian, keplerian_to_cartesian
-    use pod_integrator_module, only: rk4_integrate, rkf45_integrate
-    use pod_force_model_module, only: compute_acceleration
+    use pod_spice, only: str2et
+    use pod_integrator_module, only: adaptive_step_integrate, METHOD_RKF45, METHOD_RKF78
+    use pod_force_model_module, only: set_propagation_epoch
     
     implicit none
     
-    ! 轨道状态类型
+    ! =========================================================
+    ! 轨道状态类型 (面向用户的真实物理量)
+    ! =========================================================
     type orbit_state
-        real(DP), dimension(6) :: state  ! [x, y, z, vx, vy, vz]
-        real(DP) :: epoch  ! 历元时间（秒）
-        character(len=MAX_STRING_LEN) :: frame  ! 参考坐标系
+        real(DP), dimension(6) :: state  ! 真实物理状态 [x, y, z, vx, vy, vz] (km, km/s)
+        real(DP) :: epoch                ! 真实的物理历元基准 (TDB 秒)
     end type orbit_state
     
-    ! 传播结果类型
+    ! =========================================================
+    ! 传播结果类型 (面向用户的真实物理量)
+    ! =========================================================
     type propagation_result
         integer :: n_steps
-        real(DP), allocatable, dimension(:) :: times
-        real(DP), allocatable, dimension(:,:) :: states
-        real(DP), allocatable, dimension(:,:) :: keplerian_elements
+        real(DP), allocatable, dimension(:) :: times    ! 传播经历的时间 (秒)
+        real(DP), allocatable, dimension(:,:) :: states ! 轨道历经的真实物理状态 (km, km/s)
     end type propagation_result
     
 contains
 
+    !> 傻瓜式交互主程序：只需调用此函数，跟着终端提示走即可
     subroutine run_orbit_propagation()
         type(orbit_state) :: initial_state
         type(propagation_result) :: result
-        real(DP) :: final_time, step_size
+        real(DP) :: final_time
         integer :: integrator_choice
         logical :: save_to_file
         
-        call print_separator('轨道传播 (OP)')
+        call print_separator('高精度轨道传播 (OP)')
         
-        ! 获取初始轨道状态
+        ! 1. 获取初始状态
         call get_initial_orbit_state(initial_state)
         
-        ! 获取传播参数
-        call get_propagation_parameters(final_time, step_size, integrator_choice)
+        ! 2. 获取传播参数 (已删去手动设定步长)
+        call get_propagation_parameters(final_time, integrator_choice)
         
-        ! 执行轨道传播
-        call propagate_orbit(initial_state, final_time, step_size, integrator_choice, result)
+        ! 3. 核心计算：执行轨道传播 (内部自动处理量纲与历元)
+        call propagate_orbit(initial_state, final_time, integrator_choice, result)
         
-        ! 显示结果
+        ! 4. 显示结果
         call display_propagation_results(result)
         
-        ! 保存结果
-        save_to_file = confirm_action('是否保存传播结果到文件')
+        ! 5. 询问并保存结果
+        save_to_file = confirm_action('是否将笛卡尔传播结果保存到 CSV 文件')
         if (save_to_file) then
             call save_propagation_results(result)
         end if
         
-        ! 清理内存
+        ! 6. 清理内存
         call cleanup_propagation_result(result)
         
         call pause_execution()
     end subroutine run_orbit_propagation
     
+    
     subroutine get_initial_orbit_state(initial_state)
         type(orbit_state), intent(out) :: initial_state
-        integer :: input_choice
+        character(len=MAX_STRING_LEN) :: utc_string
         real(DP), dimension(6) :: cartesian_state
-        real(DP), dimension(6) :: keplerian_elements
         
-        write(*, *) '选择初始轨道状态输入方式:'
-        write(*, *) '1. 笛卡尔坐标 (x, y, z, vx, vy, vz)'
-        write(*, *) '2. 开普勒轨道根数 (a, e, i, Ω, ω, ν)'
+        write(*, *) '请输入初始笛卡尔状态 (真实物理量 km, km/s):'
+        cartesian_state(1) = get_user_real('  x (km): ', -1.0e8_DP, 1.0e8_DP)
+        cartesian_state(2) = get_user_real('  y (km): ', -1.0e8_DP, 1.0e8_DP)
+        cartesian_state(3) = get_user_real('  z (km): ', -1.0e8_DP, 1.0e8_DP)
+        cartesian_state(4) = get_user_real(' vx (km/s): ', -50.0_DP, 50.0_DP)
+        cartesian_state(5) = get_user_real(' vy (km/s): ', -50.0_DP, 50.0_DP)
+        cartesian_state(6) = get_user_real(' vz (km/s): ', -50.0_DP, 50.0_DP)
+        initial_state%state = cartesian_state
         
-        input_choice = get_user_choice('请选择 (1-2): ', 1, 2)
+        write(*, *) '请输入历元时间 (UTC):'
+        call get_user_string('  UTC (例如 2024-03-09T12:00:00): ', utc_string)
+        call str2et(trim(utc_string), initial_state%epoch)
         
-        select case (input_choice)
-            case (1)
-                ! 输入笛卡尔坐标
-                write(*, *) '请输入初始笛卡尔状态 (km, km/s):'
-                cartesian_state(1) = get_user_real('x (km): ', -100000.0_DP, 100000.0_DP)
-                cartesian_state(2) = get_user_real('y (km): ', -100000.0_DP, 100000.0_DP)
-                cartesian_state(3) = get_user_real('z (km): ', -100000.0_DP, 100000.0_DP)
-                cartesian_state(4) = get_user_real('vx (km/s): ', -20.0_DP, 20.0_DP)
-                cartesian_state(5) = get_user_real('vy (km/s): ', -20.0_DP, 20.0_DP)
-                cartesian_state(6) = get_user_real('vz (km/s): ', -20.0_DP, 20.0_DP)
-                
-                initial_state%state = cartesian_state
-                
-            case (2)
-                ! 输入开普勒轨道根数
-                write(*, *) '请输入初始开普勒轨道根数:'
-                keplerian_elements(1) = get_user_real('半长轴 a (km): ', 1000.0_DP, 100000.0_DP)
-                keplerian_elements(2) = get_user_real('偏心率 e: ', 0.0_DP, 0.99_DP)
-                keplerian_elements(3) = get_user_real('轨道倾角 i (度): ', 0.0_DP, 180.0_DP)
-                keplerian_elements(4) = get_user_real('升交点赤经 Ω (度): ', 0.0_DP, 360.0_DP)
-                keplerian_elements(5) = get_user_real('近地点幅角 ω (度): ', 0.0_DP, 360.0_DP)
-                keplerian_elements(6) = get_user_real('真近点角 ν (度): ', 0.0_DP, 360.0_DP)
-                
-                ! 转换为笛卡尔坐标
-                call keplerian_to_cartesian(keplerian_elements, cartesian_state)
-                initial_state%state = cartesian_state
-        end select
-        
-        initial_state%epoch = 0.0_DP
-        initial_state%frame = trim(config%reference_frame)
-        
-        write(*, *) '初始轨道状态:'
-        call print_vector(initial_state%state, '笛卡尔状态 (km, km/s)')
+        write(*, *) '初始轨道状态已记录。'
     end subroutine get_initial_orbit_state
     
-    subroutine get_propagation_parameters(final_time, step_size, integrator_choice)
-        real(DP), intent(out) :: final_time, step_size
+    
+    subroutine get_propagation_parameters(final_time, integrator_choice)
+        real(DP), intent(out) :: final_time
         integer, intent(out) :: integrator_choice
         
         write(*, *) '传播参数设置:'
-        final_time = get_user_real('传播时间 (秒): ', 1.0_DP, 86400.0_DP)
-        step_size = get_user_real('传播步长 (秒): ', 1.0_DP, final_time)
+        ! 默认最大支持传播 30 天
+        final_time = get_user_real('  总传播时长 (秒): ', 1.0_DP, 2592000.0_DP)
         
-        write(*, *) '选择积分器:'
-        write(*, *) '1. RK4 (四阶龙格库塔)'
-        write(*, *) '2. RKF45 (自适应步长)'
+        write(*, *) '选择核心积分器:'
+        write(*, *) '  1. RKF 4(5) [推荐中低精度，较密集的输出点]'
+        write(*, *) '  2. RKF 7(8) [推荐高精度，极大的步长跨度]'
         
         integrator_choice = get_user_choice('请选择积分器 (1-2): ', 1, 2)
     end subroutine get_propagation_parameters
     
-    subroutine propagate_orbit(initial_state, final_time, step_size, integrator_choice, result)
+    
+    !> 核心封装引擎：对外部隐藏所有数学/物理处理的脏活累活
+    subroutine propagate_orbit(initial_state, final_time, integrator_choice, result)
         type(orbit_state), intent(in) :: initial_state
-        real(DP), intent(in) :: final_time, step_size
+        real(DP), intent(in) :: final_time
         integer, intent(in) :: integrator_choice
         type(propagation_result), intent(out) :: result
         
-        integer :: n_steps, i
-        real(DP), dimension(6) :: current_state
-        real(DP), dimension(6) :: keplerian_elements
+        real(DP), dimension(6) :: nondim_state
+        real(DP) :: t_start_nondim, t_end_nondim
+        integer :: actual_method
         
-        ! 计算步数
-        n_steps = int(final_time / step_size) + 1
+        write(*, *) '-----------------------------------------'
+        write(*, *) '正在准备底层物理环境与数值积分器...'
         
-        ! 分配内存
-        allocate(result%times(n_steps))
-        allocate(result%states(n_steps, 6))
-        allocate(result%keplerian_elements(n_steps, 6))
-        result%n_steps = n_steps
+        ! 1. 历元基准 (Context Injection)
+        call set_propagation_epoch(initial_state%epoch)
         
-        ! 初始化
-        result%times(1) = 0.0_DP
-        result%states(1, :) = initial_state%state
+        ! 2. 初始状态去量纲化 (Nondimensionalize)
+        nondim_state(1:3) = initial_state%state(1:3) / config%LU
+        nondim_state(4:6) = initial_state%state(4:6) / config%VU
+        t_start_nondim = 0.0_DP
+        t_end_nondim   = final_time / config%TU
         
-        ! 计算初始开普勒轨道根数
-        call cartesian_to_keplerian(initial_state%state, keplerian_elements)
-        result%keplerian_elements(1, :) = keplerian_elements
+        ! 3. 映射积分器选项
+        if (integrator_choice == 1) then
+            actual_method = METHOD_RKF45
+        else
+            actual_method = METHOD_RKF78
+        end if
         
-        write(*, *) '开始轨道传播...'
-        write(*, *) '总步数: ', n_steps
+        write(*, *) '积分器已启动，正在自适应计算中...'
         
-        ! 执行传播
-        current_state = initial_state%state
-        do i = 2, n_steps
-            result%times(i) = (i - 1) * step_size
-            
-            ! 选择积分器
-            select case (integrator_choice)
-                case (1)
-                    call rk4_integrate(current_state, step_size, result%times(i), current_state)
-                case (2)
-                    call rkf45_integrate(current_state, step_size, result%times(i), current_state)
-            end select
-            
-            result%states(i, :) = current_state
-            
-            ! 计算开普勒轨道根数
-            call cartesian_to_keplerian(current_state, keplerian_elements)
-            result%keplerian_elements(i, :) = keplerian_elements
-            
-            ! 显示进度
-            if (mod(i, max(1, n_steps/10)) == 0) then
-                write(*, '(A,I3,A)') '传播进度: ', int(100.0_DP * i / n_steps), '%'
-            end if
-        end do
+        ! 4. 调用纯数学积分器 (自动分配 result%times 和 result%states 的内存)
+        call adaptive_step_integrate( &
+            state = nondim_state, &
+            t_start = t_start_nondim, &
+            t_end = t_end_nondim, &
+            integrator_method = actual_method, &
+            times = result%times, &
+            states = result%states, &
+            n_steps = result%n_steps &
+        )
         
-        write(*, *) '轨道传播完成!'
+        ! 5. 结果原地还原物理量纲 (Dimensionalize In-Place)
+        ! 积分器输出的是无量纲数组，需要乘回物理单位
+        result%times = result%times * config%TU
+        result%states(:, 1:3) = result%states(:, 1:3) * config%LU
+        result%states(:, 4:6) = result%states(:, 4:6) * config%VU
+        
+        write(*, *) '轨道传播计算圆满完成!'
+        write(*, *) '-----------------------------------------'
     end subroutine propagate_orbit
+    
     
     subroutine display_propagation_results(result)
         type(propagation_result), intent(in) :: result
         
+        write(*, *) ''
         write(*, *) '传播结果摘要:'
-        write(*, *) '总步数: ', result%n_steps
-        write(*, *) '初始时间: ', result%times(1), ' 秒'
-        write(*, *) '结束时间: ', result%times(result%n_steps), ' 秒'
-        write(*, *) '传播时长: ', result%times(result%n_steps) - result%times(1), ' 秒'
+        write(*, *) '  自适应总步数: ', result%n_steps
+        write(*, *) '  传播物理时长: ', result%times(result%n_steps), ' 秒'
         
-        write(*, *) '初始状态:'
-        call print_vector(result%states(1, :), '笛卡尔状态 (km, km/s)')
+        write(*, *) '  初始状态 (km, km/s):'
+        call print_vector(result%states(1, :), '    ')
         
-        write(*, *) '最终状态:'
-        call print_vector(result%states(result%n_steps, :), '笛卡尔状态 (km, km/s)')
-        
-        write(*, *) '初始开普勒轨道根数:'
-        call print_vector(result%keplerian_elements(1, :), '开普勒根数 (km, -, 度)')
-        
-        write(*, *) '最终开普勒轨道根数:'
-        call print_vector(result%keplerian_elements(result%n_steps, :), '开普勒根数 (km, -, 度)')
+        write(*, *) '  最终状态 (km, km/s):'
+        call print_vector(result%states(result%n_steps, :), '    ')
     end subroutine display_propagation_results
+    
     
     subroutine save_propagation_results(result)
         type(propagation_result), intent(in) :: result
@@ -208,38 +178,27 @@ contains
         integer :: unit, i
         
         ! 保存笛卡尔状态
-        filename = trim(output_directory) // 'orbit_propagation_cartesian.csv'
+        ! filename = trim(output_directory) // 'orbit_propagation_cartesian.csv'
+        filename = './output/orbit_propagation_cartesian.csv'
         open(newunit=unit, file=filename, status='replace', action='write')
         
-        write(unit, '(A)') '# 时间(s), x(km), y(km), z(km), vx(km/s), vy(km/s), vz(km/s)'
+        write(unit, '(A)') '# Time(s), X(km), Y(km), Z(km), VX(km/s), VY(km/s), VZ(km/s)'
         do i = 1, result%n_steps
-            write(unit, '(F12.3,6(",",F15.6))') result%times(i), result%states(i, :)
+            write(unit, '(F16.6, 6(",",F20.12))') result%times(i), result%states(i, :)
         end do
         
         close(unit)
         
-        ! 保存开普勒轨道根数
-        filename = trim(output_directory) // 'orbit_propagation_keplerian.csv'
-        open(newunit=unit, file=filename, status='replace', action='write')
-        
-        write(unit, '(A)') '# 时间(s), a(km), e, i(deg), Omega(deg), omega(deg), nu(deg)'
-        do i = 1, result%n_steps
-            write(unit, '(F12.3,6(",",F15.6))') result%times(i), result%keplerian_elements(i, :)
-        end do
-        
-        close(unit)
-        
-        write(*, *) '传播结果已保存到:'
-        write(*, *) '  笛卡尔状态: ', trim(output_directory) // 'orbit_propagation_cartesian.csv'
-        write(*, *) '  开普勒根数: ', trim(output_directory) // 'orbit_propagation_keplerian.csv'
+        write(*, *) '✅ 传播结果已成功保存到:'
+        write(*, *) '   -> ', trim(filename)
     end subroutine save_propagation_results
+    
     
     subroutine cleanup_propagation_result(result)
         type(propagation_result), intent(inout) :: result
         
         if (allocated(result%times)) deallocate(result%times)
         if (allocated(result%states)) deallocate(result%states)
-        if (allocated(result%keplerian_elements)) deallocate(result%keplerian_elements)
     end subroutine cleanup_propagation_result
 
 end module pod_orbit_propagation

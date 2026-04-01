@@ -1,7 +1,8 @@
 module pod_integrator_module
     use pod_global, only: DP
     use pod_config, only: config
-    use pod_force_model_module, only: compute_acceleration
+    use pod_force_model_module, only: compute_acceleration, current_epoch0
+
     
     implicit none
 
@@ -11,25 +12,28 @@ module pod_integrator_module
     
 contains
 
-    subroutine compute_derivatives(state_unit, epoch0, time_unit, derivatives_unit)
+! 接口极致纯粹，积分器完全不知道 epoch0 的存在
+    subroutine compute_derivatives(state_unit, time_unit, derivatives_unit)
         real(DP), dimension(6), intent(in) :: state_unit
-        real(DP), intent(in) :: epoch0, time_unit
+        real(DP), intent(in) :: time_unit   ! 积分器传来的无量纲相对时间 (比如 0.0 到 0.23)
         real(DP), dimension(6), intent(out) :: derivatives_unit
         
-        real(DP) :: time
+        real(DP) :: real_time
         real(DP), dimension(3) :: position, velocity, acceleration
         
-        ! 提取位置和速度 以及真实的时间
-        position = state_unit(1:3)*LU
-        velocity = state_unit(4:6)*VU
-        time = epoch0 + time_unit*TU
+        ! 1. 还原真实物理时间 (核心魔法：大数 + 小数 * 缩放)
+        real_time = current_epoch0 + (time_unit * config%TU)
         
-        ! 计算加速度
-        call compute_acceleration(position, velocity, time, acceleration)
+        ! 2. 还原物理状态
+        position = state_unit(1:3) * config%LU
+        velocity = state_unit(4:6) * config%VU
         
-        ! 构建导数向量 [dx/dt, dy/dt, dz/dt, dvx/dt, dvy/dt, dvz/dt]
-        derivatives_unit(1:3) = velocity/VU
-        derivatives_unit(4:6) = acceleration/AccU
+        ! 3. 调用物理引擎
+        call compute_acceleration(position, velocity, real_time, acceleration)
+        
+        ! 4. 导数去量纲化
+        derivatives_unit(1:3) = velocity / config%VU
+        derivatives_unit(4:6) = acceleration / config%AccU
     end subroutine compute_derivatives
     
 
@@ -67,7 +71,7 @@ contains
         real(DP), dimension(6), intent(out) :: new_state
         
         real(DP), dimension(6) :: temp_4th, temp_5th
-        real(DP) :: err_est
+        real(DP), dimension(6) :: err_est
         
         ! 1. 直接调用核心计算引擎
         call rkf45_step(state, dt, time, temp_4th, temp_5th, err_est)
@@ -82,9 +86,10 @@ contains
         real(DP), dimension(6), intent(out) :: new_state
         
         real(DP), dimension(6) :: state_7th, state_8th
-        real(DP) :: error_estimate, tolerance
+        real(DP), dimension(6) :: error_estimate
+        real(DP) :: tolerance
         
-        tolerance = config%propagation_tolerance
+        tolerance = config%propagation_abs_tol
         
         call rkf78_step(state, dt, time, state_7th, state_8th, error_estimate)
         
@@ -92,14 +97,14 @@ contains
         new_state = state_8th
         
         ! 简单的误差检查逻辑
-        if (error_estimate > tolerance) then
+        if (any(error_estimate > tolerance)) then
             ! 这里可以添加警告，但在自适应循环中，这个逻辑会被上层接管
         end if
     end subroutine rkf78_integrate
     
     subroutine adaptive_step_integrate(state, t_start, t_end, integrator_method, &
                                        times, states, n_steps, &
-                                       max_steps_in, tolerance_in, dt_min_in, dt_max_in)
+                                       max_steps_in, rel_tol_in, abs_tol_in, dt_min_in, dt_max_in)
         ! 核心物理参数
         real(DP), dimension(6), intent(in) :: state
         real(DP), intent(in) :: t_start, t_end
@@ -112,43 +117,49 @@ contains
         
         ! 可选的控制参数 (如果外部不传，就用 config 里的默认值)
         integer, intent(in), optional :: max_steps_in
-        real(DP), intent(in), optional :: tolerance_in, dt_min_in, dt_max_in
+        real(DP), intent(in), optional :: rel_tol_in, abs_tol_in, dt_min_in, dt_max_in
         
         ! 内部工作变量
         integer :: max_steps
-        real(DP) :: tolerance, dt_min, dt_max
+        real(DP) :: rel_tol, abs_tol, dt_min, dt_max
         real(DP) :: current_time, dt
         real(DP), dimension(6) :: current_state
         real(DP), dimension(6) :: next_state_4th, next_state_5th, next_state_7th, next_state_8th
         real(DP), dimension(6) :: next_state_high ! 用于统一暂存不同算法的高阶输出
-        real(DP) :: error_estimate, safety_factor, exp_power
-        ! real(DP) :: weight_scale, allowed_error
+
+
+       ! 新增：用于 WRMS 误差计算的向量和标量
+        real(DP), dimension(6) :: error_estimate_vector, scale_vector
+        real(DP) :: wrms_error, safety_factor, exp_power
         integer :: i
-        
+
        ! ==========================================
         ! 1. 智能参数绑定 (结合 optional 与全局 config)
         ! ==========================================
         max_steps = config%max_propagation_steps
         if (present(max_steps_in)) max_steps = max_steps_in
         
-        ! 根据不同的积分器，从 config 中提取专属的默认参数
+        ! 根据不同的积分器，从 config 中提取专属的默认参数 注意无量纲化！
         if (integrator_method == METHOD_RKF45) then
-            tolerance = config%rkf45_tolerance
-            dt_min = config%rkf45_min_step
-            dt_max = config%rkf45_max_step
+            abs_tol = config%rkf45_abs_tol
+            rel_tol = config%rkf45_rel_tol
+            dt_min = config%rkf45_min_step/config%TU
+            dt_max = config%rkf45_max_step/config%TU
         else if (integrator_method == METHOD_RKF78) then
-            tolerance = config%rkf78_tolerance
-            dt_min = config%rkf78_min_step
-            dt_max = config%rkf78_max_step
+            abs_tol = config%rkf78_abs_tol
+            rel_tol = config%rkf78_rel_tol
+            dt_min = config%rkf78_min_step/config%TU
+            dt_max = config%rkf78_max_step/config%TU
         else
             print *, "Error: Unsupported integrator method!"
             stop
         end if
         
         ! 如果用户显式传入了参数，则覆盖 config 的默认设定
-        if (present(tolerance_in)) tolerance = tolerance_in
-        if (present(dt_min_in)) dt_min = dt_min_in
-        if (present(dt_max_in)) dt_max = dt_max_in
+        if (present(rel_tol_in)) rel_tol = rel_tol_in
+        if (present(abs_tol_in)) abs_tol = abs_tol_in
+        if (present(dt_min_in))  dt_min  = dt_min_in
+        if (present(dt_max_in))  dt_max  = dt_max_in
         
         safety_factor = 0.9_DP ! 这个也可以未来加进 config 里
         
@@ -177,16 +188,18 @@ contains
             if (current_time >= t_end) exit
 
            ! ==========================================
-            ! 1. 积分器路由分发 (使用易读的常量)
+            ! 3. 积分器路由分发 (使用易读的常量)
             ! ==========================================
             if (integrator_method == METHOD_RKF78) then
-                call rkf78_step(current_state, dt, current_time, next_state_7th, next_state_8th, error_estimate)
+                call rkf78_step(current_state, dt, current_time, next_state_7th, next_state_8th, & 
+                error_estimate_vector)
                 next_state_high = next_state_8th
                 exp_power = 0.125_DP              ! 1/8
             else if (integrator_method == METHOD_RKF45) then
-                call rkf45_step(current_state, dt, current_time, next_state_4th, next_state_5th, error_estimate)
+                call rkf45_step(current_state, dt, current_time, next_state_4th, next_state_5th, & 
+                error_estimate_vector)
                 next_state_high = next_state_5th
-                exp_power = 0.25_DP               ! 1/4
+                exp_power = 0.20_DP               ! 1/5
             else
                 ! 防御性编程：用户传了不支持的常量
                 print *, "Error: Unsupported integrator method!"
@@ -194,9 +207,20 @@ contains
             end if
 
             ! =========================================================
-            ! 2. 检查误差并决定是否推进
+            ! 2. 4. WRMS 误差评估与步长控制
             ! =========================================================
-            if (error_estimate <= tolerance) then
+            ! 计算尺度向量 Scale_i = AbsTol + RelTol * |State_i|
+            scale_vector = abs_tol + rel_tol * abs(current_state)
+            ! 计算误差的加权均方根 (WRMS)
+            wrms_error = sqrt(sum((error_estimate_vector / scale_vector)**2) / 6.0_DP)
+
+            ! 【防暴走补丁】捕捉 NaN 异常
+            if (wrms_error /= wrms_error) then 
+                print *, "FATAL: WRMS 误差产生 NaN，物理模型发散！强行退出积分。"
+                exit
+            end if
+
+            if (wrms_error <= 1.0_DP) then
                 ! 误差达标：正式接受这一步
                 current_state = next_state_high
                 current_time = current_time + dt
@@ -206,9 +230,7 @@ contains
                 states(n_steps, :) = current_state
                 
                 ! 调整（尝试放大）步长，使用动态的 exp_power
-                if (error_estimate > 0.0_DP) then
-                    dt = safety_factor * dt * (tolerance / error_estimate)**exp_power
-                end if
+                dt = safety_factor * dt * (1.0_DP / wrms_error)**exp_power
                 dt = max(dt_min, min(dt_max, dt))
                 
             else
@@ -227,7 +249,7 @@ contains
                     ! 保持 dt 为 dt_min 继续尝试下一步
                 else
                     ! 正常拒绝这一步，减小步长，重新计算当前时刻。使用动态的 exp_power
-                    dt = safety_factor * dt * (tolerance / error_estimate)**exp_power
+                    dt = safety_factor * dt * (1.0_DP/ max(wrms_error,1.0e-15_DP))**exp_power
                     dt = max(dt_min, dt)
                 end if
             end if
@@ -256,13 +278,13 @@ contains
         end if
     end subroutine adaptive_step_integrate
 
-    subroutine rkf45_step(state, dt, time, state_4th, state_5th, error_estimate)
+    subroutine rkf45_step(state, dt, time, state_4th, state_5th, error_estimate_vector)
         real(DP), dimension(6), intent(in) :: state
         real(DP), intent(in) :: dt, time
         real(DP), dimension(6), intent(out) :: state_4th, state_5th
-        real(DP), intent(out) :: error_estimate
+        real(DP), dimension(6), intent(out) :: error_estimate_vector
         
-        real(DP), dimension(6) :: k1, k2, k3, k4, k5, k6
+        real(DP), dimension(6) :: k1, k2, k3, k4, k5, k6, k7
         real(DP), dimension(6) :: temp_state
         
         ! RKF45 系数
@@ -317,26 +339,28 @@ contains
         
         temp_state = state + dt * (b61 * k1 + b62 * k2 + b63 * k3 + b64 * k4 + b65 * k5)
         call compute_derivatives(temp_state, time + dt * (b61 + b62 + b63 + b64 + b65), k6)
+
+        ! 1. 计算 5 阶高精度解（使用 c 系数）
+        state_5th = state + dt * (c1 * k1 + c3 * k3 + c4 * k4 + c5 * k5 + c6 * k6)
+        call compute_derivatives(state_5th, time + dt, k7)
+
+        ! 3. 计算 4 阶低精度解（使用 d 系数），用于误差评估
+        state_4th = state + dt * (d1 * k1 + d3 * k3 + d4 * k4 + d5 * k5 + d6 * k6 + d7 * k7)
+
+        ! 4. 误差评估
+        error_estimate_vector = abs(state_5th - state_4th)
         
-        ! 4阶解
-        state_4th = state + dt * (c1 * k1 + c3 * k3 + c4 * k4 + c5 * k5 + c6 * k6)
-        
-        ! 5阶解
-        state_5th = state + dt * (d1 * k1 + d3 * k3 + d4 * k4 + d5 * k5 + d6 * k6 + d7 * k6)
-        
-        ! 误差估计
-        error_estimate = sqrt(sum((state_5th - state_4th)**2))
     end subroutine rkf45_step
 
     ! ======================================================================
     ! RKF 7(8) 单步推进核心
     ! 计算高精度的新状态，并返回截断误差估计向量
     ! ======================================================================
-    subroutine rkf78_step(state, dt, time, state_7th, state_8th, error_estimate)
+    subroutine rkf78_step(state, dt, time, state_7th, state_8th, error_estimate_vector)
         real(DP), dimension(6), intent(in) :: state
         real(DP), intent(in) :: dt, time
         real(DP), dimension(6), intent(out) :: state_7th, state_8th
-        real(DP), intent(out) :: error_estimate
+        real(DP), dimension(6), intent(out) :: error_estimate_vector
         
         real(DP), dimension(6) :: f0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12
         
@@ -391,7 +415,7 @@ contains
         if (dt == 0.0_DP) then
             state_7th = state
             state_8th = state
-            error_estimate = 0.0_DP
+            error_estimate_vector = 0.0_DP
             return
         end if
 
@@ -441,7 +465,7 @@ contains
         ! ==========================================
         ! 修正点 2：修复标量化计算时丢失变量声明的问题
         ! ==========================================
-        error_estimate = sqrt(sum((state_8th - state_7th)**2))
+        error_estimate_vector = abs(state_8th - state_7th)
         
     end subroutine rkf78_step
 

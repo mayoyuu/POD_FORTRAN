@@ -78,8 +78,8 @@ module pod_config
         real(DP) :: rkf45_rel_tol = 1.0e-12_DP  ! RKF45积分器相对容差
         real(DP) :: rkf45_min_step = 1.0e-6_DP  ! RKF45最小步长
         real(DP) :: rkf45_max_step = 3600.0_DP  ! RKF45最大步长
-        real(DP) :: rkf78_abs_tol = 1.0e-7_DP  ! RKF78积分器容差
-        real(DP) :: rkf78_rel_tol = 1.0e-7_DP  ! RKF78积分器相对容差
+        real(DP) :: rkf78_abs_tol = 1.0e-12_DP  ! RKF78积分器容差
+        real(DP) :: rkf78_rel_tol = 1.0e-12_DP  ! RKF78积分器相对容差
         real(DP) :: rkf78_min_step = 1.0e-6_DP  ! RKF78最小步长
         real(DP) :: rkf78_max_step = 3600.0_DP  ! RKF78最大步长
 
@@ -232,8 +232,8 @@ contains
         config%rkf45_rel_tol = 1.0e-12_DP
         config%rkf45_min_step = 1.0e-6_DP
         config%rkf45_max_step = 3600.0_DP
-        config%rkf78_abs_tol = 1.0e-7_DP
-        config%rkf78_rel_tol = 1.0e-7_DP
+        config%rkf78_abs_tol = 1.0e-12_DP
+        config%rkf78_rel_tol = 1.0e-12_DP
         config%rkf78_min_step = 1.0e-6_DP
         config%rkf78_max_step = 3600.0_DP
         
@@ -359,8 +359,8 @@ contains
         write(unit, '(A)') 'rkf45_rel_tol = 1.0e-12'
         write(unit, '(A)') 'rkf45_min_step = 1.0e-6'
         write(unit, '(A)') 'rkf45_max_step = 3600.0'
-        write(unit, '(A)') 'rkf78_abs_tol = 1.0e-8'
-        write(unit, '(A)') 'rkf78_rel_tol = 1.0e-8'
+        write(unit, '(A)') 'rkf78_abs_tol = 1.0e-12'
+        write(unit, '(A)') 'rkf78_rel_tol = 1.0e-12'
         write(unit, '(A)') 'rkf78_min_step = 1.0e-6'
         write(unit, '(A)') 'rkf78_max_step = 3600.0'
         write(unit, '(A)') ''

@@ -5,6 +5,10 @@ module pod_force_model_module
     use pod_gravity_model_module, only: gravity_field
     
     implicit none
+
+    real(DP), public :: current_epoch0 = 0.0_DP
+    
+    public :: set_propagation_epoch
     
     ! =========================================================
     ! N 体常量定义
@@ -30,7 +34,13 @@ module pod_force_model_module
     real(DP), parameter :: AU_KM = 149597870.7_DP           ! 1 AU (km)
 
 contains
-        !> 计算总加速度的主函数
+    ! 设置基准历元的接口 (顶层调用)
+    subroutine set_propagation_epoch(epoch)
+        real(DP), intent(in) :: epoch
+        current_epoch0 = epoch
+    end subroutine set_propagation_epoch
+
+    !> 计算总加速度的主函数
     subroutine compute_acceleration(position, velocity, time, acceleration)
         real(DP), dimension(3), intent(in) :: position, velocity
         real(DP), intent(in) :: time  ! 这里的 time 必须是绝对 TDB 秒数

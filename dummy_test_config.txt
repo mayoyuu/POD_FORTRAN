@@ -1,15 +1,23 @@
 # POD Fortran 配置文件
-# 生成时间: 2026-04-01 15:27:28             
+# 生成时间: 2026-04-01 18:54:41             
 
 # 轨道传播参数
+LU = 384400.0
+TU = 375190.26189464843
+MU = 6.045626292270688E+24
+VU = 1.024546847401753
+AccU = 2.730739444643263E-06
 propagation_step = 60.0
-propagation_tolerance = 1.0e-12
+propagation_abs_tol = 1.0e-12
+propagation_rel_tol = 1.0e-12
 max_propagation_steps = 10000
 rk4_step_size = 60.0
-rkf45_tolerance = 1.0e-12
+rkf45_abs_tol = 1.0e-12
+rkf45_rel_tol = 1.0e-12
 rkf45_min_step = 1.0e-6
 rkf45_max_step = 3600.0
-rkf78_tolerance = 1.0e-7
+rkf78_abs_tol = 1.0e-8
+rkf78_rel_tol = 1.0e-8
 rkf78_min_step = 1.0e-6
 rkf78_max_step = 3600.0
 

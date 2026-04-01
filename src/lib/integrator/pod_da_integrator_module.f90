@@ -106,9 +106,9 @@ contains
         type(AlgebraicVector), intent(inout) :: new_state
         
         type(AlgebraicVector) :: state_7th, state_8th
-        real(DP) :: error_estimate, tolerance
+        real(DP) :: error_estimate, abs_tol
         
-        tolerance = config%propagation_tolerance
+        abs_tol = config%propagation_abs_tol
         
         call da_rkf78_step(state, dt, time, state_7th, state_8th, error_estimate)
         
@@ -116,7 +116,7 @@ contains
         new_state = state_8th
         
         ! 简单的误差检查逻辑
-        if (error_estimate > tolerance) then
+        if (error_estimate > abs_tol) then
             ! 这里可以添加警告，但在自适应循环中，这个逻辑会被上层接管
         end if
     end subroutine da_rkf78_integrate
@@ -126,10 +126,10 @@ contains
     ! =========================================================
     ! 自适应步长控制主循环 (DA版)
     ! =========================================================
-    subroutine da_adaptive_step_integrate(state, t_start, t_end, max_steps, tolerance, &
+    subroutine da_adaptive_step_integrate(state, t_start, t_end, max_steps, abs_tol, &
                                           integrator_method, times, states, n_steps)
         type(AlgebraicVector), intent(in) :: state
-        real(DP), intent(in) :: t_start, t_end, tolerance
+        real(DP), intent(in) :: t_start, t_end, abs_tol
         integer, intent(in) :: max_steps
         integer, intent(in) :: integrator_method  ! 新增参数：选择使用 RKF45 还是 RKF78
         real(DP), allocatable, dimension(:), intent(out) :: times
@@ -186,7 +186,7 @@ contains
                 stop
             end if
             
-            if (error_estimate <= tolerance) then
+            if (error_estimate <= abs_tol) then
                 current_state = next_state_high
                 current_time = current_time + dt
                 n_steps = n_steps + 1
@@ -198,7 +198,7 @@ contains
                 
                 
                 if (error_estimate > 0.0_DP) then
-                    dt = safety_factor * dt * (tolerance / error_estimate)**exp_power
+                    dt = safety_factor * dt * (abs_tol / error_estimate)**exp_power
                 end if
                 dt = max(dt_min, min(dt_max, dt))
             else
@@ -218,11 +218,11 @@ contains
                     ! 保持 dt 为 dt_min 继续尝试下一步
                 else
                     ! 正常拒绝这一步，减小步长，重新计算当前时刻
-                    dt = safety_factor * dt * (tolerance / error_estimate)**exp_power
+                    dt = safety_factor * dt * (abs_tol / error_estimate)**exp_power
                     dt = max(dt_min, dt)
                 end if
             end if
-            !     dt = safety_factor * dt * (tolerance / error_estimate)**0.25_DP
+            !     dt = safety_factor * dt * (abs_tol / error_estimate)**0.25_DP
             !     dt = max(dt_min, dt)
             ! end if
             
