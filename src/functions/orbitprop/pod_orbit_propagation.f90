@@ -29,7 +29,7 @@ module pod_orbit_propagation
     
 contains
 
-    !> 傻瓜式交互主程序：只需调用此函数，跟着终端提示走即可
+    !>交互主程序：只需调用此函数，跟着终端提示走即可
     subroutine run_orbit_propagation()
         type(orbit_state) :: initial_state
         type(propagation_result) :: result

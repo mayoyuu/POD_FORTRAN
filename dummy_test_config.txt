@@ -55,13 +55,15 @@ memory_limit = 1.0e9
 use_gpu = false
 
 # 力模型参数 (地月空间 Cislunar 特化) earth_degree = 10 moon_degree = 10
-use_earth_nspheric = false
-use_moon_nspheric = false
+use_earth_nspheric = true
+use_moon_nspheric = true
 use_third_body = true
 use_srp = false
 use_drag = false
 use_relativity = false
-active_planets = 3,10
+active_planets = 3,10,11
+earth_degree = 10
+earth_order = 10
 
 
 # 测量模型参数

@@ -10,12 +10,15 @@
 module pod_uq_da_module
     use pod_global, only: DP, MAX_STRING_LEN
     ! 引入基类和积分器常量
-    use pod_uq_base_module, only: uq_propagator_base, INTEG_RK4, INTEG_RKF45, INTEG_RKF78
+    use pod_uq_base_module, only: uq_propagator_base
     use pod_uq_state_module, only: uq_state_type
     use pod_dace_classes
+    use pod_da_force_model_module, only: set_propagation_epoch
+    use pod_config, only: config
     ! 引入你的底层 DA 积分器和对应的方法常量
     use pod_da_integrator_module, only: da_adaptive_step_integrate, da_rk4_integrate, &
                                         METHOD_RKF45, METHOD_RKF78
+
     implicit none
     private
     public :: uq_da_propagator
@@ -35,8 +38,11 @@ contains
     function da_get_method_name(this) result(name)
         class(uq_da_propagator), intent(in) :: this
         character(len=MAX_STRING_LEN)       :: name
+        if (this%integrator_type == -1) continue
         name = "Differential Algebra (DA) Propagator"
     end function da_get_method_name
+
+    !> 核心传播实现
 
     !> 核心传播实现
     subroutine da_propagate(this, t_start, t_end, input_state, output_state)
@@ -45,89 +51,83 @@ contains
         type(uq_state_type), intent(in)        :: input_state
         type(uq_state_type), intent(inout)     :: output_state
         
-        type(AlgebraicVector) :: state_da_0, state_da_f, state_da_next
+        type(AlgebraicVector) :: state_da_0, state_da_f
         real(DP), allocatable :: times(:)
         type(AlgebraicVector), allocatable :: states(:)
         type(CompiledDA)      :: compiled_state
         integer :: n_steps, i, n_particles, dim
         real(DP) :: eval_inputs(6), eval_results(6)
-        real(DP) :: t_current, dt_step
+        real(DP) :: t_start_nondim, t_end_nondim
+    
 
         dim = size(input_state%samples, 1)
         n_particles = size(input_state%samples, 2)
         
-        ! 调用修正后的内存分配函数
+        ! 1. 为输出分布分配内存
         call output_state%allocate_memory(dim, n_particles)
 
-        ! 1. 初始化 DA 中心状态 (以输入的均值为展开点)
+        ! ========================================================
+        ! 核心修改 1：从 this%epoch0 获取基准历元，注入给 DA 物理引擎
+        ! ========================================================
+        call set_propagation_epoch(this%epoch0)
+
+        ! 2. 初始化 DA 中心状态并注入独立方差
         call dace_initialize(this%da_order, dim)
         call state_da_0%init(dim)
-        do i = 1, dim
-            state_da_0%elements(i) = input_state%mean(i) + da_var(i)
+        do i = 1, 3
+            ! 物理均值 + 物理摄动量，随后直接除以特征量度进行无量纲化
+            state_da_0%elements(i)   = (input_state%mean(i) + da_var(i)) / config%LU
+            state_da_0%elements(i+3) = (input_state%mean(i+3) + da_var(i+3)) / config%VU
         end do
 
-        ! 2. 核心：仅做一次 DA 动力学积分！(大幅节省算力)
+        ! 将相对传播时间无量纲化
+        t_start_nondim = t_start / config%TU
+        t_end_nondim   = t_end / config%TU
+
+        ! 3. 核心：仅做一次 DA 动力学积分
         if (this%verbose) write(*,*) '[DA Propagator] 开始中心轨迹 DA 积分传播...'
-        
         select case (this%integrator_type)
-            case (INTEG_RKF45)
-                call da_adaptive_step_integrate(state_da_0, t_start, t_end, 500000, &
-                                                this%abs_error, METHOD_RKF45, times, states, n_steps)
+            case (METHOD_RKF78)
+                call da_adaptive_step_integrate(state_da_0, t_start_nondim, t_end_nondim, &
+                                                METHOD_RKF78, times, states, n_steps)
                 state_da_f = states(n_steps)
-                
-            case (INTEG_RKF78)
-                call da_adaptive_step_integrate(state_da_0, t_start, t_end, 500000, &
-                                                this%abs_error, METHOD_RKF78, times, states, n_steps)
+            case (METHOD_RKF45)
+                call da_adaptive_step_integrate(state_da_0, t_start_nondim, t_end_nondim, &
+                                                METHOD_RKF45, times, states, n_steps)
                 state_da_f = states(n_steps)
-                
-            case (INTEG_RK4)
-                ! RK4 通常为定步长，这里加入一个简单的定步长循环到达 t_end
-                state_da_f = state_da_0
-                t_current = t_start
-                do while (t_current < t_end)
-                    ! 防止最后一步越界
-                    dt_step = min(this%dt_initial, t_end - t_current) 
-                    call da_rk4_integrate(state_da_f, dt_step, t_current, state_da_next)
-                    state_da_f = state_da_next
-                    t_current = t_current + dt_step
-                end do
-                
             case default
                 write(*,*) '[ERROR] DA Propagator: 未知的积分器类型！'
                 return
+            ! ... [保留其他的 case，例如 RKF45] ...
         end select
 
-        ! 3. OpenMP 多线程粒子映射求值 (替代 TBB)
-        ! ========================================================
-        ! 3. DA 多项式预编译与多线程快速求值
-        ! ========================================================
-        if (this%verbose) write(*,*) '[DA Propagator] 积分完成，开始预编译多项式...'
-        
-        ! 【核心修复】：在 OpenMP 循环之外，单线程下编译，生成只读的求值计划
+        ! 4. 将积分得到的多项式还原回物理量纲
+        do i = 1, 3
+            state_da_f%elements(i)   = state_da_f%elements(i) * config%LU
+            state_da_f%elements(i+3) = state_da_f%elements(i+3) * config%VU
+        end do
+
+        ! 5. 编译与多线程求值 (天然免疫量纲与历元，纯数学操作)
         compiled_state = state_da_f%compile()
-        
-        if (this%verbose) write(*,*) '[DA Propagator] 编译完成，开始多线程极速求值...'
         
         !$omp parallel do default(none) &
         !$omp private(i, eval_inputs, eval_results) &
-        !$omp shared(n_particles, dim, input_state, output_state, compiled_state) ! <-- 注意共享 compiled_state
+        !$omp shared(n_particles, dim, input_state, output_state, compiled_state)
         do i = 1, n_particles
-            ! 获取当前粒子相对中心点的偏差向量
+            ! 偏差向量：当前粒子 - 均值
             eval_inputs(:) = input_state%samples(:, i) - input_state%mean(:)
-            
-            ! 【核心修复】：直接调用编译好对象的 eval 方法！
-            ! 它是纯粹的数学代入，绝对线程安全，且速度是之前的几百倍
             eval_results = compiled_state%eval(eval_inputs)
-            
-            ! 存储结果
             output_state%samples(:, i) = eval_results
         end do
         !$omp end parallel do
         
-        ! 【核心修复】：循环结束后，统一释放一次内存
         call compiled_state%destroy()
 
-        if (this%verbose) write(*,*) '[DA Propagator] 误差传播计算完毕。'
+        ! ========================================================
+        ! 核心修改 2：调用封装好的 compute_moments 计算后验均值与协方差
+        ! ========================================================
+        call output_state%compute_moments()
 
+        if (this%verbose) write(*,*) '[DA Propagator] 误差传播计算完毕。'
     end subroutine da_propagate
 end module pod_uq_da_module

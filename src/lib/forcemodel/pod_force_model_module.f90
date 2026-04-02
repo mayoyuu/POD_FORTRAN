@@ -7,7 +7,6 @@ module pod_force_model_module
     implicit none
 
     real(DP), public :: current_epoch0 = 0.0_DP
-    
     public :: set_propagation_epoch
     
     ! =========================================================
