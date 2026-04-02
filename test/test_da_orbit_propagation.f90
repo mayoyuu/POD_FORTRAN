@@ -3,7 +3,6 @@ program test_da_orbit_propagation
     use pod_engine_module, only: pod_engine_init
     use pod_global, only: DP
     use pod_spice, only: str2et
-    use pod_force_model_module, only: init_gravity_network
     
     ! 仅仅引入顶层 DA 传播模块
     use pod_da_orbit_propagation, only: da_orbit_state, da_propagation_result, &

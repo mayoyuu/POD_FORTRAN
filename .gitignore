@@ -1,0 +1,30 @@
+# 编译生成文件
+build/
+*.o
+*.mod
+*.a
+
+# 如果 dace_build 有自己的编译输出目录，也屏蔽掉
+dace_build/build/
+dace_build/*.a
+dace_build/*.o
+
+# 日志与输出数据
+logs/
+output/
+fort.*
+pipeline_res/
+
+# Compiled static libraries (Optional, but recommended to ignore)
+lib/*.a
+
+# IDE/OS specific files
+.DS_Store
+.vscode/
+
+# SPICE Kernels
+kernels/
+*.bsp
+*.tpc
+*.tls
+*.bpc

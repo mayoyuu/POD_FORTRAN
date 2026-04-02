@@ -1,135 +1,107 @@
-# AOC_Fortran
-My cool new project!
+# POD System: Precision Orbit Determination & Propagation Framework
 
-the frame of this project is as follows:
+![Fortran](https://img.shields.io/badge/Fortran-90%2F2008-734f96?logo=fortran)
+![Platform](https://img.shields.io/badge/platform-Linux-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
 
-```POD_Fortran
-    ├── README.md
-    ├── app
-    │   └── pod_demo.f90
-    ├── config
-    │   └── pod_config.txt
-    ├── fort.99
-    ├── fpm.toml
-    ├── kernels
-    │   ├── ck
-    │   │   ├── CATT_DV_111_01_______00179.BC
-    │   │   ├── CATT_DV_124_01_______00193.BC
-    │   │   ├── CATT_DV_136_01_______00207.BC
-    │   │   ├── CATT_DV_145_01_______00216.BC
-    │   │   ├── CATT_DV_147_01_______00218.BC
-    │   │   ├── CATT_DV_160_01_______00233.BC
-    │   │   ├── CATT_DV_174_01_______00248.BC
-    │   │   ├── CATT_DV_190_01_______00266.BC
-    │   │   ├── CATT_DV_199_01_______00276.BC
-    │   │   ├── CATT_DV_257_02_______00344.BC
-    │   │   ├── RATT_DV_111_01_01____00179.BC
-    │   │   ├── RATT_DV_124_01_01____00193.BC
-    │   │   ├── RATT_DV_136_01_01____00207.BC
-    │   │   ├── RATT_DV_145_01_01____00216.BC
-    │   │   ├── RATT_DV_147_01_01____00218.BC
-    │   │   ├── RATT_DV_160_01_01____00233.BC
-    │   │   ├── RATT_DV_174_01_01____00248.BC
-    │   │   ├── RATT_DV_190_01_01____00266.BC
-    │   │   ├── RATT_DV_199_01_01____00276.BC
-    │   │   ├── RATT_DV_257_02_01____00344.BC
-    │   │   ├── ROS_HGA_2015_V0013.BC
-    │   │   └── ROS_SA_2015_V0013.BC
-    │   ├── convtm.tm
-    │   ├── fk
-    │   │   ├── convet.tm
-    │   │   ├── earth_fixed.tf
-    │   │   ├── earth_moon.tf
-    │   │   ├── moon_080317.tf
-    │   │   └── moon_de440_250416.tf
-    │   ├── gravity_models
-    │   │   ├── AIUB-GRL350A.gfc.tab
-    │   │   ├── AIUB-GRL350A.tab
-    │   │   ├── GGM05C.GEO
-    │   │   ├── gggrx_0660pm_sha.tab
-    │   │   └── jggrx_0900d_sha1_original.tab
-    │   ├── lsk
-    │   │   └── naif0012.tls
-    │   ├── pck
-    │   │   ├── Gravity.tpc
-    │   │   ├── earth_000101_230801_230509.bpc
-    │   │   ├── earth_000101_251219_250922.bpc
-    │   │   ├── earth_latest_high_prec.bpc
-    │   │   ├── gm_de431.tpc
-    │   │   ├── moon_pa_de421_1900-2050.bpc
-    │   │   ├── moon_pa_de440_200625.bpc
-    │   │   └── pck00010.tpc
-    │   └── spk
-    │       ├── de421.bsp
-    │       └── de440.bsp
-    ├── lib
-    │   ├── libdace_s.a
-    │   ├── libdace_wrapper.a
-    │   └── libspicelib.a
-    ├── logs
-    │   ├── cat.log
-    │   └── pod_oop.log
-    ├── output
-    ├── rename_to_pod.sh
-    ├── setup_env.sh
-    ├── src
-    │   ├── functions
-    │   │   ├── orbitimprove
-    │   │   │   └── pod_orbit_improvement.f90
-    │   │   └── orbitprop
-    │   │       └── pod_orbit_propagation.f90
-    │   └── lib
-    │       ├── data
-    │       │   └── pod_data_format_module.f90
-    │       ├── forcemodel
-    │       │   ├── pod_da_force_model_module.f90
-    │       │   ├── pod_force_model_module.f90
-    │       │   └── pod_gravity_model_module.f90
-    │       ├── frame
-    │       │   ├── pod_frame_module.f90
-    │       │   └── pod_frame_simple_module.f90
-    │       ├── integrator
-    │       │   ├── pod_da_integrator_module.f90
-    │       │   └── pod_integrator_module.f90
-    │       ├── math
-    │       │   └── pod_basicmath_module.f90
-    │       ├── measurement
-    │       │   └── pod_measurement_model_module.f90
-    │       ├── statistics
-    │       │   └── pod_statistics_module.f90
-    │       ├── system
-    │       │   ├── pod_config_module.f90
-    │       │   ├── pod_dace_classes.f90
-    │       │   ├── pod_global_module.f90
-    │       │   ├── pod_object_base_module.f90
-    │       │   ├── pod_spice.f90
-    │       │   └── pod_system_oop_module.f90
-    │       ├── timesystem
-    │       │   └── pod_time_module.f90
-    │       └── utils
-    │           └── pod_utils.f90
-    ├── structure.txt
-    ├── test
-    │   ├── basic_test.f90
-    │   ├── comprehensive_spice_test.f90
-    │   ├── direct_spice_test.f90
-    │   ├── full_spice_test.f90
-    │   ├── minimal_test.f90
-    │   ├── read_spice_constants.f90
-    │   ├── safe_spice_test.f90
-    │   ├── simple_spice_test.f90
-    │   ├── simple_test.f90
-    │   ├── test_cislunar_force_model.f90
-    │   ├── test_da_twobody.f90
-    │   ├── test_dace_link.f90
-    │   ├── test_frame_oop.f90
-    │   ├── test_module_organization.f90
-    │   ├── test_oop_simple.f90
-    │   ├── test_pod_config.f90
-    │   ├── test_precision.f90
-    │   ├── test_spice.f90
-    │   ├── test_time_system.f90
-    │   └── time_test.f90
-    ├── test_config.txt
-    └── test_log.txt
+## 📌 Overview (项目简介)
+POD System 是一个基于 Fortran 开发的高精度轨道传播与不确定性量化（UQ）框架。本项目不仅支持传统的高精度数值积分（如 RKF45/RKF78），还深度集成了**微分代数（Differential Algebra, DA）**技术，能够高效处理复杂引力场下的高阶状态转移矩阵（STM）计算以及非线性误差传播分析。
+
+适用于深空探测、地月空间（Cislunar）轨道动力学演化及蒙特卡洛（MC）协方差分析。
+
+## ✨ Key Features (核心特性)
+* **多模式轨道传播：** 支持真实物理量积分与无量纲化动力学方程积分。
+* **微分代数（DA）引擎集成：** 借助 DACE 库，支持任意阶泰勒多项式展开，一键获取高阶非线性动力学特征。
+* **高精度引力模型：** 内置日地月多体引力及高阶地球/月球非球形引力场（支持 SPICE 星历调用）。
+* **统一的 UQ 接口：** 极简的 API 设计，只需切换 `METHOD_MC` 或 `METHOD_DA` 即可无缝对比蒙特卡洛与微分代数的误差传播结果。
+
+## 🛠️ Dependencies (依赖库)
+本项目依赖以下外部库：
+* **SPICE Toolkit (`libspicelib.a`)**: 用于获取高精度行星星历与时间系统转换。
+* **DACE (Differential Algebra Core Engine)**: 提供底层微分代数数据结构与 C/C++ 接口 (`libdace_s.a`, `libdace_wrapper.a`)。
+* **Fortran Package Manager (fpm)** 或 **CMake**: 用于项目构建。
+
+## 🚀 Installation (安装指南)
+
+1. **克隆仓库及子模块（获取 DACE 依赖）：**
+   ```bash
+   git clone --recursive [https://github.com/yuu532556-art/POD_FORTRAN.git](https://github.com/yourusername/POD_System.git)
+   cd POD_System
+
+2. **编译外部依赖：**
+
+   Bash
+
+   ```
+   git clone https://github.com/dacelib/dace.git
+   bash setup_env.sh
+   ```
+
+1. **配置物理环境：** 修改 `config/pod_config.txt` 中的引力模型与积分器容差设置。
+
+## 📖 Quick Start (快速开始)
+
+项目提供了顶层封装接口，可以极其方便地进行轨道传播与误差分析。
+
+### 1. 标称轨道传播 (RKF78)
+
+Fortran
+
 ```
+use pod_engine_module, only: pod_engine_init
+use pod_orbit_propagation, only: orbit_state, propagation_result, propagate_orbit
+use pod_da_integrator_module, only: METHOD_RKF78
+
+! 初始化物理环境
+call pod_engine_init('config/pod_config.txt')
+
+! 装载初始状态
+initial_state%state = [100000.0_DP, 50000.0_DP, 20000.0_DP, 1.5_DP, 2.5_DP, 0.5_DP]
+
+! 传播 1 天 (86400 秒)
+call propagate_orbit(initial_state, 86400.0_DP, METHOD_RKF78, result)
+```
+
+### 2. 微分代数 (DA) 误差传播分析
+
+仅需设定 DA 阶数并调用 `run_uq_propagation`：
+
+Fortran
+
+```
+use pod_uq_propagation, only: run_uq_propagation, METHOD_DA
+
+! 设置展开阶数等初始条件...
+call run_uq_propagation( &
+    nominal_state = nominal_orbit, &
+    initial_cov   = initial_covariance, &
+    epoch0        = epoch_start, &
+    t_start       = 0.0_DP, &
+    t_end         = 86400.0_DP, &
+    method_switch = METHOD_DA, &      ! 核心开关：切换至 DA 算法
+    n_particles   = 10000, &
+    initial_state_out = initial_dist, &
+    final_state_out   = final_dist_da &
+)
+```
+
+## 📂 Repository Structure (项目结构)
+
+*为了保持整洁，这里只展示核心源码结构。*
+
+Plaintext
+
+```
+.
+├── app/                  # 包含主程序 demo (如 pod_demo.f90)
+├── config/               # 物理引擎配置文件
+├── src/                  
+│   ├── functions/        # 顶层功能封装 (传播、定轨API)
+│   └── lib/              # 底层核心库 (力模型、积分器、DA核心、参考系等)
+├── test/                 # 单元测试与集成测试用例
+└── setup_env.sh          # 环境配置脚本
+```
+
+## 📝 License & Citation
+
+This project is licensed under the MIT License - see the LICENSE file for details. *(如果你有相关的学术论文正在撰写或准备发表，可以在这里提示：“If you use this code in your research, please cite: [TBD]”*
