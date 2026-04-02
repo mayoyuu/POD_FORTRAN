@@ -6,7 +6,7 @@ module pod_orbit_propagation
                         confirm_action, pause_execution
     use pod_spice, only: str2et
     use pod_integrator_module, only: adaptive_step_integrate, METHOD_RKF45, METHOD_RKF78
-    use pod_force_model_module, only: set_propagation_epoch
+    use pod_force_model_module, only: set_propagation_epoch,current_epoch0
     
     implicit none
     

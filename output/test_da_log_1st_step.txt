@@ -1,0 +1,174 @@
+[  0%]     pod_force_model_module.f90
+[  3%]     pod_force_model_module.f90  done.
+[  3%]  pod_da_force_model_module.f90
+[  6%]  pod_da_force_model_module.f90  done.
+[  6%]          pod_engine_module.f90
+[  9%]          pod_engine_module.f90  done.
+[  9%]      pod_integrator_module.f90
+[ 12%]      pod_integrator_module.f90  done.
+[ 12%]   pod_da_integrator_module.f90
+[ 15%]   pod_da_integrator_module.f90  done.
+[ 15%]   pod_da_orbit_propagation.f90
+[ 18%]   pod_da_orbit_propagation.f90  done.
+[ 18%]      pod_orbit_propagation.f90
+[ 21%]      pod_orbit_propagation.f90  done.
+[ 21%]           test_force_model.f90
+[ 25%]           test_force_model.f90  done.
+[ 25%]        test_da_force_model.f90
+[ 28%]        test_da_force_model.f90  done.
+[ 28%]               libPOD_Fortran.a
+[ 31%]               libPOD_Fortran.a  done.
+[ 31%]  test_da_orbit_propagation.f90
+[ 34%]  test_da_orbit_propagation.f90  done.
+[ 34%]     test_orbit_propagation.f90
+[ 37%]     test_orbit_propagation.f90  done.
+[ 37%]                       pod_demo
+[ 40%]                       pod_demo  done.
+[ 40%]               test_time_system
+[ 43%]               test_time_system  done.
+[ 43%]              direct_spice_test
+[ 46%]              direct_spice_test  done.
+[ 46%]                test_oop_simple
+[ 50%]                test_oop_simple  done.
+[ 50%]                 test_frame_oop
+[ 53%]                 test_frame_oop  done.
+[ 53%]  test_calc_normalization_units
+[ 56%]  test_calc_normalization_units  done.
+[ 56%]                 test_precision
+[ 59%]                 test_precision  done.
+[ 59%]                      time_test
+[ 62%]                      time_test  done.
+[ 62%]      test_da_orbit_propagation
+[ 65%]      test_da_orbit_propagation  done.
+[ 65%]              simple_spice_test
+[ 68%]              simple_spice_test  done.
+[ 68%]                test_pod_config
+[ 71%]                test_pod_config  done.
+[ 71%]           read_spice_constants
+[ 75%]           read_spice_constants  done.
+[ 75%]                   minimal_test
+[ 78%]                   minimal_test  done.
+[ 78%]                    simple_test
+[ 81%]                    simple_test  done.
+[ 81%]               test_force_model
+[ 84%]               test_force_model  done.
+[ 84%]       comprehensive_spice_test
+[ 87%]       comprehensive_spice_test  done.
+[ 87%]                     basic_test
+[ 90%]                     basic_test  done.
+[ 90%]       test_module_organization
+[ 93%]       test_module_organization  done.
+[ 93%]         test_orbit_propagation
+[ 96%]         test_orbit_propagation  done.
+[ 96%]            test_da_force_model
+[100%]            test_da_force_model  done.
+[100%] Project compiled successfully.
+ ==================================================
+       POD System - DA 轨道传播顶层集成测试       
+ ==================================================
+ >>> 正在启动 POD 计算引擎...
+ 初始化SPICE系统...
+ 已加载闰秒内核: ./kernels/lsk/naif0012.tls
+ 已加载行星内核: ./kernels/pck/pck00010.tpc
+ 已加载星历内核: ./kernels/spk/de440.bsp
+ 已加载地球内核: ./kernels/pck/earth_latest_high_prec.bpc
+ SPICE系统初始化完成
+ 默认配置已设置
+ 配置文件加载完成: dummy_test_config.txt
+ >>> 正在初始化多体统一引力网...
+ === 当前配置 ===
+ 
+ 轨道传播参数:
+   长度单位 (LU):    384400.00000000000       km
+   时间单位 (TU):    375190.26189464843       秒
+   质量单位 (MU):    6.0456262922706885E+024  kg
+   速度单位 (VU):    1.0245468474017529       km/s
+   加速度单位 (AccU):    2.7307394446432630E-006  km/s²
+   传播步长:    60.000000000000000       秒
+   传播绝对容差:    9.9999999999999998E-013
+   传播相对容差:    9.9999999999999998E-013
+   最大传播步数:        10000
+   RK4步长:    60.000000000000000       秒
+   RKF45绝对容差:    1.0000000000000000E-014
+   RKF45相对容差:    1.0000000000000000E-014
+   RKF45最小步长:    9.9999999999999995E-007  秒
+   RKF45最大步长:    3000.0000000000000       秒
+   RKF78绝对容差:    1.0000000000000000E-014
+   RKF78相对容差:    1.0000000000000000E-014
+   RKF78最小步长:    9.9999999999999995E-007  秒
+   RKF78最大步长:    3000.0000000000000       秒
+ 
+ 轨道改进参数:
+   收敛容差:    1.0000000000000000E-008
+   最大迭代次数:          100
+   阻尼因子:   0.10000000000000001     
+   自适应阻尼:  T
+ 
+ 坐标系统参数:
+   参考坐标系: J2000
+   中心天体: EARTH
+   时间系统: UTC
+   岁差修正:  T
+   章动修正:  T
+ 
+ 输出参数:
+   详细输出:  T
+   保存结果:  T
+   输出格式: CSV
+   日期格式: YYYY-MM-DD HH:MM:SS
+   数字格式: F20.12
+   科学计数法:  F
+   输出精度:           12  位
+ 
+ 数值计算参数:
+   引力常数:    398600.44179999997       km³/s²
+   数值容差:    1.0000000000000001E-015
+   最大矩阵大小:         1000
+ 
+ 性能参数:
+   最大线程数:            1
+   并行计算:  F
+   内存限制:    1000000000.0000000       bytes
+   GPU加速:  F
+ 
+ 力模型参数 :
+   地球高阶引力场: 禁用
+   月球高阶引力场: 禁用
+   第三体摄动:  T
+   太阳辐射压:  F
+   大气阻力:  F
+   相对论效应:  F
+  已激活的引力网络节点 (ID):   3 10 
+ 
+ 测量模型参数:
+   测量噪声标准差:    1.0000000000000000E-003
+   使用测量权重:  T
+   异常值阈值:    3.0000000000000000     
+ 
+ 文件I/O参数:
+   数据目录: ./data/
+   结果目录: ./results/
+   自动备份:  T
+   备份间隔:         3600  秒
+ 
+ 调试参数:
+   调试模式:  F
+   调试级别:            1
+   保存中间结果:  F
+   调试目录: ./debug/
+ 
+ >>> 引擎点火完成，已挂载配置: dummy_test_config.txt
+ --------------------------------------------------
+ >>> 正在装载 DA 轨道初始状态...
+ >>> 开始微分代数 (DA) 轨道积分...
+ -----------------------------------------
+ 正在准备底层物理环境与 DA 数值积分器...
+ [DACE Engine] Initializing... Max Order =            3 , Variables =            6
+ [DACE Engine] Initialization Complete.
+ DA 积分器已启动，正在自适应计算中 (过程可能较长)...
+ >>> 正在初始化多体统一引力网...
+ 1st step   0.0000000000000000     
+ >>> 地球    398600.43550700002       km^3/s^2; 卫星位置模长          155  km
+ >>> 此时的引力为   -2.7205280209606696E-005  -1.3602640104803348E-005  -5.4410560419213393E-006
+ >>> 天体位置为:    402448.63988732727       km; 卫星相对位置为:          171  km
+ 加上第三体之后  -2.7197589560537682E-005  -1.3594097846628719E-005  -5.4388272044635137E-006

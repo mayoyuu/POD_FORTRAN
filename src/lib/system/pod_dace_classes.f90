@@ -397,6 +397,7 @@ contains
         class(DA), intent(inout) :: lhs
         real(8), intent(in) :: val
         if (lhs%handle == -1) call lhs%init()
+        call c_fdace_mul_double(lhs%handle, 0.0_DP, lhs%handle) ! 先清零 DA，再加上实数值
         call c_fdace_add_double(lhs%handle, val, lhs%handle)
     end subroutine da_assign_real
 

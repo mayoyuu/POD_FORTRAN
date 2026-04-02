@@ -1,4 +1,4 @@
-program test_cislunar_force_model
+program test_force_model
     use pod_global, only: DP
     use pod_spice, only: spice_init, str2et  
     use pod_config, only: config, load_config, print_config, resolve_config_dependencies
@@ -68,6 +68,7 @@ program test_cislunar_force_model
     
     ! 3. 设定物理初始状态 (2024-03-09T12:00:00)
     call str2et('2024-03-09T12:00:00', tdb_epoch)
+    write(*,*) ">>> 传播历元 (TDB) : ", tdb_epoch, " 秒"
     position = [100000.0_DP, 50000.0_DP, 20000.0_DP]  ! km
     velocity = [1.5_DP, 2.5_DP, 0.5_DP]               ! km/s
     initial_state_real = [position, velocity]
@@ -156,4 +157,4 @@ program test_cislunar_force_model
     if (allocated(times)) deallocate(times)
     if (allocated(states)) deallocate(states)
     
-end program test_cislunar_force_model
+end program test_force_model

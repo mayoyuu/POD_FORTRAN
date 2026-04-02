@@ -61,6 +61,13 @@ contains
         else
             acc_drag = 0.0_DP
         end if
+
+        ! 2.2 太阳辐射压 (SRP)
+        if (config%use_srp) then
+            call compute_solar_radiation_pressure(position, time, acc_srp)
+        else
+            acc_srp = 0.0_DP
+        end if
         
         ! 3. 总和
         acceleration = acc_grav + acc_drag + acc_srp
@@ -91,6 +98,9 @@ contains
                 
                 ! A.1 中心点质量引力
                 acc_grav = acc_grav - gm_planets(i) * position / r_mag**3
+                ! write(*,*) '1st step', time
+                ! write(*,*) '>>> 地球 ', gm_planets(i), ' km^3/s^2; 卫星位置模长 ', r_mag, ' km'
+                ! write(*,*) '>>> 此时的引力为 ', acc_grav
 
                 ! write(*,*) '>>> 地球 ', gm_planets(i), ' km^3/s^2; 卫星位置模长 ', r_mag, ' km'
                 
@@ -124,9 +134,11 @@ contains
 
                 ! write(*,*) '>>> 天体位置为: ', r_body_mag, ' km; 卫星相对位置为: ', r_rel_mag, ' km'
                 
+
                 ! B.1 第三体点质量引力 (直接项 + 间接项)
                 acc_grav = acc_grav - gm_planets(i) * (r_rel / r_rel_mag**3 + body_pos / r_body_mag**3)
-                
+                ! write(*,*) '加上第三体之后', acc_grav
+                ! stop
                 ! B.2 月球高阶非球形引力
                 if (i == 10 .and. config%use_moon_nspheric) then
                     ! 对于月球，必须转到月固系 (IAU_MOON 或 MOON_PA)

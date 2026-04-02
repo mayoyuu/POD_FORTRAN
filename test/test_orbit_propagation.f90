@@ -1,13 +1,14 @@
-program test_top_level
+program test_orbit_propagation
+    use pod_engine_module, only: pod_engine_init
     use pod_global, only: DP
-    use pod_spice, only: spice_init, str2et
-    use pod_config, only: config, load_config, resolve_config_dependencies
+    use pod_spice, only: str2et
     use pod_force_model_module, only: init_gravity_network
     
     ! 仅仅引入顶层传播模块
     use pod_orbit_propagation, only: orbit_state, propagation_result, &
                                      propagate_orbit, display_propagation_results, &
                                      save_propagation_results, cleanup_propagation_result
+    use pod_da_integrator_module, only: METHOD_RKF45, METHOD_RKF78
     
     implicit none
     
@@ -18,29 +19,10 @@ program test_top_level
     write(*,*) "       POD System - 轨道传播顶层集成测试        "
     write(*,*) "=================================================="
     
-    ! 1. 系统底层初始化
-    call spice_init()
-    call load_config('dummy_test_config.txt')
-    
-    ! --- 物理环境配置 (仅供本次测试覆盖) ---
-    config%use_earth_nspheric = .true.
-    config%use_moon_nspheric  = .true.
-    config%use_third_body     = .true.
-    config%use_planet         = .false. 
-    config%use_planet(3)      = .true.
-    config%use_planet(10)     = .true.
-    config%use_planet(11)     = .true.
-
-    ! 归一化单位与容差
-    config%LU   = 384400.0_DP
-    config%TU   = 375189.032672856_DP
-    config%VU   = 1.024550212739266_DP
-    config%AccU = 2.730757367307436E-6_DP
-    config%rkf78_rel_tol = 1.0e-12_DP
-    config%rkf78_abs_tol = 1.0e-14_DP
-    
-    call resolve_config_dependencies()
-    call init_gravity_network()
+    ! =========================================================
+    ! 1. 系统底层初始化 
+    ! =========================================================
+    call pod_engine_init('dummy_test_config.txt')
     
     ! =========================================================
     ! 2. 用户调用层 (面向物理真实量)
@@ -59,7 +41,7 @@ program test_top_level
     ! - 2:             选择 RKF78 (1代表RKF45，2代表RKF78)
     ! - result:        用于接收输出结果的结构体
     write(*,*) ">>> 开始轨道积分..."
-    call propagate_orbit(initial_state, 86400.0_DP, 2, result)
+    call propagate_orbit(initial_state, 86400.0_DP, METHOD_RKF78, result)
     
     ! =========================================================
     ! 3. 结果处理
@@ -76,4 +58,4 @@ program test_top_level
     
     write(*,*) "测试顺利结束！"
 
-end program test_top_level
+end program test_orbit_propagation

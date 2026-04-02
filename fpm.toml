@@ -16,7 +16,4 @@ link = ["spicelib", "m", "dace_wrapper", "dace_s", "stdc++","openblas"]
 [install]
 library = false
 
-[[test]]
-name = "dace_pipeline"
-main = "test_da_pipeline.f90"
 

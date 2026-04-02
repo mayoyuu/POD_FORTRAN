@@ -12,14 +12,14 @@ propagation_abs_tol = 1.0e-12
 propagation_rel_tol = 1.0e-12
 max_propagation_steps = 10000
 rk4_step_size = 60.0
-rkf45_abs_tol = 1.0e-12
-rkf45_rel_tol = 1.0e-12
+rkf45_abs_tol = 1.0e-14
+rkf45_rel_tol = 1.0e-14
 rkf45_min_step = 1.0e-6
-rkf45_max_step = 3600.0
-rkf78_abs_tol = 1.0e-8
-rkf78_rel_tol = 1.0e-8
+rkf45_max_step = 3000.0
+rkf78_abs_tol = 1.0e-14
+rkf78_rel_tol = 1.0e-14
 rkf78_min_step = 1.0e-6
-rkf78_max_step = 3600.0
+rkf78_max_step = 3000.0
 
 # 轨道改进参数
 convergence_tolerance = 1.0e-8
@@ -54,16 +54,15 @@ parallel_computation = false
 memory_limit = 1.0e9
 use_gpu = false
 
-# 力模型参数 (地月空间 Cislunar 特化)
-use_earth_nspheric = true
-use_moon_nspheric = true
+# 力模型参数 (地月空间 Cislunar 特化) earth_degree = 10 moon_degree = 10
+use_earth_nspheric = false
+use_moon_nspheric = false
 use_third_body = true
-use_srp = true
+use_srp = false
 use_drag = false
 use_relativity = false
-earth_degree = 10
-moon_degree = 10
-active_planets = 3, 10, 11
+active_planets = 3,10
+
 
 # 测量模型参数
 measurement_noise_std = 1.0e-3

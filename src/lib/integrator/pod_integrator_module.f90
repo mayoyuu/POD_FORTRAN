@@ -2,7 +2,7 @@ module pod_integrator_module
     use pod_global, only: DP
     use pod_config, only: config
     use pod_force_model_module, only: compute_acceleration, current_epoch0
-
+    use, intrinsic :: ieee_arithmetic, only: ieee_is_nan
     
     implicit none
 
@@ -21,7 +21,7 @@ contains
         real(DP) :: real_time
         real(DP), dimension(3) :: position, velocity, acceleration
         
-        ! 1. 还原真实物理时间 (核心魔法：大数 + 小数 * 缩放)
+        ! 1. 还原真实物理时间 
         real_time = current_epoch0 + (time_unit * config%TU)
         
         ! 2. 还原物理状态
@@ -158,8 +158,8 @@ contains
         ! 如果用户显式传入了参数，则覆盖 config 的默认设定
         if (present(rel_tol_in)) rel_tol = rel_tol_in
         if (present(abs_tol_in)) abs_tol = abs_tol_in
-        if (present(dt_min_in))  dt_min  = dt_min_in
-        if (present(dt_max_in))  dt_max  = dt_max_in
+        if (present(dt_min_in))  dt_min  = dt_min_in/config%TU
+        if (present(dt_max_in))  dt_max  = dt_max_in/config%TU
         
         safety_factor = 0.9_DP ! 这个也可以未来加进 config 里
         
@@ -215,8 +215,8 @@ contains
             wrms_error = sqrt(sum((error_estimate_vector / scale_vector)**2) / 6.0_DP)
 
             ! 【防暴走补丁】捕捉 NaN 异常
-            if (wrms_error /= wrms_error) then 
-                print *, "FATAL: WRMS 误差产生 NaN，物理模型发散！强行退出积分。"
+            if (ieee_is_nan(wrms_error)) then 
+                print *, "FATAL: WRMS 误差产生 NaN，强行退出积分。"
                 exit
             end if
 
@@ -230,7 +230,7 @@ contains
                 states(n_steps, :) = current_state
                 
                 ! 调整（尝试放大）步长，使用动态的 exp_power
-                dt = safety_factor * dt * (1.0_DP / wrms_error)**exp_power
+                dt = safety_factor * dt * (1.0_DP / max(wrms_error, 1.0e-15_DP))**exp_power
                 dt = max(dt_min, min(dt_max, dt))
                 
             else
@@ -412,7 +412,7 @@ contains
         ! ==========================================
         ! 修正点 1：清理了 dt == 0.0_DP 时的历史变量名
         ! ==========================================
-        if (dt == 0.0_DP) then
+        if (dt <= 1.0e-15_DP) then
             state_7th = state
             state_8th = state
             error_estimate_vector = 0.0_DP

@@ -1,45 +1,50 @@
 module pod_da_integrator_module
     use pod_global, only: DP
     use pod_config, only: config
-    ! 引入你的 DA 版力学模型 (请确保你有这个函数)
-    use pod_da_force_model_module, only: da_compute_acceleration
-    ! 引入我们的 DA 核心类
+    use pod_da_force_model_module, only: da_compute_acceleration,current_epoch0
     use pod_dace_classes
+
+    use, intrinsic :: ieee_arithmetic, only: ieee_is_nan
     
     implicit none
+
     ! --- 积分器类型常量定义 (暴露给外部用户使用) ---
     integer, parameter, public :: METHOD_RKF45 = 1
     integer, parameter, public :: METHOD_RKF78 = 2
     
 contains
+
     ! =========================================================
-    ! 计算导数 (DA版)
+    ! 接口极致纯粹，积分器完全不知道 epoch0 的存在 (DA版)
     ! =========================================================
-    subroutine da_compute_derivatives(state, time, derivatives)
-        type(AlgebraicVector), intent(in) :: state
-        real(DP), intent(in) :: time
-        type(AlgebraicVector), intent(inout) :: derivatives
+    subroutine da_compute_derivatives(state_unit, time_unit, derivatives_unit)
+        type(AlgebraicVector), intent(in) :: state_unit
+        real(DP), intent(in) :: time_unit   ! 积分器传来的无量纲相对时间
+        type(AlgebraicVector), intent(inout) :: derivatives_unit
         
+        real(DP) :: real_time
         type(AlgebraicVector) :: position, velocity, acceleration
         integer :: i
         
         call position%init(3)
         call velocity%init(3)
         call acceleration%init(3)
+        if (derivatives_unit%size /= 6) call derivatives_unit%init(6)
         
-        ! 提取位置和速度
+        ! 1. 还原物理状态 (空间的量纲还原)
         do i = 1, 3
-            position%elements(i) = state%elements(i)
-            velocity%elements(i) = state%elements(i+3)
+            position%elements(i) = state_unit%elements(i) * config%LU
+            velocity%elements(i) = state_unit%elements(i+3) * config%VU
         end do
         
-        ! 计算加速度 (调用专用的 DA 加速度计算函数)
-        call da_compute_acceleration(position, velocity, time, acceleration)
+        ! 2. 调用物理引擎 (还原时间并计算加速度)
+        real_time = current_epoch0 + time_unit * config%TU
+        call da_compute_acceleration(position, velocity, real_time, acceleration)
         
-        ! 构建导数向量 [dx/dt, dy/dt, dz/dt, dvx/dt, dvy/dt, dvz/dt]
+        ! 3. 导数去量纲化
         do i = 1, 3
-            derivatives%elements(i) = velocity%elements(i)
-            derivatives%elements(i+3) = acceleration%elements(i)
+            derivatives_unit%elements(i) = velocity%elements(i) / config%VU
+            derivatives_unit%elements(i+3) = acceleration%elements(i) / config%AccU
         end do
         
     end subroutine da_compute_derivatives
@@ -80,18 +85,15 @@ contains
         ! y(t + dt) = y(t) + dt*(k1 + 2*k2 + 2*k3 + k4)/6
         new_state = state + (dt / 6.0_DP) * (k1 + 2.0_DP * k2 + 2.0_DP * k3 + k4)
         
-        ! ! 销毁局部 DA 向量
-        ! call k1%destroy(); call k2%destroy(); call k3%destroy(); call k4%destroy()
-        ! call temp_state%destroy()
     end subroutine da_rk4_integrate
 
       subroutine da_rkf45_integrate(state, dt, time, new_state)
         type(AlgebraicVector), intent(in) :: state
         real(DP), intent(in) :: dt, time
-        type(AlgebraicVector), intent(inout) :: new_state
+        type(AlgebraicVector), intent(out) :: new_state
         
         type(AlgebraicVector) :: temp_4th, temp_5th
-        real(DP) :: err_est
+        type(AlgebraicVector) :: err_est
         
         ! 1. 直接调用核心计算引擎
         call da_rkf45_step(state, dt, time, temp_4th, temp_5th, err_est)
@@ -103,12 +105,13 @@ contains
     subroutine da_rkf78_integrate(state, dt, time, new_state)
         type(AlgebraicVector), intent(in) :: state
         real(DP), intent(in) :: dt, time
-        type(AlgebraicVector), intent(inout) :: new_state
+        type(AlgebraicVector), intent(out) :: new_state
         
         type(AlgebraicVector) :: state_7th, state_8th
-        real(DP) :: error_estimate, abs_tol
+        type(AlgebraicVector) :: error_estimate
+        real(DP) :: tolerance
         
-        abs_tol = config%propagation_abs_tol
+        tolerance = config%propagation_abs_tol
         
         call da_rkf78_step(state, dt, time, state_7th, state_8th, error_estimate)
         
@@ -116,50 +119,84 @@ contains
         new_state = state_8th
         
         ! 简单的误差检查逻辑
-        if (error_estimate > abs_tol) then
+        if (any(error_estimate%cons() > tolerance)) then
             ! 这里可以添加警告，但在自适应循环中，这个逻辑会被上层接管
         end if
     end subroutine da_rkf78_integrate
-    
-
-
     ! =========================================================
-    ! 自适应步长控制主循环 (DA版)
+    ! 自适应步长控制主循环 (DA版 WRMS)
     ! =========================================================
-    subroutine da_adaptive_step_integrate(state, t_start, t_end, max_steps, abs_tol, &
-                                          integrator_method, times, states, n_steps)
+    subroutine da_adaptive_step_integrate(state, t_start, t_end, integrator_method, &
+                                          times, states, n_steps, &
+                                          max_steps_in, rel_tol_in, abs_tol_in, dt_min_in, dt_max_in)
+        ! 核心物理参数
         type(AlgebraicVector), intent(in) :: state
-        real(DP), intent(in) :: t_start, t_end, abs_tol
-        integer, intent(in) :: max_steps
-        integer, intent(in) :: integrator_method  ! 新增参数：选择使用 RKF45 还是 RKF78
+        real(DP), intent(in) :: t_start, t_end
+        integer, intent(in) :: integrator_method
+        
+        ! 输出参数
         real(DP), allocatable, dimension(:), intent(out) :: times
         type(AlgebraicVector), allocatable, dimension(:), intent(out) :: states
         integer, intent(out) :: n_steps
         
-        real(DP) :: current_time, dt, dt_min, dt_max
+        ! 可选的控制参数
+        integer, intent(in), optional :: max_steps_in
+        real(DP), intent(in), optional :: rel_tol_in, abs_tol_in, dt_min_in, dt_max_in
+        
+        ! 内部工作变量
+        integer :: max_steps
+        real(DP) :: rel_tol, abs_tol, dt_min, dt_max
+        real(DP) :: current_time, dt
+        type(AlgebraicVector) :: current_state
         type(AlgebraicVector) :: next_state_4th, next_state_5th, next_state_7th, next_state_8th
-        type(AlgebraicVector) :: current_state, next_state_high
-        real(DP) :: error_estimate, safety_factor, exp_power
+        type(AlgebraicVector) :: next_state_high, error_estimate_vector
+        
+        ! 用于 WRMS 误差计算的 DP 数组
+        real(DP), dimension(6) :: err_est_cons, current_state_cons, scale_vector
+        real(DP) :: wrms_error, safety_factor, exp_power
         integer :: i
         
-        dt_min = 1.0_DP
-        dt_max = 3600.0_DP
-        safety_factor = 0.9_DP
+        ! 1. 智能参数绑定
+        max_steps = config%max_propagation_steps
+        if (present(max_steps_in)) max_steps = max_steps_in
         
+        if (integrator_method == METHOD_RKF45) then
+            abs_tol = config%rkf45_abs_tol
+            rel_tol = config%rkf45_rel_tol
+            dt_min = config%rkf45_min_step / config%TU
+            dt_max = config%rkf45_max_step / config%TU
+        else if (integrator_method == METHOD_RKF78) then
+            abs_tol = config%rkf78_abs_tol
+            rel_tol = config%rkf78_rel_tol
+            dt_min = config%rkf78_min_step / config%TU
+            dt_max = config%rkf78_max_step / config%TU
+        else
+            print *, "Error: Unsupported integrator method!"
+            stop
+        end if
+        
+        if (present(rel_tol_in)) rel_tol = rel_tol_in
+        if (present(abs_tol_in)) abs_tol = abs_tol_in
+        if (present(dt_min_in))  dt_min  = dt_min_in/config%TU
+        if (present(dt_max_in))  dt_max  = dt_max_in/config%TU
+        
+        safety_factor = 0.9_DP 
+        
+        ! 2. 内存分配
+        if (allocated(times)) deallocate(times)
+        if (allocated(states)) deallocate(states)
         allocate(times(max_steps))
         allocate(states(max_steps))
         
-        ! do j = 1, max_steps
-        !     call states(j)%init(6)
-        ! end do
-        
         call current_state%init(6)
-        call next_state_4th%init(6)
-        call next_state_5th%init(6)
+        call next_state_4th%init(6); call next_state_5th%init(6)
+        call next_state_7th%init(6); call next_state_8th%init(6)
+        call error_estimate_vector%init(6)
         
         current_state = state
         current_time = t_start
         times(1) = current_time
+        call states(1)%init(6)
         states(1) = current_state
         
         dt = min(dt_max, (t_end - t_start) / 100.0_DP)
@@ -168,85 +205,104 @@ contains
         do i = 2, max_steps
             if (current_time >= t_end) exit
             
-            ! call da_rkf45_step(current_state, dt, current_time, next_state_4th, next_state_5th, error_estimate)
-             ! ==========================================
-            ! 1. 积分器路由分发 (使用易读的常量)
-            ! ==========================================
+            ! 3. 积分器路由分发
             if (integrator_method == METHOD_RKF78) then
-                call da_rkf78_step(current_state, dt, current_time, next_state_7th, next_state_8th, error_estimate)
+                call da_rkf78_step(current_state, dt, current_time, next_state_7th, next_state_8th, error_estimate_vector)
                 next_state_high = next_state_8th
                 exp_power = 0.125_DP              ! 1/8
             else if (integrator_method == METHOD_RKF45) then
-                call da_rkf45_step(current_state, dt, current_time, next_state_4th, next_state_5th, error_estimate)
+                call da_rkf45_step(current_state, dt, current_time, next_state_4th, next_state_5th, error_estimate_vector)
                 next_state_high = next_state_5th
-                exp_power = 0.25_DP               ! 1/4
-            else
-                ! 防御性编程：用户传了不支持的常量
-                print *, "Error: Unsupported integrator method!"
-                stop
+                exp_power = 0.20_DP               ! 1/5 (DOPRI5)
             end if
             
-            if (error_estimate <= abs_tol) then
+            ! 4. WRMS 误差评估 (提取常数部分进行标称轨迹误差控制)
+            current_state_cons = current_state%cons()
+            err_est_cons = error_estimate_vector%cons()
+            
+            scale_vector = abs_tol + rel_tol * abs(current_state_cons)
+            wrms_error = sqrt(sum((err_est_cons / scale_vector)**2) / 6.0_DP)
+            ! wrms_error = norm2(err_est_cons)/abs_tol   
+
+            if (ieee_is_nan(wrms_error)) then 
+                print *, "FATAL: WRMS 误差产生 NaN，强行退出积分。"
+                exit
+            end if
+
+            if (wrms_error <= 1.0_DP) then
+                ! 接受这一步
                 current_state = next_state_high
                 current_time = current_time + dt
                 n_steps = n_steps + 1
                 
                 times(n_steps) = current_time
-                ! 【在这里按需分配！】为当前步初始化 DA 容器
                 call states(n_steps)%init(6)
                 states(n_steps) = current_state
                 
-                
-                if (error_estimate > 0.0_DP) then
-                    dt = safety_factor * dt * (abs_tol / error_estimate)**exp_power
-                end if
+                dt = safety_factor * dt * (1.0_DP / max(wrms_error, 1.0e-15_DP))**exp_power
                 dt = max(dt_min, min(dt_max, dt))
             else
-                ! 检查是否已经触底
+                ! 拒绝这一步
                 if (dt <= dt_min) then
-                    ! 【防抱死补丁】已经缩小到极小步长依然无法满足容差，强行接受步长并前进！
-                    ! 否则会陷入不推进时间的死循环
+                    ! 防抱死
                     current_state = next_state_high
                     current_time = current_time + dt
                     n_steps = n_steps + 1
                     
                     times(n_steps) = current_time
-                    
                     call states(n_steps)%init(6)
                     states(n_steps) = current_state
-                    
-                    ! 保持 dt 为 dt_min 继续尝试下一步
                 else
-                    ! 正常拒绝这一步，减小步长，重新计算当前时刻
-                    dt = safety_factor * dt * (abs_tol / error_estimate)**exp_power
+                    dt = safety_factor * dt * (1.0_DP / max(wrms_error, 1.0e-15_DP))**exp_power
                     dt = max(dt_min, dt)
                 end if
             end if
-            !     dt = safety_factor * dt * (abs_tol / error_estimate)**0.25_DP
-            !     dt = max(dt_min, dt)
-            ! end if
             
             if (current_time + dt > t_end) then
                 dt = t_end - current_time
             end if
         end do
         
+        ! 调整数组大小
+        if (n_steps < max_steps) then
+            block
+                real(DP), allocatable, dimension(:) :: temp_times
+                type(AlgebraicVector), allocatable, dimension(:) :: temp_states
+                
+                allocate(temp_times(n_steps))
+                allocate(temp_states(n_steps))
+                
+                temp_times = times(1:n_steps)
+                ! DA数组需要手动转移/重新赋值以防止底层句柄丢失
+                do i = 1, n_steps
+                    call temp_states(i)%init(6)
+                    temp_states(i) = states(i)
+                end do
+                
+                call move_alloc(temp_times, times)
+                call move_alloc(temp_states, states)
+            end block
+        end if
     end subroutine da_adaptive_step_integrate
-    
 
     ! =========================================================
-    ! RKF45 单步积分器 (DA版)
+    ! RKF45 单步积分器 (DOPRI5 修复版)
     ! =========================================================
-    subroutine da_rkf45_step(state, dt, time, state_4th, state_5th, error_estimate)
+    subroutine da_rkf45_step(state, dt, time, state_4th, state_5th, error_estimate_vector)
         type(AlgebraicVector), intent(in) :: state
         real(DP), intent(in) :: dt, time
         type(AlgebraicVector), intent(inout) :: state_4th, state_5th
-        real(DP), intent(out) :: error_estimate
+        type(AlgebraicVector), intent(inout) :: error_estimate_vector
         
-        type(AlgebraicVector) :: k1, k2, k3, k4, k5, k6, temp_state
-        integer :: i
+        type(AlgebraicVector) :: k1, k2, k3, k4, k5, k6, k7
+        type(AlgebraicVector) :: temp_state
         
-        ! RKF45 系数
+        ! DOPRI5 系数
+        real(DP), parameter :: a2 = 1.0_DP / 5.0_DP
+        real(DP), parameter :: a3 = 3.0_DP / 10.0_DP
+        real(DP), parameter :: a4 = 4.0_DP / 5.0_DP
+        real(DP), parameter :: a5 = 8.0_DP / 9.0_DP
+        
         real(DP), parameter :: b21 = 1.0_DP / 5.0_DP
         real(DP), parameter :: b31 = 3.0_DP / 40.0_DP
         real(DP), parameter :: b32 = 9.0_DP / 40.0_DP
@@ -277,10 +333,11 @@ contains
         real(DP), parameter :: d7 = 1.0_DP / 40.0_DP
         
         call k1%init(6); call k2%init(6); call k3%init(6)
-        call k4%init(6); call k5%init(6); call k6%init(6)
+        call k4%init(6); call k5%init(6); call k6%init(6); call k7%init(6)
         call temp_state%init(6)
         if (state_4th%size /= 6) call state_4th%init(6)
         if (state_5th%size /= 6) call state_5th%init(6)
+        if (error_estimate_vector%size /= 6) call error_estimate_vector%init(6)
         
         call da_compute_derivatives(state, time, k1)
         
@@ -298,30 +355,33 @@ contains
         
         temp_state = state + dt * (b61 * k1 + b62 * k2 + b63 * k3 + b64 * k4 + b65 * k5)
         call da_compute_derivatives(temp_state, time + dt * (b61 + b62 + b63 + b64 + b65), k6)
+
+        ! 1. 5阶主解
+        state_5th = state + dt * (c1 * k1 + c3 * k3 + c4 * k4 + c5 * k5 + c6 * k6)
         
-        state_4th = state + dt * (c1 * k1 + c3 * k3 + c4 * k4 + c5 * k5 + c6 * k6)
-        state_5th = state + dt * (d1 * k1 + d3 * k3 + d4 * k4 + d5 * k5 + d6 * k6 + d7 * k6)
+        ! 2. 补齐 k7 
+        call da_compute_derivatives(state_5th, time + dt, k7)
+
+        ! 3. 4阶解
+        state_4th = state + dt * (d1 * k1 + d3 * k3 + d4 * k4 + d5 * k5 + d6 * k6 + d7 * k7)
+
+        ! 4. 输出代数差异向量，交给上层提取 cons()
+        error_estimate_vector = state_5th - state_4th
         
-        ! 利用常数项(标称轨迹)进行误差估计
-        error_estimate = 0.0_DP
-        do i = 1, 6
-            error_estimate = error_estimate + &
-                             (state_5th%elements(i)%cons() - state_4th%elements(i)%cons())**2
-        end do
-        error_estimate = sqrt(error_estimate)
     end subroutine da_rkf45_step
 
-
-    subroutine da_rkf78_step(state, dt, time, state_7th, state_8th, error_estimate)
+    ! ======================================================================
+    ! RKF 7(8) 单步推进核心
+    ! ======================================================================
+    subroutine da_rkf78_step(state, dt, time, state_7th, state_8th, error_estimate_vector)
         type(AlgebraicVector), intent(in) :: state
         real(DP), intent(in) :: dt, time
         type(AlgebraicVector), intent(inout) :: state_7th, state_8th
-        type(AlgebraicVector) :: state_diff
-        real(DP), intent(out) :: error_estimate
+        type(AlgebraicVector), intent(inout) :: error_estimate_vector
         
         type(AlgebraicVector) :: f0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12
         
-        ! --- RKF78 系数 (Fehlberg 7(8)) ---
+        ! --- RKF78 系数 ---
         real(DP), parameter :: a1 = 2.0_DP/27.0_DP,   a2 = 1.0_DP/9.0_DP,   a3 = 1.0_DP/6.0_DP
         real(DP), parameter :: a4 = 5.0_DP/12.0_DP,   a5 = 1.0_DP/2.0_DP,   a6 = 5.0_DP/6.0_DP
         real(DP), parameter :: a7 = 1.0_DP/6.0_DP,    a8 = 2.0_DP/3.0_DP,   a9 = 1.0_DP/3.0_DP
@@ -336,7 +396,6 @@ contains
         real(DP), parameter :: b70 = 31.0_DP/300.0_DP,  b74 = 61.0_DP/225.0_DP,  &
                                b75 = -2.0_DP/9.0_DP,    b76 = 13.0_DP/900.0_DP
                                
-        ! 从这里开始进行安全折行处理
         real(DP), parameter :: b80 = 2.0_DP,            b83 = -53.0_DP/6.0_DP,   &
                                b84 = 704.0_DP/45.0_DP,  b85 = -107.0_DP/9.0_DP,  &
                                b86 = 67.0_DP/90.0_DP,   b87 = 3.0_DP
@@ -364,73 +423,49 @@ contains
                                c7 = 9.0_DP/35.0_DP,      c8 = 9.0_DP/280.0_DP,      &
                                c9 = 9.0_DP/280.0_DP,     c11 = 41.0_DP/840.0_DP,    &
                                c12 = 41.0_DP/840.0_DP
-                               
+         
         real(DP), parameter :: err_factor = 41.0_DP/840.0_DP
-        ! ==========================================
-        ! 修正点 1：清理了 dt == 0.0_DP 时的历史变量名
-        ! ==========================================
 
         call f0%init(6); call f1%init(6); call f2%init(6); call f3%init(6); call f4%init(6)
         call f5%init(6); call f6%init(6); call f7%init(6); call f8%init(6); call f9%init(6)
         call f10%init(6); call f11%init(6); call f12%init(6)
+        
         if (state_7th%size /= 6) call state_7th%init(6)
         if (state_8th%size /= 6) call state_8th%init(6)
+        if (error_estimate_vector%size /= 6) call error_estimate_vector%init(6)
 
-        if (dt == 0.0_DP) then
+        if (dt <= 1.0e-15_DP) then
             state_7th = state
             state_8th = state
-            error_estimate = 0.0_DP
+            error_estimate_vector = 0.0_DP
             return
         end if
 
-        ! 13 阶段导数计算
         call da_compute_derivatives(state, time, f0)
-        
         call da_compute_derivatives(state + dt*(f0*b10), time + dt*a1, f1)
-        
         call da_compute_derivatives(state + dt*(f0*b20 + f1*b21), time + dt*a2, f2)
-        
         call da_compute_derivatives(state + dt*(f0*b30 + f2*b32), time + dt*a3, f3)
-        
         call da_compute_derivatives(state + dt*(f0*b40 + f2*b42 + f3*b43), time + dt*a4, f4)
-        
         call da_compute_derivatives(state + dt*(f0*b50 + f3*b53 + f4*b54), time + dt*a5, f5)
-        
-        call da_compute_derivatives(state + dt*(f0*b60 + f3*b63 + f4*b64 + f5*b65), &
-                                 time + dt*a6, f6)
-        
-        call da_compute_derivatives(state + dt*(f0*b70 + f4*b74 + f5*b75 + f6*b76), &
-                                 time + dt*a7, f7)
-        
-        call da_compute_derivatives(state + dt*(f0*b80 + f3*b83 + f4*b84 + f5*b85 + &
-                                 f6*b86 + f7*b87), time + dt*a8, f8)
-        
-        call da_compute_derivatives(state + dt*(f0*b90 + f3*b93 + f4*b94 + f5*b95 + &
-                                 f6*b96 + f7*b97 + f8*b98), time + dt*a9, f9)
-        
-        call da_compute_derivatives(state + dt*(f0*b100 + f3*b103 + f4*b104 + f5*b105 + &
-                                 f6*b106 + f7*b107 + f8*b108 + f9*b109), &
-                                 time + dt, f10)
-        
-        call da_compute_derivatives(state + dt*(f0*b110 + f5*b115 + f6*b116 + f7*b117 + &
-                                 f8*b118 + f9*b119), time, f11)
-        
-        call da_compute_derivatives(state + dt*(f0*b120 + f3*b123 + f4*b124 + f5*b125 + &
-                                 f6*b126 + f7*b127 + f8*b128 + f9*b129 + f11), &
-                                 time + dt, f12)
+        call da_compute_derivatives(state + dt*(f0*b60 + f3*b63 + f4*b64 + f5*b65), time + dt*a6, f6)
+        call da_compute_derivatives(state + dt*(f0*b70 + f4*b74 + f5*b75 + f6*b76), time + dt*a7, f7)
+        call da_compute_derivatives(state + dt*(f0*b80 + f3*b83 + f4*b84 + f5*b85 + f6*b86 + f7*b87), time + dt*a8, f8)
+        call da_compute_derivatives(state + dt*(f0*b90 + f3*b93 + f4*b94 + f5*b95 + f6*b96 + f7*b97 + f8*b98), time + dt*a9, f9)
+        call da_compute_derivatives(state + dt*(f0*b100 + f3*b103 + f4*b104 + f5*b105 + f6*b106 + f7*b107 + f8*b108 + f9*b109),&
+                                     time + dt, f10)
+        call da_compute_derivatives(state + dt*(f0*b110 + f5*b115 + f6*b116 + f7*b117 + f8*b118 + f9*b119),&
+                                     time, f11)
+        call da_compute_derivatives(state + dt*(f0*b120 + f3*b123 + f4*b124 + f5*b125 + f6*b126 + f7*b127 + f8*b128 + f9*b129 + &
+                                    f11), time + dt, f12)
 
-        ! 8阶解 (作为主结果)
-        state_8th = state + dt*(f5*c5 + f6*c6 + f7*c7 + f8*c8 + f9*c9 + &
-                                f11*c11 + f12*c12)
+        ! 8阶主解
+        state_8th = state + dt*(f5*c5 + f6*c6 + f7*c7 + f8*c8 + f9*c9 + f11*c11 + f12*c12)
         
-        ! 7阶解 (用于误差评估)
+        ! 7阶解
         state_7th = state_8th - (err_factor * (f0 + f10 - f11 - f12) * dt)
         
-        ! ==========================================
-        ! 修正点 2：修复标量化计算时丢失变量声明的问题
-        ! ==========================================
-        state_diff = state_8th - state_7th
-        error_estimate = norm2(state_diff%cons())
+        ! 输出代数差异向量
+        error_estimate_vector = state_8th - state_7th
         
     end subroutine da_rkf78_step
 
