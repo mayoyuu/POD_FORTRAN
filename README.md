@@ -35,7 +35,7 @@ POD System 是一个基于 Fortran 开发的高精度轨道传播与不确定性
    Bash
 
    ```
-   git clone https://github.com/dacelib/dace.git
+   git clone [https://github.com/dacelib/dace.git](https://github.com/dacelib/dace.git)
    bash setup_env.sh
    ```
 
@@ -106,4 +106,3 @@ Plaintext
 
 ## 📝 License & Citation
 
-This project is licensed under the MIT License - see the LICENSE file for details. *(如果你有相关的学术论文正在撰写或准备发表，可以在这里提示：“If you use this code in your research, please cite: [TBD]”*
