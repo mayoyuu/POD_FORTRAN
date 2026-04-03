@@ -18,14 +18,16 @@ POD System 是一个基于 Fortran 开发的高精度轨道传播与不确定性
 ## 🛠️ Dependencies (依赖库)
 本项目依赖以下外部库：
 * **SPICE Toolkit (`libspicelib.a`)**: 用于获取高精度行星星历与时间系统转换。
-* **DACE (Differential Algebra Core Engine)**: 提供底层微分代数数据结构与 C/C++ 接口 (`libdace_s.a`, `libdace_wrapper.a`)。
+* **DACE (Differential Algebra Core Engine)**: 提供底层微分代数数据结构与 C/C++ 接口 (`libdace_s.a`)。
+* **BLAS/LAPACK**: 用于高效的线性代数运算。
+* **external/dace_build**: 包含 DACE 的 Fortran 包装器`libdace_wrapper.a`，简化 Fortran 与 DACE 的交互。
 * **Fortran Package Manager (fpm)** 或 **CMake**: 用于项目构建。
 
 ## 🚀 Installation (安装指南)
 
 1. **克隆仓库及子模块（获取 DACE 依赖）：**
    ```bash
-   git clone --recursive [https://github.com/yuu532556-art/POD_FORTRAN.git](https://github.com/yourusername/POD_System.git)
+   git clone --recursive [https://github.com/mayoyuu/POD_FORTRAN.git](https://github.com/mayoyuu/POD_FORTRAN.git)
    cd POD_System
 
 2. **编译外部依赖：**
