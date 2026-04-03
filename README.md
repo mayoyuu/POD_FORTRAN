@@ -39,7 +39,7 @@ POD System 是一个基于 Fortran 开发的高精度轨道传播与不确定性
    bash setup_env.sh
    ```
 
-1. **配置物理环境：** 修改 `config/pod_config.txt` 中的引力模型与积分器容差设置。
+1. **配置物理环境：** 修改 `dummy_test_config.txt` 中的引力模型与积分器容差设置。
 
 ## 📖 Quick Start (快速开始)
 
@@ -55,7 +55,7 @@ use pod_orbit_propagation, only: orbit_state, propagation_result, propagate_orbi
 use pod_da_integrator_module, only: METHOD_RKF78
 
 ! 初始化物理环境
-call pod_engine_init('config/pod_config.txt')
+call pod_engine_init('dummy_test_config.txt')
 
 ! 装载初始状态
 initial_state%state = [100000.0_DP, 50000.0_DP, 20000.0_DP, 1.5_DP, 2.5_DP, 0.5_DP]
