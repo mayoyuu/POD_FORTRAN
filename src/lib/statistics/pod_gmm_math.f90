@@ -5,10 +5,99 @@ module pod_gmm_math_module
     
     implicit none   
     
-    private :: kmeans_cluster, EM_algorithm
-    public :: compute_gmm_moments, compute_gmm_correlation
+    private :: kmeans_cluster, EM_step
+    public :: fit_gmm_to_particles
 contains
+    !> 🚀 顶层接口：将粒子集拟合为 GMM，并直接更新 OOP 数据结构
+    !> @param[in]    particles  粒子状态矩阵 (dim, n_particles)
+    !> @param[inout] gmm        传入时只需分配好 n_components，输出时内部参数全部更新
+    !> @param[in]    max_iter   EM 算法最大迭代次数 (建议 50-100)
+    !> @param[in]    tol        权重变化的收敛容差 (建议 1e-4)
+    subroutine fit_gmm_to_particles(particles, gmm, max_iter, tol)
+        real(DP), dimension(:,:), intent(in) :: particles
+        type(uq_gmm_state_type), intent(inout) :: gmm
+        integer, intent(in) :: max_iter
+        real(DP), intent(in) :: tol
+        
+        integer :: n_clusters, dim, n_particles, i, j, k,c,r, iter
+        real(DP), allocatable :: means(:,:), covariances(:,:,:), weights(:), old_weights(:), diff(:)
+        integer, allocatable :: assignments(:), counts(:)
+        real(DP) :: weight_diff
+        
+        n_clusters = gmm%n_components
+        dim = size(particles, 1)
+        n_particles = size(particles, 2)
+        
+        ! 1. 分配连续内存用于高性能数学计算 (避免直接在 OOP 结构里做繁重的跨步内存访问)
+        allocate(means(dim, n_clusters))
+        allocate(covariances(dim, dim, n_clusters))
+        allocate(weights(n_clusters))
+        allocate(old_weights(n_clusters))
+        
+        
+        ! ... 在之前的 allocate 块中加入：
+        allocate(assignments(n_particles), counts(n_clusters))
 
+        ! 2. K-means 初始化 
+        ! 必须确保你的 kmeans_cluster 将每个粒子的归属输出到 assignments 中
+        call kmeans_cluster(particles, n_clusters, means, assignments) 
+        
+        ! ---------------------------------------------------------
+        ! ✨ 严格遵循论文逻辑：根据 K-means 硬聚类结果初始化 EM 参数
+        ! ---------------------------------------------------------
+        counts = 0
+        covariances = 0.0_DP
+        
+        ! 统计每个簇的粒子数量，并累加协方差的外积
+        do j = 1, n_particles
+            k = assignments(j)
+            counts(k) = counts(k) + 1
+            
+            diff = particles(:, j) - means(:, k)
+            ! 展开外积加速
+            do c = 1, dim
+                do r = 1, dim
+                    covariances(r, c, k) = covariances(r, c, k) + diff(r) * diff(c)
+                end do
+            end do
+        end do
+        
+        ! 计算初始权重与样本协方差
+        do i = 1, n_clusters
+            if (counts(i) > 1) then
+                ! 权重 = 该簇粒子数 / 总粒子数
+                weights(i) = real(counts(i), DP) / real(n_particles, DP)
+                ! 样本协方差 = 累加外积 / (N - 1) 
+                covariances(:,:,i) = covariances(:,:,i) / real(counts(i) - 1, DP)
+            else
+                ! 极端退化保护（如果某个簇极其不幸没分到粒子，给它一个极小的初始值避免除零）
+                weights(i) = 1.0e-8_DP
+                do j = 1, dim
+                    covariances(j,j,i) = 1.0e-6_DP
+                end do
+            end if
+        end do
+        
+        ! 3. EM 算法迭代循环
+        do iter = 1, max_iter
+            old_weights = weights
+            
+            ! 调用核心单步 EM (也就是你刚才写的那个完美优化的版本)
+            call EM_step(particles, n_clusters, means, covariances, weights)
+            
+            ! 收敛性检查：比较前后两次权重的变化 (论文 3.3 节末尾的推荐准则)
+            weight_diff = maxval(abs(weights - old_weights))
+            if (weight_diff < tol) exit
+        end do
+        
+        ! 4. 将计算好的连续内存数据，塞回 OOP 的 gmm 对象中
+        do i = 1, n_clusters
+            ! 这里调用我们在 pod_uq_gmm_state_module 里写的 init 绑定过程
+            call gmm%components(i)%init(weights(i), means(:, i), covariances(:, :, i))
+        end do
+        
+        deallocate(means, covariances, weights, old_weights)
+    end subroutine fit_gmm_to_particles
     !> kmeans
     !> 核心的 K-means 聚类算法 (Lloyd's Algorithm)
     !> @param[in]  particles   所有粒子的状态矩阵 (dim, n_particles)
@@ -91,7 +180,7 @@ contains
         
     end subroutine kmeans_cluster
 
-    subroutine EM_algorithm(particles, n_clusters, means, covariances, weights)
+    subroutine EM_step(particles, n_clusters, means, covariances, weights)
         real(DP), dimension(:,:), intent(in)      :: particles
         integer, intent(in)                       :: n_clusters
         real(DP), dimension(:,:), intent(inout)   :: means
@@ -162,7 +251,7 @@ contains
             ! 该簇的总责任度 (论文中的 \mathcal{W}_i)
             responsibility(i) = sum(omega(i, :))
             
-            ! 1. 更新均值 (保留了你极其优雅的数组化写法)
+            ! 1. 更新均值 
             means(:, i) = sum(particles * reshape(omega(i, :), [1, n_particles]), dim=2) / responsibility(i)
             
             ! 2. 更新协方差矩阵
@@ -185,7 +274,7 @@ contains
             weights(i) = responsibility(i) / real(n_particles, DP)
         end do
 
-    end subroutine EM_algorithm
+    end subroutine EM_step
 
 
 end module pod_gmm_math_module
