@@ -149,6 +149,14 @@ extern "C" {
     void fdace_cos(int h_in, int h_out) { da_registry[h_out] = cos(da_registry[h_in]); }
     void fdace_exp(int h_in, int h_out) { da_registry[h_out] = exp(da_registry[h_in]); }
     void fdace_sqrt(int h_in, int h_out) { da_registry[h_out] = sqrt(da_registry[h_in]); }
+
+    void fdace_asin(int h_in, int h_out) { 
+        da_registry[h_out] = asin(da_registry[h_in]); 
+    }
+
+    void fdace_atan2(int hy, int hx, int h_out) { 
+        da_registry[h_out] = atan2(da_registry[hy], da_registry[hx]); 
+    }
     
     // 求导 (对第 var_idx 个变量求导)
     void fdace_deriv(int h_in, int var_idx, int h_out) { 

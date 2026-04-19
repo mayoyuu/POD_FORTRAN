@@ -133,6 +133,14 @@ module pod_dace_classes
             import :: c_int; integer(c_int), value :: hi, ho
         end subroutine c_fdace_sqrt
 
+        subroutine c_fdace_asin(hi, ho) bind(C, name="fdace_asin")
+            import :: c_int; integer(c_int), value :: hi, ho
+        end subroutine c_fdace_asin
+
+        subroutine c_fdace_atan2(hy, hx, ho) bind(C, name="fdace_atan2")
+            import :: c_int; integer(c_int), value :: hy, hx, ho
+        end subroutine c_fdace_atan2
+
         subroutine c_fdace_deriv(hi, var_idx, ho) bind(C, name="fdace_deriv")
             import :: c_int; integer(c_int), value :: hi, var_idx, ho
         end subroutine c_fdace_deriv
@@ -244,6 +252,12 @@ module pod_dace_classes
     end interface
     interface sqrt
         module procedure da_sqrt
+    end interface
+    interface asin
+        module procedure da_asin
+    end interface
+    interface atan2
+        module procedure da_atan2
     end interface
 
     ! =========================================================
@@ -533,6 +547,18 @@ contains
         call c_fdace_sqrt(da1%handle, res%handle)
     end function da_sqrt
 
+    type(DA) function da_asin(da1) result(res)
+        class(DA), intent(in) :: da1
+        call res%init()
+        call c_fdace_asin(da1%handle, res%handle)
+    end function da_asin
+
+    type(DA) function da_atan2(y, x) result(res)
+        class(DA), intent(in) :: y, x
+        call res%init()
+        call c_fdace_atan2(y%handle, x%handle, res%handle)
+    end function da_atan2
+
     type(DA) function da_deriv(this, var_idx) result(res)
         class(DA), intent(in) :: this
         integer, intent(in) :: var_idx
@@ -594,7 +620,6 @@ contains
         integer, intent(in) :: n
         integer :: i
         
-        ! 🚀 【终极防弹衣】检查是否已经被分配过了
         if (allocated(this%elements)) then
             ! 如果大小刚好一样，说明是重复调用（比如在循环里），直接复用！(极其省时)
             if (this%size == n) return
