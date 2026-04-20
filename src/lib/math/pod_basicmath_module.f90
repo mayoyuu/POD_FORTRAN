@@ -50,7 +50,7 @@
 !--------------------------------------------------------------------------------------------------------------
 !--------------------------------------------------------------------------------------------------------------
 
-module pod_basicmath
+module pod_basicmath_module
     use pod_global, only: DP
     implicit none
     
@@ -379,4 +379,4 @@ contains
         deallocate(work)
     end subroutine inverse_and_determinant
 
-end module pod_basicmath
+end module pod_basicmath_module

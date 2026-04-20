@@ -25,11 +25,14 @@ module pod_uq_da_module
 
     type, extends(uq_propagator_base) :: uq_da_propagator
         integer :: da_order = 2
+        real(DP) :: propagated_ref_orbit(6) = 0.0_DP ! 【新增】用于缓存中心轨道的常数项
     contains
         ! 绑定传播实现
         procedure, pass :: propagate => da_propagate
         ! 必须实现基类的 get_name_if 契约
         procedure, pass :: get_method_name => da_get_method_name
+        ! 【新增】绑定设置 DA 阶数的接口
+        procedure, pass :: set_da_order => da_set_order
     end type uq_da_propagator
 
 contains
@@ -109,6 +112,9 @@ contains
 
         ! 5. 编译与多线程求值 (天然免疫量纲与历元，纯数学操作)
         compiled_state = state_da_f%compile()
+
+        eval_inputs = 0.0_DP
+        this%propagated_ref_orbit = compiled_state%eval(eval_inputs) ! 【新增】缓存中心轨道的常数项，供后续分析使用
         
         !$omp parallel do default(none) &
         !$omp private(i, eval_inputs, eval_results) &
@@ -126,8 +132,22 @@ contains
         ! ========================================================
         ! 核心修改 2：调用封装好的 compute_moments 计算后验均值与协方差
         ! ========================================================
-        call output_state%compute_moments()
+        if (this%verbose) then
+            call output_state%compute_moments()
+        end if
 
         if (this%verbose) write(*,*) '[DA Propagator] 误差传播计算完毕。'
     end subroutine da_propagate
+
+    !> 【新增】设置 DA 阶数
+    subroutine da_set_order(this, order)
+        class(uq_da_propagator), intent(inout) :: this
+        integer, intent(in)                    :: order
+        
+        if (order > 0) then
+            this%da_order = order
+        else
+            write(*,*) '[WARNING] DA Propagator: 传入的阶数无效 (<=0)，将保持默认值: ', this%da_order
+        end if
+    end subroutine da_set_order
 end module pod_uq_da_module

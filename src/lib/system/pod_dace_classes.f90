@@ -11,7 +11,7 @@ module pod_dace_classes
     public :: operator(+), operator(-), operator(*), operator(/)
     public :: assignment(=)
     public :: operator(**)
-    public :: sin, cos, exp, sqrt
+    public :: sin, cos, exp, sqrt, atan2, asin
     public :: matmul
 
     ! =========================================================

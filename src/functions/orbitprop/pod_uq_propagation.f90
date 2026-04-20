@@ -105,6 +105,80 @@ contains
         end if
         
     end subroutine run_uq_propagation
+
+   ! ====================================================================
+    ! 专门为粒子滤波 (Particle Filter) 优化的纯粒子传播 API
+    ! 直接基于 uq_state_type 对象进行 Array -> Array 的高频调用映射
+    ! ====================================================================
+    subroutine run_particle_propagation(initial_state, reference_orbit, epoch0, t_start, t_end,&
+                                        method_switch, final_state, integrator_switch, da_order,&
+                                        reference_orbit_out)
+        
+        ! 输入/输出参数直接使用 OOP 对象
+        type(uq_state_type), intent(inout) :: initial_state ! 传入时内部 samples 已分配并填充
+        type(uq_state_type), intent(inout) :: final_state   ! 传播后的状态对象 (底层会自动分配内存)
+        
+        real(DP), intent(in)  :: reference_orbit(6)     ! DA 需要明确指出的参考轨道
+        real(DP), intent(in)  :: epoch0                 ! 物理历元基准 (TDB 秒)
+        real(DP), intent(in)  :: t_start, t_end         ! 积分起止相对时间
+        integer,  intent(in)  :: method_switch          ! 方法开关 (METHOD_MC 或 METHOD_DA)
+        
+        integer,  intent(in), optional :: integrator_switch ! 积分器开关 (如 INTEG_RKF45 等)
+        integer,  intent(in), optional :: da_order          ! 可选的 DA 阶数
+        real(DP), intent(out), optional :: reference_orbit_out(6) ! 返回传播后的参考轨道常数项
+        
+        ! 局部变量
+        class(uq_propagator_base), allocatable :: propagator
+        
+        ! 1. 实例化对应的传播器
+        select case(method_switch)
+            case(METHOD_MC)
+                allocate(uq_mc_propagator :: propagator)
+            case(METHOD_DA)
+                allocate(uq_da_propagator :: propagator)
+            case default
+                write(*,*) '[ERROR] UQ API: 未知的传播方法开关!' 
+                return
+        end select
+
+        ! 2. 配置 DA 阶数 (仅当使用 DA 方法且传入了 da_order 时有效)
+        if (present(da_order) .and. method_switch == METHOD_DA) then
+            select type (propagator)
+                type is (uq_da_propagator)
+                    call propagator%set_da_order(da_order)
+            end select
+        end if
+        
+        ! 3. 配置参考轨道与传播器参数
+        ! 将 reference_orbit 作为均值注入，这是多数 DA 展开的默认基准点
+        initial_state%mean = reference_orbit 
+        
+        propagator%epoch0 = epoch0
+        if (present(integrator_switch)) then
+            call propagator%set_integrator(integrator_switch)
+        end if
+        
+        ! 在粒子滤波中高频调用，强制关闭打印输出以提升性能 (同时屏蔽不必要的矩计算)
+        call propagator%set_verbosity(.false.) 
+        
+        ! 4. 核心传播计算 (这里会调用内部的 RKF 或其他积分器逻辑)
+        ! 底层的 propagate 内部会自动调用 final_state%allocate_memory
+        call propagator%propagate(t_start, t_end, initial_state, final_state)
+        
+        ! 5. 精准提取参考轨道的常数项
+        if (present(reference_orbit_out)) then
+            select type (prop => propagator)
+                type is (uq_da_propagator)
+                    ! DA 方法：直接拿刚才缓存好的精确常数项
+                    reference_orbit_out = prop%propagated_ref_orbit
+                type is (uq_mc_propagator)
+                    ! MC 方法：退化为使用样本均值
+                    call final_state%compute_moments()
+                    reference_orbit_out = final_state%mean
+            end select
+        end if
+        
+    end subroutine run_particle_propagation
     
     ! ====================================================================
     ! 以下为内部辅助例程 

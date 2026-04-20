@@ -29,6 +29,9 @@ module pod_uq_base_module
         ! 3. 设置器方法
         procedure, pass :: set_integrator => base_set_integrator
         procedure, pass :: set_verbosity => base_set_verbosity
+
+        ! 4. 解决编译器无法向下兼容问题
+        procedure, pass :: set_da_order => base_set_da_order
     end type uq_propagator_base
 
     ! ==========================================
@@ -71,5 +74,11 @@ contains
         logical, intent(in) :: is_verbose
         this%verbose = is_verbose
     end subroutine base_set_verbosity
+
+    subroutine base_set_da_order(this, order)
+        class(uq_propagator_base), intent(inout) :: this
+        integer, intent(in)                    :: order
+        ! 基类中默认不做任何事，MC 方法调用时直接忽略
+    end subroutine base_set_da_order
 
 end module pod_uq_base_module
