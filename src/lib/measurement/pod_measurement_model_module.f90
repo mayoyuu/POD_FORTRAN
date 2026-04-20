@@ -9,24 +9,15 @@ module pod_measurement_model_module
     use pod_global, only: DP, MAX_STRING_LEN
     use pod_spice, only: get_frame_transform
     use pod_basicmath_module, only: vector_magnitude, normalize_vector
+    use pod_measurement_base_module, only: observation_station,PI
     
     implicit none
     private
     
     ! 对外暴露的接口
-    public :: observation_station
     public :: set_station_from_geodetic
     public :: compute_measurement
-    
-    !> 观测站类型重构
-    type observation_station
-        character(len=MAX_STRING_LEN) :: name
-        real(DP) :: latitude, longitude, altitude
-        real(DP), dimension(3) :: ecef_position  ! 保存地固系(ITRS/ECEF)坐标
-        character(len=MAX_STRING_LEN) :: station_type  ! 'RADAR', 'OPTICAL', 'GPS'
-    end type observation_station
-    
-    real(DP), parameter :: PI = 3.14159265358979323846_DP
+
 
 contains
 
