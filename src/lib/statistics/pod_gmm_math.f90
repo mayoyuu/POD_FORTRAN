@@ -204,7 +204,7 @@ contains
         
     end subroutine kmeans_cluster
 
-    subroutine EM_step(particles, n_clusters, means, covariances, weights,omega, responsibility)
+    subroutine EM_step(particles, n_clusters, means, covariances, weights, omega, responsibility)
         real(DP), dimension(:,:), intent(in)      :: particles
         integer, intent(in)                       :: n_clusters
         real(DP), dimension(:,:), intent(inout)   :: means

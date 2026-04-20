@@ -10,10 +10,8 @@ module pod_filter_emdac_module
     use pod_uq_da_module, only: uq_da_propagator
     use pod_gmm_math_module, only: fit_gmm_to_particles
     use pod_uq_propagation, only: run_particle_propagation
-    use pod_uq_transform_ut_module
     use pod_uq_transform_da_module
     use pod_measurement_base_module, only: observation_station 
-    use pod_measurement_model_module, only: compute_measurement
     use pod_measurement_da_module, only: compute_measurement_da
     use pod_basicmath_module, only: inverse_and_determinant
      use pod_random_module, only: generate_multivariate_normal
@@ -28,12 +26,15 @@ module pod_filter_emdac_module
     !> ======================================================================
     type :: emdac_filter
         real(DP), dimension(:) :: state_mean          ! 当前 GMM 的全局均值 (state_dim)
-        type(uq_state_type) :: uq ! 临时存储粒子样本的 UQ 状态对象
         type(uq_gmm_state_type) :: gmm_state            ! 当前 k 时刻的 GMM 状态
         integer                 :: n_particles = 100000 ! 粒子总数
         real(DP)                :: em_tol = 1.0e-4_DP   ! EM 算法收敛容差
         integer                 :: em_max_iter = 50     ! EM 算法最大迭代次数
         integer                 :: da_order = 2         ! DA 阶数
+
+        type(uq_state_type) :: propagated_particles   ! 保存时间更新后的粒子
+        real(DP), allocatable :: current_omega(:,:)   ! 保存 EM 聚类后的责任度矩阵
+        real(DP), allocatable :: current_W(:)         ! 保存各核的总责任度
 
         class(uq_da_propagator), pointer :: propagator => null() ! DA 传播器对象指针
         
@@ -79,7 +80,7 @@ contains
     subroutine filter_time_update(this, t_start, t_end)
         class(emdac_filter), intent(inout) :: this
         real(DP), intent(in) :: t_start, t_end
-        type(uq_state_type) :: uq_in, uq_out
+        type(uq_state_type) :: uq_in
         integer :: dim
         
         dim = this%gmm_state%state_dim
@@ -92,46 +93,44 @@ contains
         ! 步骤 B: 调用 DA 传播器进行高度非线性的动力学积分
         ! (直接传入 uq_in 和 uq_out 对象，并接收传播后的中心参考轨道)
         call run_particle_propagation(uq_in, this%state_mean, this%propagator%epoch0, &
-                                      t_start, t_end, METHOD_DA, uq_out, &
+                                      t_start, t_end, METHOD_DA,  propagated_particles, &
                                       da_order=this%da_order, &
                                       reference_orbit_out=this%state_mean) 
         
         ! 步骤 C: 重新执行 K-means + EM 算法，提取传播后的 GMM 拓扑结构
         ! (直接使用 uq_out%samples 进行拟合)
         write(*,*) '[EMDAC] 执行高斯混合聚类...'
-        call fit_gmm_to_particles(uq_out%samples, this%gmm_state, this%em_max_iter, this%em_tol)
+        call fit_gmm_to_particles(uq_out%samples, this%gmm_state, this%em_max_iter, this%em_tol, &
+                                 this%current_omega, this%current_W)
         
-        ! 离开作用域前，显式释放状态对象内存，防止在长期滤波中发生内存泄漏
+        ! 释放临时粒子对象内存，保留 this%propagated_particles 供后续测量更新使用
         call uq_in%deallocate_memory()
-        call uq_out%deallocate_memory()
         
     end subroutine filter_time_update
 
 
     !> ======================================================================
     !> 3. 测量更新 (Measurement Update)
-    !> 逻辑: UT/DA 变换 -> 卡尔曼状态更新 -> 似然计算 -> GMM 权重更新
+    !> 卡尔曼状态更新 -> 似然计算 -> GMM 权重更新
     !> ======================================================================
-    subroutine filter_measurement_update(this, y_meas, noise_R, et, station, use_da)
+    subroutine filter_measurement_update(this, y_meas, noise_R, et, station)
         class(emdac_filter), intent(inout) :: this
         real(DP), dimension(:), intent(in) :: y_meas      ! 真实测量值 y_{k+1}
         real(DP), dimension(:,:), intent(in):: noise_R    ! 测量噪声协方差 R
         real(DP), intent(in)               :: et          ! 历元
         type(observation_station), intent(in):: station   ! 测站信息
-        logical, intent(in), optional      :: use_da      ! 控制开关
         
-        integer :: i, n_comp, ny, info
-        real(DP), allocatable :: mean_z(:), P_zz(:,:), P_xz(:,:), K_gain(:,:), P_zz_inv(:,:)
-        real(DP), allocatable :: innovation(:), log_likelihood(:)
-        real(DP) :: det_Pzz, max_ll, sum_exp, mahalanobis_sq
-        logical :: do_da
-        real(DP) :: PI = 3.14159265358979323846_DP
-
         class(AlgebraicVector) :: pos_j2000, measurement_da
+        integer :: j, n_comp, ny, info
+        real(DP), allocatable :: particles_z(:,:) ! 存储每个粒子的预测测量值 (ny, n_particles)
+        real(DP), allocatable :: means_z(:,:)   ! 存储每个核的预测测量均值 (ny, n_comp)
+        real(DP), allocatable :: P_zz(:,:,:), P_xz(:,:,:), K_gain(:,:,:), P_zz_inv(:,:,:) ! 存储每个核的预测测量协方差、交叉协方差、卡尔曼增益和协方差逆
+        ! real(DP), allocatable :: innovation(:), log_likelihood(:)
+        real(DP), allocatable :: log_likelihood(:) ! 存储每个核的对数似然概率 (n_comp)
+        real(DP), allocatable :: innovation(:, :) ! 存储每个核的测量残差 (ny, n_comp)
+        real(DP), allocatable :: det_Pzz(:),  mahalanobis_sq(:) ! 存储每个核的 P_zz 行列式和马氏距离平方 (n_comp)
+        real(DP) :: sum_exp
         
-        
-        do_da = .false.
-        if (present(use_da)) do_da = use_da
         
         n_comp = this%gmm_state%n_components
         ny = size(y_meas)
@@ -139,89 +138,60 @@ contains
         
         ! write(*,*) '[EMDAC] 执行测量更新...'
 
+        call dace_initialize(this%da_order, dim)
+        call pos_j2000%init(dim)
+        do i = 1, 3
+            pos_j2000(i) = this%state_mean(i) + da_var(i)
+            pos_j2000(i+3) = this%state_mean(i+3) + da_var(i+3)
+        end do
 
-        if(do_da) then
-            ! 初始化DA
-            call dace_initialize(this%da_order, dim)
-            call pos_j2000%init(dim)
-            do i = 1, 3
-                pos_j2000(i) = this%state_mean(i) + da_var(i)
-                pos_j2000(i+3) = this%state_mean(i+3) + da_var(i+3)
-            end do
+        call compute_measurement_da(pos_j2000, et, station, 'OPTICAL', measurement_da)
 
-            call compute_measurement_da(pos_j2000, et, station, 'OPTICAL', measurement_da)
-
-            ! 此处需要知道每个点属于哪个GMM核，才能进一步进行测量更新，更新权重、均值和协方差
-            
-
-
-
-
-
-
-
+        ! 进一步进行测量更新，更新权重、均值和协方差
+        ! 计算每个粒子的预测测量值
+        do j = 1, n_particles
+            particles_z(:, j) = measurement_da%eval(propagated_particles%samples(:, j) - pos_j2000%elements)
+        end do
         
-        ! 遍历 GMM 中的每一个高斯核
         do i = 1, n_comp
-            ! ---------------------------------------------------------
-            ! A. 空间映射: 获取预测均值 \hat{z}，预测协方差 P_{zz}，交叉协方差 P_{xz}
-            ! ---------------------------------------------------------
-            if (do_da) then
-                ! TODO: 插入你的 DA 变换调用链 (init_da_expansion -> evaluate_da -> reconstruct_da)
-                ! call reconstruct_da_moments(..., mean_z, P_zz, P_xz, is_angle)
+            means_z(:, i) = 0.0_DP
+            P_xz(:,:, i) = 0.0_DP
+            P_xz(:,:, i) = 0.0_DP
+            do j = 1, n_particles
+                means_z(:, i) = means_z(:, i) + this%current_omega(i, j) * particles_z(:, j)
+                P_zz(:,:, i) = P_zz(:,:, i) + this%current_omega(i, j) * matmul(reshape(particles_z(:, j) - means_z(:, i), (/ny, 1/)), &
+                                                                                 reshape(particles_z(:, j) - means_z(:, i), (/1, ny/))) + noise_R
+                P_xz(:,:, i) = P_xz(:,:, i) + this%current_omega(i, j) * matmul(reshape(propagated_particles%samples(:, j) - this%state_mean, (/dim, 1/)), &
+                                                                                    reshape(particles_z(:, j) - means_z(:, i), (/1, ny/)))                                                                 
+            end do
+            means_z(:, i) = means_z(:, i) / this%current_W(i)
+            P_zz(:,:, i) = P_zz(:,:, i) / this%current_W(i)
+            P_xz(:,:, i) = P_xz(:,:, i) / this%current_W(i)
+            K_gain(:,:, i) = matmul(P_xz(:,:, i), inverse(P_zz(:,:, i)))
 
-            else
-                ! TODO: 插入你的 UT 变换调用链 (generate_sigma_points -> 物理方程 -> reconstruct_ut)
-                ! call reconstruct_ut_moments(..., mean_z, P_zz, P_xz, is_angle)
-            end if
-            
-            ! ---------------------------------------------------------
-            ! B. 标准卡尔曼方程更新
-            ! ---------------------------------------------------------
-            ! 加入测量噪声
-            P_zz = P_zz + noise_R
-            
-            call inverse_and_determinant(P_zz, P_zz_inv, det_Pzz, info)
+            gmm_state%components(i)%mean = gmm_state%components(i)%mean + matmul(K_gain(:,:, i), y_meas - means_z(:, i))
+            gmm_state%components(i)%cov = gmm_state%components(i)%cov - matmul(K_gain(:,:, i), matmul(P_zz(:,:, i), transpose(K_gain(:,:, i))))
+
+            ! 计算对数似然概率
+            call inverse_and_determinant(P_zz(:,:, i), P_zz_inv(:,:, i), det_Pzz(i), info)
             if (info /= 0) write(*,*) '[警告] P_zz 求逆失败！'
-            
-            ! 计算卡尔曼增益 K = P_{xz} * (P_{zz})^{-1}
-            K_gain = matmul(P_xz, P_zz_inv)
-            
-            ! 计算残差 (Innovation)
-            innovation = y_meas - mean_z
-            ! [极其关键] 角度残差修正，防止 359度 - 1度 = 358度 的谬误
-            call fix_angle_innovation(innovation, is_angle) 
-            
-            ! 更新当前核的均值和协方差 (Eq. 30, Eq. 31)
-            this%gmm_state%components(i)%mean = this%gmm_state%components(i)%mean + matmul(K_gain, innovation)
-            this%gmm_state%components(i)%cov  = this%gmm_state%components(i)%cov  - matmul(K_gain, matmul(P_zz, transpose(K_gain)))
-            
-            ! ---------------------------------------------------------
-            ! C. 计算更新权重所需的对数似然概率 (Log-Likelihood)
-            ! 公式: \ln(\mathcal{N}(y | \hat{z}, P_{zz})) + \ln(\mu_i^-)
-            ! ---------------------------------------------------------
-            mahalanobis_sq = dot_product(innovation, matmul(P_zz_inv, innovation))
+            innovation(:, i) = y_meas - means_z(:, i)
+            mahalanobis_sq(i) = dot_product(innovation(:, i), matmul(P_zz_inv(:,:, i), innovation(:, i)))
             log_likelihood(i) = log(this%gmm_state%components(i)%weight) &
                               - 0.5_DP * ny * log(2.0_DP * PI) &
-                              - 0.5_DP * log(det_Pzz) &
-                              - 0.5_DP * mahalanobis_sq
+                              - 0.5_DP * log(det_Pzz(i)) &
+                              - 0.5_DP * mahalanobis_sq(i)
         end do
-        
-        ! ---------------------------------------------------------
-        ! D. GMM 权重软更新 (使用 Log-Sum-Exp 技巧防止下溢)
-        ! ---------------------------------------------------------
-        max_ll = maxval(log_likelihood)
+
+        ! 权重更新：
         sum_exp = 0.0_DP
         do i = 1, n_comp
-            sum_exp = sum_exp + exp(log_likelihood(i) - max_ll)
+            sum_exp = sum_exp + exp(log_likelihood(i))
         end do
-        
-        ! 归一化写回
+
         do i = 1, n_comp
-            this%gmm_state%components(i)%weight = exp(log_likelihood(i) - max_ll - log(sum_exp))
+            this%gmm_state%components(i)%weight = exp(log_likelihood(i))*this%gmm_state%components(i)%weight / sum_exp
         end do
-        
-        deallocate(log_likelihood)
     end subroutine filter_measurement_update
 
     !> ======================================================================
@@ -293,22 +263,5 @@ contains
         
         deallocate(num_per_comp)
     end subroutine sample_particles_from_gmm
-
-    !> ======================================================================
-    !> 辅助子程序: 处理光学观测的残差跨界问题
-    !> ======================================================================
-    subroutine fix_angle_innovation(innovation, is_angle)
-        real(DP), dimension(:), intent(inout) :: innovation
-        logical, dimension(:), intent(in)     :: is_angle
-        integer :: r
-        real(DP) :: PI = 3.14159265358979323846_DP
-        
-        do r = 1, size(innovation)
-            if (is_angle(r)) then
-                if (innovation(r) > PI)  innovation(r) = innovation(r) - 2.0_DP * PI
-                if (innovation(r) < -PI) innovation(r) = innovation(r) + 2.0_DP * PI
-            end if
-        end do
-    end subroutine fix_angle_innovation
 
 end module pod_filter_emdac_module
