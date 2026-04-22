@@ -27,7 +27,7 @@ module pod_filter_emdac_module
     type :: emdac_filter
         real(DP), allocatable :: state_mean(:)          ! 当前 GMM 的全局均值 (动态分配)       
         type(uq_gmm_state_type) :: gmm_state            ! 当前 k 时刻的 GMM 状态
-        integer                 :: n_particles = 100000 ! 粒子总数
+        integer                 :: n_particles = 10000 ! 粒子总数
         real(DP)                :: em_tol = 1.0e-4_DP   ! EM 算法收敛容差
         integer                 :: em_max_iter = 50     ! EM 算法最大迭代次数
 
@@ -40,10 +40,15 @@ module pod_filter_emdac_module
     contains
         procedure :: set_da_order => filter_set_da_order
         procedure :: set_current_epoch => filter_set_current_epoch
-        procedure :: init => filter_init
+
+        procedure :: init_from_single => filter_init_single
+        procedure :: init_from_gmm => filter_init_gmm
+        
         procedure :: time_update => filter_time_update
         procedure :: measurement_update => filter_measurement_update
+
         procedure :: sample_particles_from_gmm => sample_particles_from_gmm
+        procedure, private :: update_global_mean
     end type emdac_filter
 
 contains
@@ -68,7 +73,7 @@ contains
 
 
     !> 1. 初始化滤波器
-    subroutine filter_init(this, initial_mean, initial_cov, n_comp, n_part)
+    subroutine filter_init_single(this, initial_mean, initial_cov, n_comp, n_part)
         class(emdac_filter), intent(inout) :: this
         real(DP), intent(in) :: initial_mean(:), initial_cov(:,:)
         integer, intent(in)  :: n_comp, n_part
@@ -76,7 +81,23 @@ contains
         this%n_particles = n_part
         ! 利用单高斯分布初始化最初的 GMM
         call this%gmm_state%init_from_single(n_comp, initial_mean, initial_cov)
-    end subroutine filter_init
+    end subroutine filter_init_single
+
+    !> [方式 B] 从现有的 GMM 状态对象直接初始化 (例如从 JSON 读取后)
+    subroutine filter_init_gmm(this, gmm_in, n_part)
+        class(emdac_filter), intent(inout) :: this
+        type(uq_gmm_state_type), intent(in) :: gmm_in
+        integer, intent(in) :: n_part
+        
+        this%n_particles = n_part
+        ! 利用 Fortran 2003+ 的自动重分配赋值 (Deep Copy)
+        this%gmm_state = gmm_in
+        
+        if (.not. allocated(this%state_mean)) allocate(this%state_mean(gmm_in%state_dim))
+        ! 根据读入的 GMM 分量计算全局加权均值
+        call this%update_global_mean()
+    end subroutine filter_init_gmm
+
 
 
     !> ======================================================================
@@ -279,5 +300,15 @@ contains
         
         deallocate(num_per_comp)
     end subroutine sample_particles_from_gmm
+
+    subroutine update_global_mean(this)
+        class(emdac_filter), intent(inout) :: this
+        integer :: i
+        this%state_mean = 0.0_DP
+        do i = 1, this%gmm_state%n_components
+            this%state_mean = this%state_mean + &
+                this%gmm_state%components(i)%weight * this%gmm_state%components(i)%mean
+        end do
+    end subroutine update_global_mean
 
 end module pod_filter_emdac_module
