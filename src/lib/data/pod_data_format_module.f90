@@ -16,11 +16,11 @@ module pod_data_format_module
 
 contains
 
+
+   !> ======================================================================
+    !> 读取标准的 OPM JSON 格式并初始化状态
     !> ======================================================================
-    !> 读取初始 OPM JSON 文件，提取状态向量和协方差矩阵
-    !> 假设 JSON 是格式化的 (Pretty-Printed)，即每行包含独立的键值对
-    !> ======================================================================
-    subroutine load_initial_opm(json_file, et, state, cov ,gmm_state, has_gmm)
+    subroutine load_initial_opm(json_file, et, state, cov, gmm_state, has_gmm)
         character(len=*), intent(in) :: json_file
         real(DP), intent(out)        :: et
         real(DP), intent(out)        :: state(6)
@@ -28,16 +28,21 @@ contains
         type(uq_gmm_state_type), intent(out), optional :: gmm_state
         logical, intent(out), optional :: has_gmm
 
-        integer :: u_json, ios
+        integer :: u_json, ios, i, j, k
+        integer :: comp_idx, n_components
+        real(DP) :: tmp_val
         character(len=MAX_STRING_LEN) :: line
         character(len=64) :: epoch_str
         logical :: found
         
-        ! 初始全赋零/默认值
+        character(len=5), parameter :: s_keys(6) = ["X    ", "Y    ", "Z    ", "X_DOT", "Y_DOT", "Z_DOT"]
+        
         state = 0.0_DP
         cov = 0.0_DP
         et = 0.0_DP
         epoch_str = ""
+        comp_idx = 0
+        if (present(has_gmm)) has_gmm = .false.
         
         open(newunit=u_json, file=json_file, status='old', iostat=ios)
         if (ios /= 0) stop "[ERROR] 无法打开初始 OPM 文件: " // trim(json_file)
@@ -46,43 +51,70 @@ contains
             read(u_json, '(A)', iostat=ios) line
             if (ios < 0) exit ! 文件结束
             
-            ! 提取时间 (字符串)
+            ! 提取时间
             call extract_json_string(line, '"EPOCH"', epoch_str, found)
             
-            ! 提取状态向量 (X, Y, Z, X_DOT, Y_DOT, Z_DOT)
-            call extract_json_value(line, '"X"', state(1), found)
-            call extract_json_value(line, '"Y"', state(2), found)
-            call extract_json_value(line, '"Z"', state(3), found)
-            call extract_json_value(line, '"X_DOT"', state(4), found)
-            call extract_json_value(line, '"Y_DOT"', state(5), found)
-            call extract_json_value(line, '"Z_DOT"', state(6), found)
+            ! 提取状态向量与主协方差矩阵 (自动处理对称性)
+            do i = 1, 6
+                call extract_json_value(line, '"'//trim(s_keys(i))//'"', state(i), found)
+                do j = 1, i
+                    call extract_json_value(line, '"C'//trim(s_keys(i))//'_'//trim(s_keys(j))//'"', cov(i,j), found)
+                    if (found) cov(j,i) = cov(i,j) 
+                end do
+            end do
             
-            ! 提取协方差矩阵对角线 (示例：CX_X, CY_Y...)
-            ! (如果初始文件包含完整的 21 个独立项，可按此模式继续补充提取)
-            call extract_json_value(line, '"CX_X"', cov(1,1), found)
-            call extract_json_value(line, '"CY_Y"', cov(2,2), found)
-            call extract_json_value(line, '"CZ_Z"', cov(3,3), found)
-            call extract_json_value(line, '"CX_DOT_X_DOT"', cov(4,4), found)
-            call extract_json_value(line, '"CY_DOT_Y_DOT"', cov(5,5), found)
-            call extract_json_value(line, '"CZ_DOT_Z_DOT"', cov(6,6), found)
+            ! 提取 GMM 状态
+            if (present(gmm_state)) then
+                ! 解析总分量数并初始化
+                call extract_json_value(line, '"GMM_N_COMPONENTS"', tmp_val, found)
+                if (found) then
+                    n_components = nint(tmp_val)
+                    call gmm_state%init(6, n_components)
+                    if (present(has_gmm)) has_gmm = .true.
+                end if
+                
+                ! 解析当前块的 INDEX
+                call extract_json_value(line, '"INDEX"', tmp_val, found)
+                if (found) comp_idx = nint(tmp_val)
+                
+                ! 填充对应 INDEX 的属性
+                if (comp_idx > 0 .and. comp_idx <= gmm_state%n_components) then
+                    call extract_json_value(line, '"WEIGHT"', gmm_state%components(comp_idx)%weight, found)
+                    call extract_json_array6(line, '"MEAN"', gmm_state%components(comp_idx)%mean, found)
+                    
+                    ! 提取 GMM 全协方差矩阵 (读取下三角，对称赋值)
+                    do j = 1, 6
+                        do k = 1, j
+                            call extract_json_value(line, '"COV_' // char(48+j) // '_' // char(48+k) // '"', tmp_val, found)
+                            if (found) then
+                                gmm_state%components(comp_idx)%cov(j,k) = tmp_val
+                                gmm_state%components(comp_idx)%cov(k,j) = tmp_val ! 保证对称矩阵
+                            end if
+                        end do
+                    end do
+                end if
+            end if
         end do
         
         close(u_json)
         
-        ! 调用 SPICE 将 ISO 8601 字符串转换为 TDB 秒
-        call str2et(trim(epoch_str), et)
+        if (trim(epoch_str) /= "") call str2et(trim(epoch_str), et)
         
     end subroutine load_initial_opm
 
     !> ======================================================================
     !> 将滤波后的最终结果输出为标准的 OPM JSON 格式
     !> ======================================================================
-    subroutine write_json_opm(filename, final_state, final_cov, rms, obj_id, et_last)
+    subroutine write_json_opm(filename, final_state, final_cov, gmm_state, rms, obj_id, et_last)
         character(len=*), intent(in) :: filename, obj_id
         real(DP), intent(in)         :: final_state(6), final_cov(6,6), rms, et_last
+        type(uq_gmm_state_type), intent(in), optional :: gmm_state
         
-        integer :: u
+        integer :: u, i, j, k
         character(len=64) :: epoch_str
+        
+        ! 定义状态键名常量，用于自动生成状态名与协方差名
+        character(len=5), parameter :: s_keys(6) = ["X    ", "Y    ", "Z    ", "X_DOT", "Y_DOT", "Z_DOT"]
         
         ! 将 TDB 秒转换回 UTC 字符串
         call et2utc(et_last, 'ISOC', 6, epoch_str) 
@@ -92,7 +124,7 @@ contains
         write(u, '(A)') '{'
         write(u, '(A,A,A)') '    "ASL_CAT_ID": "', trim(obj_id), '",'
         
-        ! 动力学参数 (如果是估值可替换为动态变量，此处输出标称配置)
+        ! 动力学参数标称配置
         write(u, '(A)') '    "DRAG_AREA": 1.0,'
         write(u, '(A)') '    "DRAG_CD": 2.2,'
         write(u, '(A)') '    "MASS": 1000.0,'
@@ -101,26 +133,54 @@ contains
         
         ! 历元与状态向量
         write(u, '(A,A,A)') '    "EPOCH": "', trim(epoch_str), '",'
-        write(u, '(A,ES22.15,A)') '    "X": ', final_state(1), ','
-        write(u, '(A,ES22.15,A)') '    "Y": ', final_state(2), ','
-        write(u, '(A,ES22.15,A)') '    "Z": ', final_state(3), ','
-        write(u, '(A,ES22.15,A)') '    "X_DOT": ', final_state(4), ','
-        write(u, '(A,ES22.15,A)') '    "Y_DOT": ', final_state(5), ','
-        write(u, '(A,ES22.15,A)') '    "Z_DOT": ', final_state(6), ','
+        do i = 1, 6
+            write(u, '(A,A,A,ES22.15,A)') '    "', trim(s_keys(i)), '": ', final_state(i), ','
+        end do
         
-        ! 协方差矩阵 (只输出下三角或全展开)
-        write(u, '(A,ES22.15,A)') '    "CX_X": ', final_cov(1,1), ','
-        write(u, '(A,ES22.15,A)') '    "CY_Y": ', final_cov(2,2), ','
-        write(u, '(A,ES22.15,A)') '    "CZ_Z": ', final_cov(3,3), ','
-        write(u, '(A,ES22.15,A)') '    "CX_DOT_X_DOT": ', final_cov(4,4), ','
-        write(u, '(A,ES22.15,A)') '    "CY_DOT_Y_DOT": ', final_cov(5,5), ','
-        write(u, '(A,ES22.15,A)') '    "CZ_DOT_Z_DOT": ', final_cov(6,6), ','
-        ! 如果需要，可以继续写入交叉协方差如 "CX_DOT_X": final_cov(4,1) 等...
+        ! 协方差矩阵 (自动生成 OPM 标准的下三角键名: C + row_name + _ + col_name)
+        do i = 1, 6
+            do j = 1, i
+                write(u, '(A,A,A,A,A,ES22.15,A)') '    "C', trim(s_keys(i)), '_', trim(s_keys(j)), '": ', final_cov(i,j), ','
+            end do
+        end do
+        
+        ! 写入 GMM 核心描述
+       ! 写入 GMM 核心描述
+        if (present(gmm_state)) then
+            write(u, '(A,I0,A)') '    "GMM_N_COMPONENTS": ', gmm_state%n_components, ','
+            write(u, '(A)') '    "GMM_COMPONENTS": ['
+            
+            do i = 1, gmm_state%n_components
+                write(u, '(A)') '        {'
+                write(u, '(A,I0,A)')          '            "INDEX": ', i, ','
+                write(u, '(A,ES22.15,A)')     '            "WEIGHT": ', gmm_state%components(i)%weight, ','
+                write(u, '(A, 5(ES22.15, ", "), ES22.15, A)') '            "MEAN": [', gmm_state%components(i)%mean, '],'
+                
+                ! 展开输出下三角协方差矩阵 (COV_1_1 到 COV_6_6)
+                do j = 1, 6
+                    do k = 1, j
+                        if (j == 6 .and. k == 6) then
+                            ! 最后一项不加逗号，遵循严格的 JSON 语法
+                            write(u, '(A,A,A,A,A,ES22.15)') '            "COV_', char(48+j), '_', char(48+k), '": ', gmm_state%components(i)%cov(j,k)
+                        else
+                            write(u, '(A,A,A,A,A,ES22.15,A)') '            "COV_', char(48+j), '_', char(48+k), '": ', gmm_state%components(i)%cov(j,k), ','
+                        end if
+                    end do
+                end do
+                
+                if (i < gmm_state%n_components) then
+                    write(u, '(A)') '        },'
+                else
+                    write(u, '(A)') '        }'
+                end if
+            end do
+            write(u, '(A)') '    ],'
+        end if
         
         ! 统计信息
         write(u, '(A,ES22.15,A)') '    "RMS": ', rms, ','
-        write(u, '(A,A,A)') '    "LAST_OBS": "', trim(epoch_str), '",'
-        write(u, '(A)') '    "STATUS": "SUCCESS"'
+        write(u, '(A,A,A)')       '    "LAST_OBS": "', trim(epoch_str), '",'
+        write(u, '(A)')           '    "STATUS": "SUCCESS"'
         
         write(u, '(A)') '}'
         close(u)
@@ -183,25 +243,34 @@ contains
         end if
     end subroutine extract_json_string
 
-    !> 从 JSON 文件中探测并加载 GMM 结构
-    subroutine load_gmm_state_from_json(filename, gmm_out, et, has_gmm)
-        character(len=*), intent(in) :: filename
-        type(uq_gmm_state_type), intent(out) :: gmm_out
-        real(DP), intent(out) :: et
-        logical, intent(out) :: has_gmm
-        
-        ! 逻辑：
-        ! 1. 打开文件扫描 "GMM_N_COMPONENTS" 关键字
-        ! 2. 如果没有，has_gmm = .false.
-        ! 3. 如果有，按照上一轮讨论的数组解析逻辑，allocate 并填充 gmm_out
-    end subroutine load_gmm_state_from_json
 
-    !> 将当前的 GMM 状态完整存入 JSON (供后续任务断点续传)
-    subroutine save_gmm_state_to_json(filename, gmm_state, et, obj_id)
-        character(len=*), intent(in) :: filename, obj_id
-        type(uq_gmm_state_type), intent(in) :: gmm_state
-        real(DP), intent(in) :: et
-        ! 逻辑：遍历 gmm_state%components 写入 JSON 数组
-    end subroutine save_gmm_state_to_json
+    !> ======================================================================
+    !> 内部辅助工具：从 JSON 数组字符串提取 6 个实数 (如 MEAN 或 COV_DIAG)
+    !> ======================================================================
+    subroutine extract_json_array6(line, key, vals, found)
+        character(len=*), intent(in)  :: line, key
+        real(DP), intent(out)         :: vals(6)
+        logical, intent(out)          :: found
+        
+        integer :: idx_key, idx_bracket1, idx_bracket2
+        character(len=MAX_STRING_LEN) :: arr_str
+        
+        found = .false.
+        idx_key = index(line, trim(key))
+        if (idx_key > 0) then
+            idx_bracket1 = index(line(idx_key:), '[') + idx_key - 1
+            idx_bracket2 = index(line(idx_bracket1:), ']') + idx_bracket1 - 1
+            
+            if (idx_bracket1 >= idx_key .and. idx_bracket2 > idx_bracket1) then
+                arr_str = line(idx_bracket1+1 : idx_bracket2-1)
+                ! Fortran 的表控格式输入(*) 会自动将逗号视为空白分隔符
+                read(arr_str, *, err=20) vals
+                found = .true.
+            end if
+        end if
+        return
+20      found = .false.
+    end subroutine extract_json_array6
+
 
 end module pod_data_format_module

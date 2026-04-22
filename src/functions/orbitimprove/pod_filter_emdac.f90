@@ -5,10 +5,9 @@
 !-----------------------------------------------------------------------------------------
 module pod_filter_emdac_module
     use pod_global, only: DP
-    use pod_dace_classes, only: AlgebraicVector
+    use pod_dace_classes
     use pod_uq_gmm_state_module, only: uq_gmm_state_type
     use pod_uq_state_module, only: uq_state_type
-    use pod_uq_da_module, only: uq_da_propagator
     use pod_gmm_math_module, only: fit_gmm_to_particles
     use pod_uq_propagation, only: run_particle_propagation
     use pod_measurement_base_module, only: observation_station 
@@ -25,119 +24,157 @@ module pod_filter_emdac_module
     !> 滤波器主类定义
     !> ======================================================================
     type :: emdac_filter
-        real(DP), allocatable :: state_mean(:)          ! 当前 GMM 的全局均值 (动态分配)       
-        type(uq_gmm_state_type) :: gmm_state            ! 当前 k 时刻的 GMM 状态
+        private
+        real(DP) :: current_epoch ! 当前历元
+        real(DP), allocatable :: state_mean(:)          ! 当前 GMM 的全局均值 (动态分配)  
+        real(DP), allocatable :: state_cov(:,:)         ! 当前 GMM 的全局协方差 (动态分配)     
+        type(uq_gmm_state_type), public :: gmm_state            ! 当前 k 时刻的 GMM 状态
+
         integer                 :: n_particles = 10000 ! 粒子总数
         real(DP)                :: em_tol = 1.0e-4_DP   ! EM 算法收敛容差
         integer                 :: em_max_iter = 50     ! EM 算法最大迭代次数
+        integer                 :: da_order = 2         ! DA 阶数
 
         type(uq_state_type) :: propagated_particles   ! 保存时间更新后的粒子
         real(DP), allocatable :: current_omega(:,:)   ! 保存 EM 聚类后的责任度矩阵
         real(DP), allocatable :: current_W(:)         ! 保存各核的总责任度
-
-        class(uq_da_propagator), pointer :: propagator => null() ! DA 传播器对象指针
         
     contains
-        procedure :: set_da_order => filter_set_da_order
-        procedure :: set_current_epoch => filter_set_current_epoch
-        procedure :: set_init_global_mean => filter_set_global_mean
 
-        procedure :: init_from_single => filter_init_single
-        procedure :: init_from_gmm => filter_init_gmm
+        procedure :: init => filter_init
+
+        procedure :: set_da_order => filter_set_da_order
+        procedure :: set_em_parameters => filter_set_em_parameters
+        procedure :: set_n_particles => filter_set_n_particles
         
         procedure :: time_update => filter_time_update
         procedure :: measurement_update => filter_measurement_update
 
         procedure :: sample_particles_from_gmm => sample_particles_from_gmm
-        procedure, private :: update_global_mean
+        procedure, private :: update_global_mean, update_global_cov
+
+        procedure :: get_current_epoch => filter_get_current_epoch
+        procedure :: get_current_state => filter_get_current_state
+        procedure :: get_current_cov => filter_get_current_cov
+        procedure :: get_current_gmm => filter_get_current_gmm
     end type emdac_filter
 
 contains
 
-    !> ======================================================================
-    !> 1. 设置 DA 阶数接口
-    !> ======================================================================
+    !> 初始化函数，一次性注入所有配置并确立初始历元
+    subroutine filter_init(this, initial_epoch, initial_mean, initial_cov, initial_gmm,&
+                           n_comp, n_part, opt_da_order, opt_em_tol, opt_em_max_iter)
+        class(emdac_filter), intent(inout) :: this
+        real(DP), intent(in) :: initial_epoch
+        real(DP), intent(in) :: initial_mean(:), initial_cov(:,:)
+        type(uq_gmm_state_type), intent(in), optional :: initial_gmm
+
+        integer, intent(in) :: n_comp
+        integer, intent(in), optional :: n_part, opt_da_order, opt_em_max_iter
+        real(DP), intent(in), optional :: opt_em_tol
+
+        this%state_mean = initial_mean
+        this%state_cov = initial_cov
+        this%n_particles = n_part
+
+        ! 1. 初始化 DA 传播器
+        this%current_epoch = initial_epoch  ! 确立初始时间
+        this%da_order = opt_da_order
+        ! 2. 初始化 GMM 状态
+        if (present(initial_gmm)) then
+            this%gmm_state = initial_gmm
+        else 
+            call this%gmm_state%init_from_single(n_comp, initial_mean, initial_cov)
+        end if
+        ! 3. 初始化 EM 参数
+        if (present(opt_em_tol)) this%em_tol = opt_em_tol
+        if (present(opt_em_max_iter)) this%em_max_iter = opt_em_max_iter
+
+        write(*,*) '[EMDAC] 滤波器初始化完成！'
+        write(*,*) '  初始历元: ', this%current_epoch
+        write(*,*) '  初始均值: ', this%state_mean
+        write(*,*) '  粒子总数: ', this%n_particles
+        write(*,*) '  DA 阶数 : ', this%da_order
+        write(*,*) '  EM 最大迭代次数: ', this%em_max_iter
+        write(*,*) '  EM 收敛容差: ', this%em_tol
+    end subroutine filter_init
+
     subroutine filter_set_da_order(this, order)
         class(emdac_filter), intent(inout) :: this
-        integer, intent(in)                :: order 
-        if (order > 0) then
-            this%propagator%set_da_order(order)
-            write(*,*) '[EMDAC] 已设置 DA 阶数为: ', this%propagator%da_order 
-        end if
+        integer, intent(in) :: order
+        this%da_order = order
     end subroutine filter_set_da_order
 
-    subroutine filter_set_current_epoch(this, epoch)
+    subroutine filter_set_em_parameters(this, max_iter, tol)
         class(emdac_filter), intent(inout) :: this
-        real(DP), intent(in)          :: epoch
-        this%propagator%epoch0 = epoch
-    end subroutine filter_set_current_epoch
+        integer, intent(in), optional :: max_iter
+        real(DP), intent(in), optional :: tol
+        if (present(max_iter)) this%em_max_iter = max_iter
+        if (present(tol)) this%em_tol = tol
+    end subroutine filter_set_em_parameters
 
-    subroutine filter_set_global_mean(this, mean)
+    subroutine filter_set_n_particles(this, n_part)
         class(emdac_filter), intent(inout) :: this
-        real(DP), dimension(:), intent(in) :: mean
-        if (allocated(this%state_mean)) then
-            this%state_mean = mean
-        else
-            allocate(this%state_mean(size(mean)))
-            this%state_mean = mean
-        end if
-    end subroutine filter_set_global_mean
-
-
-    !> 1. 初始化滤波器
-    subroutine filter_init_single(this, initial_mean, initial_cov, n_comp, n_part)
-        class(emdac_filter), intent(inout) :: this
-        real(DP), intent(in) :: initial_mean(:), initial_cov(:,:)
-        integer, intent(in)  :: n_comp, n_part
-        
-        this%n_particles = n_part
-        ! 利用单高斯分布初始化最初的 GMM
-        call this%gmm_state%init_from_single(n_comp, initial_mean, initial_cov)
-    end subroutine filter_init_single
-
-    !> [方式 B] 从现有的 GMM 状态对象直接初始化 (例如从 JSON 读取后)
-    subroutine filter_init_gmm(this, gmm_in, n_part)
-        class(emdac_filter), intent(inout) :: this
-        type(uq_gmm_state_type), intent(in) :: gmm_in
         integer, intent(in) :: n_part
-        
         this%n_particles = n_part
-        ! 利用 Fortran 2003+ 的自动重分配赋值 (Deep Copy)
-        this%gmm_state = gmm_in
+    end subroutine filter_set_n_particles
 
-    end subroutine filter_init_gmm
+    subroutine filter_get_current_epoch(this, epoch_out)
+        class(emdac_filter), intent(in) :: this
+        real(DP), intent(out) :: epoch_out
+        epoch_out = this%current_epoch
+    end subroutine filter_get_current_epoch
 
+    subroutine filter_get_current_state(this, mean_out)
+        class(emdac_filter), intent(in) :: this
+        real(DP), dimension(:), intent(out) :: mean_out
+        mean_out = this%state_mean
+    end subroutine filter_get_current_state
+
+    subroutine filter_get_current_cov(this, cov_out)
+        class(emdac_filter), intent(in) :: this
+        real(DP), dimension(:,:), intent(out) :: cov_out
+        cov_out = this%state_cov
+    end subroutine filter_get_current_cov
+
+    subroutine filter_get_current_gmm(this, gmm_out)
+        class(emdac_filter), intent(in) :: this
+        type(uq_gmm_state_type), intent(out) :: gmm_out
+        gmm_out = this%gmm_state
+    end subroutine filter_get_current_gmm
 
 
     !> ======================================================================
     !> 2. 时间更新 (Time Update)
     !> 逻辑: k步GMM -> 按权重采样粒子 -> DA动力学传播 -> EM聚类 -> k+1步GMM
     !> ======================================================================
-    subroutine filter_time_update(this, t_start, t_end)
+    subroutine filter_time_update(this, et)
         class(emdac_filter), intent(inout) :: this
-        real(DP), intent(in) :: t_start, t_end
+        real(DP), intent(in) :: et  ! 目标历元 (绝对时间)
         type(uq_state_type) :: uq_in
+        real(DP) :: t_end
         integer :: dim
         
         dim = this%gmm_state%state_dim
         call uq_in%allocate_memory(dim, this%n_particles)
         
         ! 步骤 A: 桥接参数空间与粒子空间 —— 根据 GMM 权重生成散布粒子
-        ! (直接将粒子生成到 uq_in%samples 中)
         call sample_particles_from_gmm(this%gmm_state, this%n_particles, uq_in%samples)
-        
+
+        t_end = et - this%current_epoch
         ! 步骤 B: 调用 DA 传播器进行高度非线性的动力学积分
-        ! (直接传入 uq_in 和 uq_out 对象，并接收传播后的中心参考轨道)
-        call run_particle_propagation(uq_in, this%state_mean, this%propagator%epoch0, &
-                                      t_start, t_end, METHOD_DA,  propagated_particles, &
+        call run_particle_propagation(uq_in, this%state_mean, this%current_epoch, &
+                                      0.0, t_end, METHOD_DA,  propagated_particles, &
                                       da_order=this%da_order, &
                                       reference_orbit_out=this%state_mean) 
         
         ! 步骤 C: 重新执行 K-means + EM 算法，提取传播后的 GMM 拓扑结构
-        ! (直接使用 uq_out%samples 进行拟合)
         write(*,*) '[EMDAC] 执行高斯混合聚类...'
         call fit_gmm_to_particles(propagated_particles%samples, this%gmm_state, this%em_max_iter, this%em_tol, &
                                  this%current_omega, this%current_W)
+
+        ! 时间更新
+        this%current_epoch = et                         
         
         ! 释放临时粒子对象内存，保留 this%propagated_particles 供后续测量更新使用
         call uq_in%deallocate_memory()
@@ -170,16 +207,27 @@ contains
         
         n_comp = this%gmm_state%n_components
         ny = size(y_meas)
-        allocate(log_likelihood(n_comp))
+        dim = this%gmm_state%state_dim ! [修复] 获取状态维度
         
-        ! write(*,*) '[EMDAC] 执行测量更新...'
+        ! 显式分配所有 allocatable 数组的内存！
+        allocate(log_likelihood(n_comp), det_Pzz(n_comp), mahalanobis_sq(n_comp))
+        allocate(particles_z(ny, this%n_particles))
+        allocate(means_z(ny, n_comp), innovation(ny, n_comp))
+        allocate(P_zz(ny, ny, n_comp), P_zz_inv(ny, ny, n_comp))
+        allocate(P_xz(dim, ny, n_comp), K_gain(dim, ny, n_comp))
+        
+        ! 确保此时的滤波器时间与观测时间对齐
+        if (abs(this%current_epoch - et) > 1.0e-6_DP) then
+            write(*,*) '[警告] 测量更新的历元与滤波器当前历元不匹配！请先调用 time_update。'
+        end if
 
-        call dace_initialize(this%propagator%da_order, dim)
+        call dace_initialize(this%da_order, dim)
         call pos_j2000%init(dim)
         do i = 1, 3
             pos_j2000(i) = this%state_mean(i) + da_var(i)
             pos_j2000(i+3) = this%state_mean(i+3) + da_var(i+3)
         end do
+    
 
         call compute_measurement_da(pos_j2000, et, station, 'OPTICAL', measurement_da)
 
@@ -240,6 +288,10 @@ contains
 
         ! 更新全局均值
         call this%update_global_mean()
+        call this%update_global_cov()
+
+        ! 释放临时数组内存
+        deallocate(log_likelihood, particles_z, means_z, P_zz, P_xz, K_gain, P_zz_inv, innovation, det_Pzz, mahalanobis_sq)
 
     end subroutine filter_measurement_update
 
@@ -322,5 +374,20 @@ contains
                 this%gmm_state%components(i)%weight * this%gmm_state%components(i)%mean
         end do
     end subroutine update_global_mean
+
+    subroutine update_global_cov(this)
+        class(emdac_filter), intent(inout) :: this
+        integer :: i
+        real(DP) :: dim
+        dim = size(this%state_mean)
+        this%state_cov = 0.0_DP
+        do i = 1, this%gmm_state%n_components
+            this%state_cov = this%state_cov + &
+                this%gmm_state%components(i)%weight * &
+                (this%gmm_state%components(i)%cov + &
+                 matmul(reshape(this%gmm_state%components(i)%mean - this%state_mean, (/dim, 1/)), &
+                        reshape(this%gmm_state%components(i)%mean - this%state_mean, (/1, dim/))))
+        end do
+    end subroutine update_global_cov
 
 end module pod_filter_emdac_module

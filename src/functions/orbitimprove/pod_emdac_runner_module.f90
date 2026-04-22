@@ -2,6 +2,7 @@
 !> @brief EMDAC-N 轨道改进集成封装层
 module pod_emdac_runner_module
     use pod_global, only: DP, MAX_STRING_LEN
+    use pod_uq_gmm_state_module, only: uq_gmm_state_type
     use pod_filter_emdac_module, only: emdac_filter
     use pod_obs_io_module, only: load_single_observation
     use pod_measurement_base_module, only: observation_station
@@ -20,7 +21,7 @@ contains
     !> ======================================================================
     !> 核心集成接口：执行完整的 EMDAC 轨道定轨流程
     !> ======================================================================
-    subroutine run_emdac_orbit_determination(obs_file, site_json_file, &
+    subroutine run_emdac_orbit_determination(obs_file, site_json_file, gmm_in_switch, &
                                              initial_json_file, output_json_file, &
                                              opt_particles, opt_da_order, &
                                              opt_em_max_iter, opt_em_tol, n_components)
@@ -29,12 +30,13 @@ contains
         character(len=*), intent(in) :: site_json_file     ! 测站配置文件路径 (.json)
         character(len=*), intent(in) :: initial_json_file  ! 初始先验状态文件路径 (.opm/.json)
         character(len=*), intent(in) :: output_json_file   ! 输出定轨结果文件路径 (.opm/.json)
+        logical, intent(in) :: gmm_in_switch               ! GMM 初始化开关
         
-        integer,  intent(in) :: opt_particles      ! 粒子总数
-        integer,  intent(in) :: opt_da_order       ! DA 阶数
-        integer,  intent(in) :: opt_em_max_iter    ! EM 算法最大迭代次数
-        real(DP), intent(in) :: opt_em_tol         ! EM 算法收敛容差
-        integer,  intent(in) :: n_components       ! GMM 分量数量
+        integer,  intent(in), optional :: opt_particles      ! 粒子总数
+        integer,  intent(in), optional :: opt_da_order       ! DA 阶数
+        integer,  intent(in), optional :: opt_em_max_iter    ! EM 算法最大迭代次数
+        real(DP), intent(in), optional :: opt_em_tol         ! EM 算法收敛容差
+        integer,  intent(in), optional :: n_components       ! GMM 分量数量
         
         ! 局部变量：核心对象
         type(emdac_filter) :: my_filter
@@ -43,6 +45,8 @@ contains
         ! 状态与时间变量
         real(DP) :: initial_mean(6), final_mean(6)
         real(DP) :: initial_cov(6,6), final_cov(6,6)
+        type(uq_gmm_state_type) :: initial_gmm, final_gmm
+
         real(DP) :: y_meas(2), noise_R(2,2)
         real(DP) :: et_current, et_obs, dt
         logical :: is_eof
@@ -54,18 +58,28 @@ contains
         noise_R(2,2) = noise_R(1,1)
 
         ! 2. 初始状态加载 (从文件读取先验值)
-        ! call load_initial_opm(initial_json_file, et_current, initial_mean, initial_cov)
-        et_current = 0.0_DP 
-        initial_mean = 0.0_DP
-        initial_cov = 0.0_DP; do i=1,6; initial_cov(i,i) = 1.0e-6_DP; end do
+        if (gmm_in_switch) then
+            call load_initial_opm(initial_json_file, et_current, initial_mean, initial_cov, initial_gmm, gmm_in_switch)
+            call my_filter%init(et_current, initial_mean,initial_cov, initial_gmm = initial_gmm, n_components)
+        else
+            ! 从 JSON 文件加载单一高斯先验状态
+            call load_initial_opm(initial_json_file, et_current, initial_mean, initial_cov)
+            call my_filter%init(et_current, initial_mean,initial_cov, n_components)
+        end if
         
         ! 3. 滤波器装配与初始化
-        my_filter%n_particles = opt_particles
-        my_filter%em_tol = opt_em_tol
-        my_filter%em_max_iter = opt_em_max_iter
-        
-        call my_filter%set_da_order(opt_da_order)
-        call my_filter%init(initial_mean, initial_cov, n_components, opt_particles)
+        if (present(opt_particles)) then
+            call my_filter%set_n_particles(opt_particles)
+        end if
+        if (present(opt_em_tol)) then
+            call my_filter%set_em_parameters(tol = opt_em_tol)
+        end if
+        if (present(opt_em_max_iter)) then
+            call my_filter%set_em_parameters(max_iter = opt_em_max_iter)
+        end if
+        if (present(opt_da_order)) then
+            call my_filter%set_da_order(opt_da_order)
+        end if
         
         ! 4. 核心数据同化流 (Time Update + Measurement Update)
         obs_count = 1
@@ -76,24 +90,21 @@ contains
             
             write(*,'(A,I0,A,F14.3)') '  [Runner] 处理观测 #', obs_count, ' 历元: ', et_obs
             
-            dt = et_obs - et_current
-            if (abs(dt) > 1.0e-6_DP) then
-                call my_filter%time_update(0.0_DP, dt)
-            end if
-            
+            call my_filter%time_update(et_obs)
             call my_filter%measurement_update(y_meas, noise_R, et_obs, current_station)
-            
-            et_current = et_obs
+
             obs_count = obs_count + 1
         end do
         
         write(*,*) '  [Runner] 滤波结束，有效观测数: ', obs_count - 1
         
         ! 5. 结果提取与落盘
-        final_mean = my_filter%state_mean
-        ! call my_filter%gmm_state%compute_global_covariance(final_cov) 
+        call my_filter%get_current_epoch(et_current)
+        call my_filter%get_current_state(final_mean)
+        call my_filter%get_current_cov(final_cov)
+        call my_filter%get_current_gmm(final_gmm)
         
-        call write_json_opm(output_json_file, final_mean, final_cov, 0.0_DP, "CAT_TARGET", et_current)
+        call write_json_opm(output_json_file, final_mean, final_cov, final_gmm, 0.0_DP, "CAT_TARGET", et_current)
         
     end subroutine run_emdac_orbit_determination
 
