@@ -4,6 +4,9 @@ module pod_data_format_module
     use pod_global, only: DP, MAX_STRING_LEN
     ! 如果你封装了 SPICE 的时间转换，从这里引入：
     use pod_spice, only: str2et, et2utc
+
+    use pod_uq_gmm_state_module, only: uq_gmm_state_type
+     ! 其他必要的模块...
     
     implicit none
     private
@@ -17,12 +20,14 @@ contains
     !> 读取初始 OPM JSON 文件，提取状态向量和协方差矩阵
     !> 假设 JSON 是格式化的 (Pretty-Printed)，即每行包含独立的键值对
     !> ======================================================================
-    subroutine load_initial_opm(json_file, et, state, cov)
+    subroutine load_initial_opm(json_file, et, state, cov ,gmm_state, has_gmm)
         character(len=*), intent(in) :: json_file
         real(DP), intent(out)        :: et
         real(DP), intent(out)        :: state(6)
         real(DP), intent(out)        :: cov(6,6)
-        
+        type(uq_gmm_state_type), intent(out), optional :: gmm_state
+        logical, intent(out), optional :: has_gmm
+
         integer :: u_json, ios
         character(len=MAX_STRING_LEN) :: line
         character(len=64) :: epoch_str
@@ -65,7 +70,6 @@ contains
         close(u_json)
         
         ! 调用 SPICE 将 ISO 8601 字符串转换为 TDB 秒
-        ! 如果你还没有挂载 SPICE，可以先注释掉下面这行
         call str2et(trim(epoch_str), et)
         
     end subroutine load_initial_opm
@@ -178,5 +182,26 @@ contains
             end if
         end if
     end subroutine extract_json_string
+
+    !> 从 JSON 文件中探测并加载 GMM 结构
+    subroutine load_gmm_state_from_json(filename, gmm_out, et, has_gmm)
+        character(len=*), intent(in) :: filename
+        type(uq_gmm_state_type), intent(out) :: gmm_out
+        real(DP), intent(out) :: et
+        logical, intent(out) :: has_gmm
+        
+        ! 逻辑：
+        ! 1. 打开文件扫描 "GMM_N_COMPONENTS" 关键字
+        ! 2. 如果没有，has_gmm = .false.
+        ! 3. 如果有，按照上一轮讨论的数组解析逻辑，allocate 并填充 gmm_out
+    end subroutine load_gmm_state_from_json
+
+    !> 将当前的 GMM 状态完整存入 JSON (供后续任务断点续传)
+    subroutine save_gmm_state_to_json(filename, gmm_state, et, obj_id)
+        character(len=*), intent(in) :: filename, obj_id
+        type(uq_gmm_state_type), intent(in) :: gmm_state
+        real(DP), intent(in) :: et
+        ! 逻辑：遍历 gmm_state%components 写入 JSON 数组
+    end subroutine save_gmm_state_to_json
 
 end module pod_data_format_module

@@ -40,6 +40,7 @@ module pod_filter_emdac_module
     contains
         procedure :: set_da_order => filter_set_da_order
         procedure :: set_current_epoch => filter_set_current_epoch
+        procedure :: set_init_global_mean => filter_set_global_mean
 
         procedure :: init_from_single => filter_init_single
         procedure :: init_from_gmm => filter_init_gmm
@@ -71,6 +72,17 @@ contains
         this%propagator%epoch0 = epoch
     end subroutine filter_set_current_epoch
 
+    subroutine filter_set_global_mean(this, mean)
+        class(emdac_filter), intent(inout) :: this
+        real(DP), dimension(:), intent(in) :: mean
+        if (allocated(this%state_mean)) then
+            this%state_mean = mean
+        else
+            allocate(this%state_mean(size(mean)))
+            this%state_mean = mean
+        end if
+    end subroutine filter_set_global_mean
+
 
     !> 1. 初始化滤波器
     subroutine filter_init_single(this, initial_mean, initial_cov, n_comp, n_part)
@@ -92,10 +104,7 @@ contains
         this%n_particles = n_part
         ! 利用 Fortran 2003+ 的自动重分配赋值 (Deep Copy)
         this%gmm_state = gmm_in
-        
-        if (.not. allocated(this%state_mean)) allocate(this%state_mean(gmm_in%state_dim))
-        ! 根据读入的 GMM 分量计算全局加权均值
-        call this%update_global_mean()
+
     end subroutine filter_init_gmm
 
 
@@ -228,6 +237,9 @@ contains
         do i = 1, n_comp
             this%gmm_state%components(i)%weight = exp(log_likelihood(i) - sum_exp) / det_Pzz(1)
         end do
+
+        ! 更新全局均值
+        call this%update_global_mean()
 
     end subroutine filter_measurement_update
 
