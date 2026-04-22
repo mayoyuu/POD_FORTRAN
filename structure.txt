@@ -5,288 +5,22 @@
 ├── build
 │   ├── cache.toml
 │   ├── compile_commands.json
-│   ├── dependencies
-│   ├── gfortran_95C54D5551E7A286
-│   │   └── POD_Fortran
-│   │       ├── libPOD_Fortran.a
-│   │       └── libPOD_Fortran.a.log
-│   ├── gfortran_9EFDD7F85F6D9FF8
-│   │   ├── app
-│   │   │   ├── pod_demo
-│   │   │   └── pod_demo.log
-│   │   └── test
-│   │       ├── basic_test
-│   │       ├── basic_test.log
-│   │       ├── comprehensive_spice_test
-│   │       ├── comprehensive_spice_test.log
-│   │       ├── direct_spice_test
-│   │       ├── direct_spice_test.log
-│   │       ├── minimal_test
-│   │       ├── minimal_test.log
-│   │       ├── read_spice_constants
-│   │       ├── read_spice_constants.log
-│   │       ├── simple_spice_test
-│   │       ├── simple_spice_test.log
-│   │       ├── simple_test
-│   │       ├── simple_test.log
-│   │       ├── test_calc_normalization_units
-│   │       ├── test_calc_normalization_units.log
-│   │       ├── test_da_force_model
-│   │       ├── test_da_force_model.log
-│   │       ├── test_da_orbit_propagation
-│   │       ├── test_da_orbit_propagation.log
-│   │       ├── test_force_model
-│   │       ├── test_force_model.log
-│   │       ├── test_frame_oop
-│   │       ├── test_frame_oop.log
-│   │       ├── test_module_organization
-│   │       ├── test_module_organization.log
-│   │       ├── test_oop_simple
-│   │       ├── test_oop_simple.log
-│   │       ├── test_orbit_propagation
-│   │       ├── test_orbit_propagation.log
-│   │       ├── test_pod_config
-│   │       ├── test_pod_config.log
-│   │       ├── test_precision
-│   │       ├── test_precision.log
-│   │       ├── test_time_system
-│   │       ├── test_time_system.log
-│   │       ├── test_uq
-│   │       ├── test_uq.log
-│   │       ├── time_test
-│   │       └── time_test.log
-│   └── gfortran_B5DC81D514740460
-│       ├── POD_Fortran
-│       │   ├── app_pod_demo.f90.o
-│       │   ├── app_pod_demo.f90.o.digest
-│       │   ├── app_pod_demo.f90.o.log
-│       │   ├── src_functions_orbitprop_pod_da_orbit_propagation.f90.o
-│       │   ├── src_functions_orbitprop_pod_da_orbit_propagation.f90.o.digest
-│       │   ├── src_functions_orbitprop_pod_da_orbit_propagation.f90.o.log
-│       │   ├── src_functions_orbitprop_pod_orbit_propagation.f90.o
-│       │   ├── src_functions_orbitprop_pod_orbit_propagation.f90.o.digest
-│       │   ├── src_functions_orbitprop_pod_orbit_propagation.f90.o.log
-│       │   ├── src_functions_orbitprop_pod_uq_propagation.f90.o
-│       │   ├── src_functions_orbitprop_pod_uq_propagation.f90.o.digest
-│       │   ├── src_functions_orbitprop_pod_uq_propagation.f90.o.log
-│       │   ├── src_lib_api_pod_engine_module.f90.o
-│       │   ├── src_lib_api_pod_engine_module.f90.o.digest
-│       │   ├── src_lib_api_pod_engine_module.f90.o.log
-│       │   ├── src_lib_forcemodel_pod_da_force_model_module.f90.o
-│       │   ├── src_lib_forcemodel_pod_da_force_model_module.f90.o.digest
-│       │   ├── src_lib_forcemodel_pod_da_force_model_module.f90.o.log
-│       │   ├── src_lib_forcemodel_pod_force_model_module.f90.o
-│       │   ├── src_lib_forcemodel_pod_force_model_module.f90.o.digest
-│       │   ├── src_lib_forcemodel_pod_force_model_module.f90.o.log
-│       │   ├── src_lib_forcemodel_pod_gravity_model_module.f90.o
-│       │   ├── src_lib_forcemodel_pod_gravity_model_module.f90.o.digest
-│       │   ├── src_lib_forcemodel_pod_gravity_model_module.f90.o.log
-│       │   ├── src_lib_frame_pod_frame_module.f90.o
-│       │   ├── src_lib_frame_pod_frame_module.f90.o.digest
-│       │   ├── src_lib_frame_pod_frame_module.f90.o.log
-│       │   ├── src_lib_frame_pod_frame_simple_module.f90.o
-│       │   ├── src_lib_frame_pod_frame_simple_module.f90.o.digest
-│       │   ├── src_lib_frame_pod_frame_simple_module.f90.o.log
-│       │   ├── src_lib_integrator_pod_da_integrator_module.f90.o
-│       │   ├── src_lib_integrator_pod_da_integrator_module.f90.o.digest
-│       │   ├── src_lib_integrator_pod_da_integrator_module.f90.o.log
-│       │   ├── src_lib_integrator_pod_integrator_module.f90.o
-│       │   ├── src_lib_integrator_pod_integrator_module.f90.o.digest
-│       │   ├── src_lib_integrator_pod_integrator_module.f90.o.log
-│       │   ├── src_lib_math_pod_basicmath_module.f90.o
-│       │   ├── src_lib_math_pod_basicmath_module.f90.o.digest
-│       │   ├── src_lib_math_pod_basicmath_module.f90.o.log
-│       │   ├── src_lib_math_pod_random_module.f90.o
-│       │   ├── src_lib_math_pod_random_module.f90.o.digest
-│       │   ├── src_lib_math_pod_random_module.f90.o.log
-│       │   ├── src_lib_system_pod_config_module.f90.o
-│       │   ├── src_lib_system_pod_config_module.f90.o.digest
-│       │   ├── src_lib_system_pod_config_module.f90.o.log
-│       │   ├── src_lib_system_pod_dace_classes.f90.o
-│       │   ├── src_lib_system_pod_dace_classes.f90.o.digest
-│       │   ├── src_lib_system_pod_dace_classes.f90.o.log
-│       │   ├── src_lib_system_pod_global_module.f90.o
-│       │   ├── src_lib_system_pod_global_module.f90.o.digest
-│       │   ├── src_lib_system_pod_global_module.f90.o.log
-│       │   ├── src_lib_system_pod_object_base_module.f90.o
-│       │   ├── src_lib_system_pod_object_base_module.f90.o.digest
-│       │   ├── src_lib_system_pod_object_base_module.f90.o.log
-│       │   ├── src_lib_system_pod_spice.f90.o
-│       │   ├── src_lib_system_pod_spice.f90.o.digest
-│       │   ├── src_lib_system_pod_spice.f90.o.log
-│       │   ├── src_lib_system_pod_system_oop_module.f90.o
-│       │   ├── src_lib_system_pod_system_oop_module.f90.o.digest
-│       │   ├── src_lib_system_pod_system_oop_module.f90.o.log
-│       │   ├── src_lib_timesystem_pod_time_module.f90.o
-│       │   ├── src_lib_timesystem_pod_time_module.f90.o.digest
-│       │   ├── src_lib_timesystem_pod_time_module.f90.o.log
-│       │   ├── src_lib_uncertainty_pod_uq_base_module.f90.o
-│       │   ├── src_lib_uncertainty_pod_uq_base_module.f90.o.digest
-│       │   ├── src_lib_uncertainty_pod_uq_base_module.f90.o.log
-│       │   ├── src_lib_uncertainty_pod_uq_da_module.f90.o
-│       │   ├── src_lib_uncertainty_pod_uq_da_module.f90.o.digest
-│       │   ├── src_lib_uncertainty_pod_uq_da_module.f90.o.log
-│       │   ├── src_lib_uncertainty_pod_uq_mc_module.f90.o
-│       │   ├── src_lib_uncertainty_pod_uq_mc_module.f90.o.digest
-│       │   ├── src_lib_uncertainty_pod_uq_mc_module.f90.o.log
-│       │   ├── src_lib_uncertainty_pod_uq_state_module.f90.o
-│       │   ├── src_lib_uncertainty_pod_uq_state_module.f90.o.digest
-│       │   ├── src_lib_uncertainty_pod_uq_state_module.f90.o.log
-│       │   ├── src_lib_utils_pod_utils.f90.o
-│       │   ├── src_lib_utils_pod_utils.f90.o.digest
-│       │   ├── src_lib_utils_pod_utils.f90.o.log
-│       │   ├── test_basic_test.f90.o
-│       │   ├── test_basic_test.f90.o.digest
-│       │   ├── test_basic_test.f90.o.log
-│       │   ├── test_comprehensive_spice_test.f90.o
-│       │   ├── test_comprehensive_spice_test.f90.o.digest
-│       │   ├── test_comprehensive_spice_test.f90.o.log
-│       │   ├── test_direct_spice_test.f90.o
-│       │   ├── test_direct_spice_test.f90.o.digest
-│       │   ├── test_direct_spice_test.f90.o.log
-│       │   ├── test_minimal_test.f90.o
-│       │   ├── test_minimal_test.f90.o.digest
-│       │   ├── test_minimal_test.f90.o.log
-│       │   ├── test_read_spice_constants.f90.o
-│       │   ├── test_read_spice_constants.f90.o.digest
-│       │   ├── test_read_spice_constants.f90.o.log
-│       │   ├── test_simple_spice_test.f90.o
-│       │   ├── test_simple_spice_test.f90.o.digest
-│       │   ├── test_simple_spice_test.f90.o.log
-│       │   ├── test_simple_test.f90.o
-│       │   ├── test_simple_test.f90.o.digest
-│       │   ├── test_simple_test.f90.o.log
-│       │   ├── test_test_calc_normalization_units.f90.o
-│       │   ├── test_test_calc_normalization_units.f90.o.digest
-│       │   ├── test_test_calc_normalization_units.f90.o.log
-│       │   ├── test_test_da_force_model.f90.o
-│       │   ├── test_test_da_force_model.f90.o.digest
-│       │   ├── test_test_da_force_model.f90.o.log
-│       │   ├── test_test_da_orbit_propagation.f90.o
-│       │   ├── test_test_da_orbit_propagation.f90.o.digest
-│       │   ├── test_test_da_orbit_propagation.f90.o.log
-│       │   ├── test_test_force_model.f90.o
-│       │   ├── test_test_force_model.f90.o.digest
-│       │   ├── test_test_force_model.f90.o.log
-│       │   ├── test_test_frame_oop.f90.o
-│       │   ├── test_test_frame_oop.f90.o.digest
-│       │   ├── test_test_frame_oop.f90.o.log
-│       │   ├── test_test_module_organization.f90.o
-│       │   ├── test_test_module_organization.f90.o.digest
-│       │   ├── test_test_module_organization.f90.o.log
-│       │   ├── test_test_oop_simple.f90.o
-│       │   ├── test_test_oop_simple.f90.o.digest
-│       │   ├── test_test_oop_simple.f90.o.log
-│       │   ├── test_test_orbit_propagation.f90.o
-│       │   ├── test_test_orbit_propagation.f90.o.digest
-│       │   ├── test_test_orbit_propagation.f90.o.log
-│       │   ├── test_test_pod_config.f90.o
-│       │   ├── test_test_pod_config.f90.o.digest
-│       │   ├── test_test_pod_config.f90.o.log
-│       │   ├── test_test_precision.f90.o
-│       │   ├── test_test_precision.f90.o.digest
-│       │   ├── test_test_precision.f90.o.log
-│       │   ├── test_test_time_system.f90.o
-│       │   ├── test_test_time_system.f90.o.digest
-│       │   ├── test_test_time_system.f90.o.log
-│       │   ├── test_test_uq.f90.o
-│       │   ├── test_test_uq.f90.o.digest
-│       │   ├── test_test_uq.f90.o.log
-│       │   ├── test_time_test.f90.o
-│       │   ├── test_time_test.f90.o.digest
-│       │   └── test_time_test.f90.o.log
-│       ├── pod_basicmath.mod
-│       ├── pod_config.mod
-│       ├── pod_da_force_model_module.mod
-│       ├── pod_da_integrator_module.mod
-│       ├── pod_da_orbit_propagation.mod
-│       ├── pod_dace_classes.mod
-│       ├── pod_engine_module.mod
-│       ├── pod_force_model_module.mod
-│       ├── pod_frame_module.mod
-│       ├── pod_frame_simple_module.mod
-│       ├── pod_global.mod
-│       ├── pod_gravity_model_module.mod
-│       ├── pod_integrator_module.mod
-│       ├── pod_object_base.mod
-│       ├── pod_orbit_propagation.mod
-│       ├── pod_random_module.mod
-│       ├── pod_spice.mod
-│       ├── pod_system_oop_simple.mod
-│       ├── pod_time_module.mod
-│       ├── pod_uq_base_module.mod
-│       ├── pod_uq_da_module.mod
-│       ├── pod_uq_mc_module.mod
-│       ├── pod_uq_propagation.mod
-│       ├── pod_uq_state_module.mod
-│       └── pod_utils.mod
+│   └── dependencies
 ├── config
 │   └── pod_config.txt
 ├── dummy_test_config.txt
 ├── external
 │   └── dace_build
-│       ├── CMakeLists.txt
-│       ├── build
-│       │   ├── CMakeCache.txt
-│       │   ├── CMakeFiles
-│       │   ├── Makefile
-│       │   ├── cmake_install.cmake
-│       │   └── libdace_wrapper.a
-│       ├── dace_wrapper.cpp
-│       └── libdace_s.a
 ├── fort.99
 ├── fpm.toml
 ├── kernels
 │   ├── ck
-│   │   ├── CATT_DV_111_01_______00179.BC
-│   │   ├── CATT_DV_124_01_______00193.BC
-│   │   ├── CATT_DV_136_01_______00207.BC
-│   │   ├── CATT_DV_145_01_______00216.BC
-│   │   ├── CATT_DV_147_01_______00218.BC
-│   │   ├── CATT_DV_160_01_______00233.BC
-│   │   ├── CATT_DV_174_01_______00248.BC
-│   │   ├── CATT_DV_190_01_______00266.BC
-│   │   ├── CATT_DV_199_01_______00276.BC
-│   │   ├── CATT_DV_257_02_______00344.BC
-│   │   ├── RATT_DV_111_01_01____00179.BC
-│   │   ├── RATT_DV_124_01_01____00193.BC
-│   │   ├── RATT_DV_136_01_01____00207.BC
-│   │   ├── RATT_DV_145_01_01____00216.BC
-│   │   ├── RATT_DV_147_01_01____00218.BC
-│   │   ├── RATT_DV_160_01_01____00233.BC
-│   │   ├── RATT_DV_174_01_01____00248.BC
-│   │   ├── RATT_DV_190_01_01____00266.BC
-│   │   ├── RATT_DV_199_01_01____00276.BC
-│   │   ├── RATT_DV_257_02_01____00344.BC
-│   │   ├── ROS_HGA_2015_V0013.BC
-│   │   └── ROS_SA_2015_V0013.BC
 │   ├── convtm.tm
 │   ├── fk
-│   │   ├── convet.tm
-│   │   ├── earth_fixed.tf
-│   │   ├── earth_moon.tf
-│   │   ├── moon_080317.tf
-│   │   └── moon_de440_250416.tf
 │   ├── gravity_models
-│   │   ├── AIUB-GRL350A.gfc.tab
-│   │   ├── AIUB-GRL350A.tab
-│   │   ├── GGM05C.GEO
-│   │   ├── gggrx_0660pm_sha.tab
-│   │   └── jggrx_0900d_sha1_original.tab
 │   ├── lsk
-│   │   └── naif0012.tls
 │   ├── pck
-│   │   ├── Gravity.tpc
-│   │   ├── earth_000101_230801_230509.bpc
-│   │   ├── earth_000101_251219_250922.bpc
-│   │   ├── earth_latest_high_prec.bpc
-│   │   ├── gm_de431.tpc
-│   │   ├── moon_pa_de421_1900-2050.bpc
-│   │   ├── moon_pa_de440_200625.bpc
-│   │   └── pck00010.tpc
 │   └── spk
-│       ├── de421.bsp
-│       └── de440.bsp
 ├── lib
 │   ├── libdace_s.a
 │   ├── libdace_wrapper.a
@@ -309,52 +43,8 @@
 ├── setup_env.sh
 ├── src
 │   ├── functions
-│   │   ├── orbitimprove
-│   │   │   ├── pod_filter_emdac.f90
-│   │   │   └── pod_orbit_improvement.f90
-│   │   └── orbitprop
-│   │       ├── pod_da_orbit_propagation.f90
-│   │       ├── pod_orbit_propagation.f90
-│   │       └── pod_uq_propagation.f90
-│   └── lib
-│       ├── api
-│       │   └── pod_engine_module.f90
-│       ├── data
-│       │   └── pod_data_format_module.f90
-│       ├── forcemodel
-│       │   ├── pod_da_force_model_module.f90
-│       │   ├── pod_force_model_module.f90
-│       │   └── pod_gravity_model_module.f90
-│       ├── frame
-│       │   ├── pod_frame_module.f90
-│       │   └── pod_frame_simple_module.f90
-│       ├── integrator
-│       │   ├── pod_da_integrator_module.f90
-│       │   └── pod_integrator_module.f90
-│       ├── math
-│       │   ├── pod_basicmath_module.f90
-│       │   └── pod_random_module.f90
-│       ├── measurement
-│       │   ├── pod_measurement_da_module.f90
-│       │   └── pod_measurement_model_module.f90
-│       ├── statistics
-│       │   ├── pod_gmm_math.f90
-│       │   └── pod_statistics_module.f90
-│       ├── system
-│       │   ├── pod_config_module.f90
-│       │   ├── pod_dace_classes.f90
-│       │   ├── pod_global_module.f90
-│       │   ├── pod_object_base_module.f90
-│       │   ├── pod_spice.f90
-│       │   └── pod_system_oop_module.f90
-│       ├── timesystem
-│       │   └── pod_time_module.f90
-│       ├── uncertainty
-│       │   ├── data_structure
-│       │   ├── propagation
-│       │   └── transform
-│       └── utils
-│           └── pod_utils.f90
+│   ├── lib
+│   └── src_structure.txt
 ├── structure.txt
 ├── test
 │   ├── basic_test.f90
@@ -384,4 +74,4 @@
 │   └── time_test.f90
 └── test_config.txt
 
-47 directories, 338 files
+21 directories, 54 files

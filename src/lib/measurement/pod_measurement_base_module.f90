@@ -5,7 +5,7 @@ module pod_measurement_base_module
     implicit none
     
     private
-    public :: observation_station,PI
+    public :: observation_station
     
     !> 测站结构体 (唯一来源)
     type observation_station
@@ -15,5 +15,4 @@ module pod_measurement_base_module
         character(len=MAX_STRING_LEN) :: station_type  ! 'RADAR', 'OPTICAL', 'GPS'
     end type observation_station
 
-    real(DP), parameter :: PI = 3.14159265358979323846_DP
 end module pod_measurement_base_module

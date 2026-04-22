@@ -1,271 +1,183 @@
+!> @file pod_data_format_module.f90
+!> @brief 负责轨道参数消息 (OPM) 与 JSON 格式的序列化与反序列化
 module pod_data_format_module
     use pod_global, only: DP, MAX_STRING_LEN
+    ! 如果你封装了 SPICE 的时间转换，从这里引入：
+    ! use pod_spice, only: str2et, et2utc
+    
     implicit none
-    
     private
-    public :: read_tle_file, write_tle_file, read_observation_file, write_observation_file, &
-              read_state_vector_file, write_state_vector_file, format_time_string, &
-              parse_csv_line, format_csv_line
     
+    public :: load_initial_opm
+    public :: write_json_opm
+
 contains
 
-    ! 读取TLE文件
-    subroutine read_tle_file(filename, tle_data, n_lines, error_code)
-        character(len=*), intent(in) :: filename
-        character(len=*), dimension(:), intent(out) :: tle_data
-        integer, intent(out) :: n_lines
-        integer, intent(out) :: error_code
+    !> ======================================================================
+    !> 读取初始 OPM JSON 文件，提取状态向量和协方差矩阵
+    !> 假设 JSON 是格式化的 (Pretty-Printed)，即每行包含独立的键值对
+    !> ======================================================================
+    subroutine load_initial_opm(json_file, et, state, cov)
+        character(len=*), intent(in) :: json_file
+        real(DP), intent(out)        :: et
+        real(DP), intent(out)        :: state(6)
+        real(DP), intent(out)        :: cov(6,6)
         
-        integer :: unit, i, ios
+        integer :: u_json, ios
         character(len=MAX_STRING_LEN) :: line
+        character(len=64) :: epoch_str
+        logical :: found
         
-        error_code = 0
-        n_lines = 0
+        ! 初始全赋零/默认值
+        state = 0.0_DP
+        cov = 0.0_DP
+        et = 0.0_DP
+        epoch_str = ""
         
-        open(newunit=unit, file=filename, status='old', action='read', iostat=ios)
-        if (ios /= 0) then
-            error_code = 1001  ! 文件打开错误
-            return
-        end if
+        open(newunit=u_json, file=json_file, status='old', iostat=ios)
+        if (ios /= 0) stop "[ERROR] 无法打开初始 OPM 文件: " // trim(json_file)
         
-        do i = 1, size(tle_data)
-            read(unit, '(A)', iostat=ios) line
-            if (ios /= 0) exit
-            tle_data(i) = line
-            n_lines = n_lines + 1
-        end do
-        
-        close(unit)
-        
-    end subroutine read_tle_file
-    
-    ! 写入TLE文件
-    subroutine write_tle_file(filename, tle_data, n_lines, error_code)
-        character(len=*), intent(in) :: filename
-        character(len=*), dimension(:), intent(in) :: tle_data
-        integer, intent(in) :: n_lines
-        integer, intent(out) :: error_code
-        
-        integer :: unit, i, ios
-        
-        error_code = 0
-        
-        open(newunit=unit, file=filename, status='replace', action='write', iostat=ios)
-        if (ios /= 0) then
-            error_code = 1002  ! 文件创建错误
-            return
-        end if
-        
-        do i = 1, n_lines
-            write(unit, '(A)', iostat=ios) trim(tle_data(i))
-            if (ios /= 0) then
-                error_code = 1003  ! 文件写入错误
-                exit
-            end if
-        end do
-        
-        close(unit)
-        
-    end subroutine write_tle_file
-    
-    ! 读取观测数据文件
-    subroutine read_observation_file(filename, observations, n_obs, error_code)
-        character(len=*), intent(in) :: filename
-        real(DP), dimension(:,:), intent(out) :: observations
-        integer, intent(out) :: n_obs
-        integer, intent(out) :: error_code
-        
-        integer :: unit, i, ios
-        real(DP) :: time, range, az, el
-        
-        error_code = 0
-        n_obs = 0
-        
-        open(newunit=unit, file=filename, status='old', action='read', iostat=ios)
-        if (ios /= 0) then
-            error_code = 1001
-            return
-        end if
-        
-        do i = 1, size(observations, 1)
-            read(unit, *, iostat=ios) time, range, az, el
-            if (ios /= 0) exit
-            observations(i, 1) = time
-            observations(i, 2) = range
-            observations(i, 3) = az
-            observations(i, 4) = el
-            n_obs = n_obs + 1
-        end do
-        
-        close(unit)
-        
-    end subroutine read_observation_file
-    
-    ! 写入观测数据文件
-    subroutine write_observation_file(filename, observations, n_obs, error_code)
-        character(len=*), intent(in) :: filename
-        real(DP), dimension(:,:), intent(in) :: observations
-        integer, intent(in) :: n_obs
-        integer, intent(out) :: error_code
-        
-        integer :: unit, i, ios
-        
-        error_code = 0
-        
-        open(newunit=unit, file=filename, status='replace', action='write', iostat=ios)
-        if (ios /= 0) then
-            error_code = 1002
-            return
-        end if
-        
-        do i = 1, n_obs
-            write(unit, '(F20.8,3F15.8)', iostat=ios) observations(i, 1), &
-                  observations(i, 2), observations(i, 3), observations(i, 4)
-            if (ios /= 0) then
-                error_code = 1003
-                exit
-            end if
-        end do
-        
-        close(unit)
-        
-    end subroutine write_observation_file
-    
-    ! 读取状态向量文件
-    subroutine read_state_vector_file(filename, states, times, n_states, error_code)
-        character(len=*), intent(in) :: filename
-        real(DP), dimension(:,:), intent(out) :: states
-        real(DP), dimension(:), intent(out) :: times
-        integer, intent(out) :: n_states
-        integer, intent(out) :: error_code
-        
-        integer :: unit, i, ios
-        real(DP) :: time, x, y, z, vx, vy, vz
-        
-        error_code = 0
-        n_states = 0
-        
-        open(newunit=unit, file=filename, status='old', action='read', iostat=ios)
-        if (ios /= 0) then
-            error_code = 1001
-            return
-        end if
-        
-        do i = 1, size(states, 1)
-            read(unit, *, iostat=ios) time, x, y, z, vx, vy, vz
-            if (ios /= 0) exit
-            times(i) = time
-            states(i, 1) = x
-            states(i, 2) = y
-            states(i, 3) = z
-            states(i, 4) = vx
-            states(i, 5) = vy
-            states(i, 6) = vz
-            n_states = n_states + 1
-        end do
-        
-        close(unit)
-        
-    end subroutine read_state_vector_file
-    
-    ! 写入状态向量文件
-    subroutine write_state_vector_file(filename, states, times, n_states, error_code)
-        character(len=*), intent(in) :: filename
-        real(DP), dimension(:,:), intent(in) :: states
-        real(DP), dimension(:), intent(in) :: times
-        integer, intent(in) :: n_states
-        integer, intent(out) :: error_code
-        
-        integer :: unit, i, ios
-        
-        error_code = 0
-        
-        open(newunit=unit, file=filename, status='replace', action='write', iostat=ios)
-        if (ios /= 0) then
-            error_code = 1002
-            return
-        end if
-        
-        do i = 1, n_states
-            write(unit, '(F20.8,6F15.8)', iostat=ios) times(i), &
-                  states(i, 1), states(i, 2), states(i, 3), &
-                  states(i, 4), states(i, 5), states(i, 6)
-            if (ios /= 0) then
-                error_code = 1003
-                exit
-            end if
-        end do
-        
-        close(unit)
-        
-    end subroutine write_state_vector_file
-    
-    ! 格式化时间字符串
-    subroutine format_time_string(time_et, format_type, time_string)
-        real(DP), intent(in) :: time_et
-        character(len=*), intent(in) :: format_type
-        character(len=*), intent(out) :: time_string
-        
-        ! 这里应该调用SPICE的时间转换函数
-        ! 暂时使用简单格式
-        write(time_string, '(F20.8)') time_et
-        
-    end subroutine format_time_string
-    
-    ! 解析CSV行
-    subroutine parse_csv_line(line, values, n_values, error_code)
-        character(len=*), intent(in) :: line
-        real(DP), dimension(:), intent(out) :: values
-        integer, intent(out) :: n_values
-        integer, intent(out) :: error_code
-        
-        integer :: i, pos, start_pos, ios
-        character(len=MAX_STRING_LEN) :: token
-        
-        error_code = 0
-        n_values = 0
-        pos = 1
-        
-        do i = 1, size(values)
-            start_pos = pos
-            do while (pos <= len_trim(line) .and. line(pos:pos) /= ',')
-                pos = pos + 1
-            end do
+        do
+            read(u_json, '(A)', iostat=ios) line
+            if (ios < 0) exit ! 文件结束
             
-            if (start_pos <= pos - 1) then
-                token = line(start_pos:pos-1)
-                read(token, *, iostat=ios) values(i)
-                if (ios /= 0) then
-                    error_code = 1004  ! 数据解析错误
-                    return
+            ! 提取时间 (字符串)
+            call extract_json_string(line, '"EPOCH"', epoch_str, found)
+            
+            ! 提取状态向量 (X, Y, Z, X_DOT, Y_DOT, Z_DOT)
+            call extract_json_value(line, '"X"', state(1), found)
+            call extract_json_value(line, '"Y"', state(2), found)
+            call extract_json_value(line, '"Z"', state(3), found)
+            call extract_json_value(line, '"X_DOT"', state(4), found)
+            call extract_json_value(line, '"Y_DOT"', state(5), found)
+            call extract_json_value(line, '"Z_DOT"', state(6), found)
+            
+            ! 提取协方差矩阵对角线 (示例：CX_X, CY_Y...)
+            ! (如果初始文件包含完整的 21 个独立项，可按此模式继续补充提取)
+            call extract_json_value(line, '"CX_X"', cov(1,1), found)
+            call extract_json_value(line, '"CY_Y"', cov(2,2), found)
+            call extract_json_value(line, '"CZ_Z"', cov(3,3), found)
+            call extract_json_value(line, '"CX_DOT_X_DOT"', cov(4,4), found)
+            call extract_json_value(line, '"CY_DOT_Y_DOT"', cov(5,5), found)
+            call extract_json_value(line, '"CZ_DOT_Z_DOT"', cov(6,6), found)
+        end do
+        
+        close(u_json)
+        
+        ! 调用 SPICE 将 ISO 8601 字符串转换为 TDB 秒
+        ! 如果你还没有挂载 SPICE，可以先注释掉下面这行
+        ! call str2et(trim(epoch_str), et)
+        
+    end subroutine load_initial_opm
+
+    !> ======================================================================
+    !> 将滤波后的最终结果输出为标准的 OPM JSON 格式
+    !> ======================================================================
+    subroutine write_json_opm(filename, final_state, final_cov, rms, obj_id, et_last)
+        character(len=*), intent(in) :: filename, obj_id
+        real(DP), intent(in)         :: final_state(6), final_cov(6,6), rms, et_last
+        
+        integer :: u
+        character(len=64) :: epoch_str
+        
+        ! 将 TDB 秒转换回 UTC 字符串
+        ! call et2utc(et_last, 'ISOC', 6, epoch_str) 
+        epoch_str = "2026-03-01T12:00:00.000000Z" ! 占位符，请替换为真实的 et2utc 调用
+        
+        open(newunit=u, file=filename, status='replace', action='write')
+        
+        write(u, '(A)') '{'
+        write(u, '(A,A,A)') '    "ASL_CAT_ID": "', trim(obj_id), '",'
+        
+        ! 动力学参数 (如果是估值可替换为动态变量，此处输出标称配置)
+        write(u, '(A)') '    "DRAG_AREA": 1.0,'
+        write(u, '(A)') '    "DRAG_CD": 2.2,'
+        write(u, '(A)') '    "MASS": 1000.0,'
+        write(u, '(A)') '    "SOLAR_RAD_AREA": 1.0,'
+        write(u, '(A)') '    "SOLAR_RAD_COEFF": 1.3,'
+        
+        ! 历元与状态向量
+        write(u, '(A,A,A)') '    "EPOCH": "', trim(epoch_str), '",'
+        write(u, '(A,ES22.15,A)') '    "X": ', final_state(1), ','
+        write(u, '(A,ES22.15,A)') '    "Y": ', final_state(2), ','
+        write(u, '(A,ES22.15,A)') '    "Z": ', final_state(3), ','
+        write(u, '(A,ES22.15,A)') '    "X_DOT": ', final_state(4), ','
+        write(u, '(A,ES22.15,A)') '    "Y_DOT": ', final_state(5), ','
+        write(u, '(A,ES22.15,A)') '    "Z_DOT": ', final_state(6), ','
+        
+        ! 协方差矩阵 (只输出下三角或全展开)
+        write(u, '(A,ES22.15,A)') '    "CX_X": ', final_cov(1,1), ','
+        write(u, '(A,ES22.15,A)') '    "CY_Y": ', final_cov(2,2), ','
+        write(u, '(A,ES22.15,A)') '    "CZ_Z": ', final_cov(3,3), ','
+        write(u, '(A,ES22.15,A)') '    "CX_DOT_X_DOT": ', final_cov(4,4), ','
+        write(u, '(A,ES22.15,A)') '    "CY_DOT_Y_DOT": ', final_cov(5,5), ','
+        write(u, '(A,ES22.15,A)') '    "CZ_DOT_Z_DOT": ', final_cov(6,6), ','
+        ! 如果需要，可以继续写入交叉协方差如 "CX_DOT_X": final_cov(4,1) 等...
+        
+        ! 统计信息
+        write(u, '(A,ES22.15,A)') '    "RMS": ', rms, ','
+        write(u, '(A,A,A)') '    "LAST_OBS": "', trim(epoch_str), '",'
+        write(u, '(A)') '    "STATUS": "SUCCESS"'
+        
+        write(u, '(A)') '}'
+        close(u)
+        
+    end subroutine write_json_opm
+
+    !> ======================================================================
+    !> 内部辅助工具：从 JSON 字符串行中提取实数值
+    !> ======================================================================
+    subroutine extract_json_value(line, key, val, found)
+        character(len=*), intent(in)  :: line, key
+        real(DP), intent(out)         :: val
+        logical, intent(out)          :: found
+        
+        integer :: idx_key, idx_colon, idx_comma
+        character(len=MAX_STRING_LEN) :: val_str
+        
+        found = .false.
+        idx_key = index(line, trim(key))
+        if (idx_key > 0) then
+            idx_colon = index(line(idx_key:), ':') + idx_key - 1
+            if (idx_colon >= idx_key) then
+                idx_comma = index(line(idx_colon:), ',')
+                if (idx_comma > 0) then
+                    val_str = line(idx_colon+1 : idx_colon+idx_comma-2)
+                else
+                    val_str = line(idx_colon+1 :) ! 没有逗号，说明是最后一项
                 end if
-                n_values = n_values + 1
+                read(val_str, *, err=10) val
+                found = .true.
             end if
-            
-            if (pos > len_trim(line)) exit
-            pos = pos + 1  ! 跳过逗号
-        end do
+        end if
+        return
         
-    end subroutine parse_csv_line
-    
-    ! 格式化CSV行
-    subroutine format_csv_line(values, n_values, line)
-        real(DP), dimension(:), intent(in) :: values
-        integer, intent(in) :: n_values
-        character(len=*), intent(out) :: line
+10      found = .false. ! 读取浮点数失败的异常处理
+    end subroutine extract_json_value
+
+    !> ======================================================================
+    !> 内部辅助工具：从 JSON 字符串行中提取字符串值
+    !> ======================================================================
+    subroutine extract_json_string(line, key, str_val, found)
+        character(len=*), intent(in)  :: line, key
+        character(len=*), intent(out) :: str_val
+        logical, intent(out)          :: found
         
-        integer :: i
-        character(len=MAX_STRING_LEN) :: temp_line
+        integer :: idx_key, idx_colon, start_quote, end_quote
         
-        line = ''
-        do i = 1, n_values
-            if (i > 1) then
-                line = trim(line) // ','
+        found = .false.
+        idx_key = index(line, trim(key))
+        if (idx_key > 0) then
+            idx_colon = index(line(idx_key:), ':') + idx_key - 1
+            start_quote = index(line(idx_colon:), '"') + idx_colon - 1
+            if (start_quote >= idx_colon) then
+                end_quote = index(line(start_quote+1:), '"') + start_quote
+                if (end_quote > start_quote) then
+                    str_val = line(start_quote+1 : end_quote-1)
+                    found = .true.
+                end if
             end if
-            write(temp_line, '(F15.8)') values(i)
-            line = trim(line) // trim(adjustl(temp_line))
-        end do
-        
-    end subroutine format_csv_line
+        end if
+    end subroutine extract_json_string
 
 end module pod_data_format_module

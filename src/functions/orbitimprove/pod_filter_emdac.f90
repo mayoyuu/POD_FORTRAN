@@ -5,12 +5,12 @@
 !-----------------------------------------------------------------------------------------
 module pod_filter_emdac_module
     use pod_global, only: DP
+    use pod_dace_classes, only: AlgebraicVector
     use pod_uq_gmm_state_module, only: uq_gmm_state_type
     use pod_uq_state_module, only: uq_state_type
     use pod_uq_da_module, only: uq_da_propagator
     use pod_gmm_math_module, only: fit_gmm_to_particles
     use pod_uq_propagation, only: run_particle_propagation
-    use pod_uq_transform_da_module
     use pod_measurement_base_module, only: observation_station 
     use pod_measurement_da_module, only: compute_measurement_da
     use pod_basicmath_module, only: inverse_and_determinant
@@ -25,12 +25,11 @@ module pod_filter_emdac_module
     !> 滤波器主类定义
     !> ======================================================================
     type :: emdac_filter
-        real(DP), dimension(:) :: state_mean          ! 当前 GMM 的全局均值 (state_dim)
+        real(DP), allocatable :: state_mean(:)          ! 当前 GMM 的全局均值 (动态分配)       
         type(uq_gmm_state_type) :: gmm_state            ! 当前 k 时刻的 GMM 状态
         integer                 :: n_particles = 100000 ! 粒子总数
         real(DP)                :: em_tol = 1.0e-4_DP   ! EM 算法收敛容差
         integer                 :: em_max_iter = 50     ! EM 算法最大迭代次数
-        integer                 :: da_order = 2         ! DA 阶数
 
         type(uq_state_type) :: propagated_particles   ! 保存时间更新后的粒子
         real(DP), allocatable :: current_omega(:,:)   ! 保存 EM 聚类后的责任度矩阵
@@ -40,6 +39,7 @@ module pod_filter_emdac_module
         
     contains
         procedure :: set_da_order => filter_set_da_order
+        procedure :: set_current_epoch => filter_set_current_epoch
         procedure :: init => filter_init
         procedure :: time_update => filter_time_update
         procedure :: measurement_update => filter_measurement_update
@@ -55,10 +55,16 @@ contains
         class(emdac_filter), intent(inout) :: this
         integer, intent(in)                :: order 
         if (order > 0) then
-            this%da_order = order
-            write(*,*) '[EMDAC] 已设置 DA 阶数为: ', this%da_order 
+            this%propagator%set_da_order(order)
+            write(*,*) '[EMDAC] 已设置 DA 阶数为: ', this%propagator%da_order 
         end if
     end subroutine filter_set_da_order
+
+    subroutine filter_set_current_epoch(this, epoch)
+        class(emdac_filter), intent(inout) :: this
+        real(DP), intent(in)          :: epoch
+        this%propagator%epoch0 = epoch
+    end subroutine filter_set_current_epoch
 
 
     !> 1. 初始化滤波器
@@ -100,7 +106,7 @@ contains
         ! 步骤 C: 重新执行 K-means + EM 算法，提取传播后的 GMM 拓扑结构
         ! (直接使用 uq_out%samples 进行拟合)
         write(*,*) '[EMDAC] 执行高斯混合聚类...'
-        call fit_gmm_to_particles(uq_out%samples, this%gmm_state, this%em_max_iter, this%em_tol, &
+        call fit_gmm_to_particles(propagated_particles%samples, this%gmm_state, this%em_max_iter, this%em_tol, &
                                  this%current_omega, this%current_W)
         
         ! 释放临时粒子对象内存，保留 this%propagated_particles 供后续测量更新使用
@@ -138,7 +144,7 @@ contains
         
         ! write(*,*) '[EMDAC] 执行测量更新...'
 
-        call dace_initialize(this%da_order, dim)
+        call dace_initialize(this%propagator%da_order, dim)
         call pos_j2000%init(dim)
         do i = 1, 3
             pos_j2000(i) = this%state_mean(i) + da_var(i)
@@ -158,23 +164,27 @@ contains
             P_xz(:,:, i) = 0.0_DP
             P_xz(:,:, i) = 0.0_DP
             do j = 1, n_particles
-                means_z(:, i) = means_z(:, i) + this%current_omega(i, j) * particles_z(:, j)
+                means_z(:, i) = means_z(:, i) + this%current_omega(i, j) * particles_z(:, j)                                                              
+            end do
+            means_z(:, i) = means_z(:, i) / this%current_W(i)
+            do j = 1, n_particles
                 P_zz(:,:, i) = P_zz(:,:, i) + this%current_omega(i, j) * matmul(reshape(particles_z(:, j) - means_z(:, i), (/ny, 1/)), &
                                                                                  reshape(particles_z(:, j) - means_z(:, i), (/1, ny/))) + noise_R
                 P_xz(:,:, i) = P_xz(:,:, i) + this%current_omega(i, j) * matmul(reshape(propagated_particles%samples(:, j) - this%state_mean, (/dim, 1/)), &
-                                                                                    reshape(particles_z(:, j) - means_z(:, i), (/1, ny/)))                                                                 
+                                                                                    reshape(particles_z(:, j) - means_z(:, i), (/1, ny/)))   
             end do
-            means_z(:, i) = means_z(:, i) / this%current_W(i)
             P_zz(:,:, i) = P_zz(:,:, i) / this%current_W(i)
             P_xz(:,:, i) = P_xz(:,:, i) / this%current_W(i)
-            K_gain(:,:, i) = matmul(P_xz(:,:, i), inverse(P_zz(:,:, i)))
-
-            gmm_state%components(i)%mean = gmm_state%components(i)%mean + matmul(K_gain(:,:, i), y_meas - means_z(:, i))
-            gmm_state%components(i)%cov = gmm_state%components(i)%cov - matmul(K_gain(:,:, i), matmul(P_zz(:,:, i), transpose(K_gain(:,:, i))))
 
             ! 计算对数似然概率
             call inverse_and_determinant(P_zz(:,:, i), P_zz_inv(:,:, i), det_Pzz(i), info)
             if (info /= 0) write(*,*) '[警告] P_zz 求逆失败！'
+
+            K_gain(:,:, i) = matmul(P_xz(:,:, i), P_zz_inv(:,:, i))
+
+            this%gmm_state%components(i)%mean = this%gmm_state%components(i)%mean + matmul(K_gain(:,:, i), y_meas - means_z(:, i))
+            this%gmm_state%components(i)%cov = this%gmm_state%components(i)%cov - matmul(K_gain(:,:, i), matmul(P_zz(:,:, i), transpose(K_gain(:,:, i))))
+            
             innovation(:, i) = y_meas - means_z(:, i)
             mahalanobis_sq(i) = dot_product(innovation(:, i), matmul(P_zz_inv(:,:, i), innovation(:, i)))
             log_likelihood(i) = log(this%gmm_state%components(i)%weight) &
@@ -184,14 +194,20 @@ contains
         end do
 
         ! 权重更新：
-        sum_exp = 0.0_DP
+        ! A. 找到最大似然值防止溢出
+        sum_exp = maxval(log_likelihood(1:n_comp))
+        
+        ! B. 计算平移后的指数和
+        det_Pzz(1) = 0.0_DP ! 借用变量作为 LSE 的分母
         do i = 1, n_comp
-            sum_exp = sum_exp + exp(log_likelihood(i))
+            det_Pzz(1) = det_Pzz(1) + exp(log_likelihood(i) - sum_exp)
+        end do
+        
+        ! C. 最终权重更新 (注意：log_likelihood 中已含先验权重，不可再乘！)
+        do i = 1, n_comp
+            this%gmm_state%components(i)%weight = exp(log_likelihood(i) - sum_exp) / det_Pzz(1)
         end do
 
-        do i = 1, n_comp
-            this%gmm_state%components(i)%weight = exp(log_likelihood(i))*this%gmm_state%components(i)%weight / sum_exp
-        end do
     end subroutine filter_measurement_update
 
     !> ======================================================================

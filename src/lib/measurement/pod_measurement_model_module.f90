@@ -8,8 +8,8 @@
 module pod_measurement_model_module
     use pod_global, only: DP, MAX_STRING_LEN
     use pod_spice, only: get_frame_transform
-    use pod_basicmath_module, only: vector_magnitude, normalize_vector
-    use pod_measurement_base_module, only: observation_station,PI
+    use pod_basicmath_module, only: vector_magnitude, normalize_vector,PI
+    use pod_measurement_base_module, only: observation_station
     
     implicit none
     private

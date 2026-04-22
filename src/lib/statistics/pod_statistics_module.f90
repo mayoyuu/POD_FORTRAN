@@ -1,6 +1,6 @@
 module pod_statistics_module
     use pod_global, only: DP
-    use pod_basicmath, only: inverse_matrix
+    use pod_basicmath_module, only: inverse_matrix
     
     implicit none
     

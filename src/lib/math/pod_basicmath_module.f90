@@ -80,7 +80,9 @@ module pod_basicmath_module
 
     private
     public :: cross_product, dot_product_3d, vector_magnitude, normalize_vector
-    public :: norm_vector, norm_matrix, inverse_matrix, matrix_determinant, inverse_and_determinant
+    public :: norm_vector, norm_matrix, inverse_matrix, matrix_determinant, inverse_and_determinant,PI
+
+    real(DP), parameter :: PI = 3.14159265358979323846_DP
     
 contains
 

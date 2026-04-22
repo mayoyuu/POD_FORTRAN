@@ -9,7 +9,8 @@
 module pod_measurement_da_module
     use pod_global, only: DP, MAX_STRING_LEN
     use pod_spice, only: get_frame_transform
-    use pod_measurement_base_module, only: observation_station,PI
+    use pod_basicmath_module, only: PI
+    use pod_measurement_base_module, only: observation_station
     use pod_dace_classes
     
     implicit none
