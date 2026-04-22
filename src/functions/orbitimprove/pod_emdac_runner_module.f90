@@ -93,7 +93,7 @@ contains
         final_mean = my_filter%state_mean
         ! call my_filter%gmm_state%compute_global_covariance(final_cov) 
         
-        ! call write_json_opm(output_json_file, final_mean, final_cov, 0.0_DP, "CAT_TARGET", et_current)
+        call write_json_opm(output_json_file, final_mean, final_cov, 0.0_DP, "CAT_TARGET", et_current)
         
     end subroutine run_emdac_orbit_determination
 

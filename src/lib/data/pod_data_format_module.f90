@@ -3,7 +3,7 @@
 module pod_data_format_module
     use pod_global, only: DP, MAX_STRING_LEN
     ! 如果你封装了 SPICE 的时间转换，从这里引入：
-    ! use pod_spice, only: str2et, et2utc
+    use pod_spice, only: str2et, et2utc
     
     implicit none
     private
@@ -66,7 +66,7 @@ contains
         
         ! 调用 SPICE 将 ISO 8601 字符串转换为 TDB 秒
         ! 如果你还没有挂载 SPICE，可以先注释掉下面这行
-        ! call str2et(trim(epoch_str), et)
+        call str2et(trim(epoch_str), et)
         
     end subroutine load_initial_opm
 
@@ -81,8 +81,7 @@ contains
         character(len=64) :: epoch_str
         
         ! 将 TDB 秒转换回 UTC 字符串
-        ! call et2utc(et_last, 'ISOC', 6, epoch_str) 
-        epoch_str = "2026-03-01T12:00:00.000000Z" ! 占位符，请替换为真实的 et2utc 调用
+        call et2utc(et_last, 'ISOC', 6, epoch_str) 
         
         open(newunit=u, file=filename, status='replace', action='write')
         
