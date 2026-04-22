@@ -62,37 +62,39 @@ module pod_filter_emdac_module
 contains
 
     !> 初始化函数，一次性注入所有配置并确立初始历元
-    subroutine filter_init(this, initial_epoch, initial_mean, initial_cov, initial_gmm,&
-                           n_comp, n_part, opt_da_order, opt_em_tol, opt_em_max_iter)
+    !> 初始化函数，一次性注入所有配置并确立初始历元
+    subroutine filter_init(this, initial_epoch, initial_mean, initial_cov, n_comp, &
+                           initial_gmm, n_part, opt_da_order, opt_em_tol, opt_em_max_iter)
         class(emdac_filter), intent(inout) :: this
         real(DP), intent(in) :: initial_epoch
         real(DP), intent(in) :: initial_mean(:), initial_cov(:,:)
+        integer, intent(in)  :: n_comp  ! 必传参数全部挪到前面
+        
+        ! 所有的 optional 参数统一放到后面
         type(uq_gmm_state_type), intent(in), optional :: initial_gmm
-
-        integer, intent(in) :: n_comp
         integer, intent(in), optional :: n_part, opt_da_order, opt_em_max_iter
         real(DP), intent(in), optional :: opt_em_tol
 
+        ! 基础必传赋值
+        this%current_epoch = initial_epoch
         this%state_mean = initial_mean
         this%state_cov = initial_cov
-        this%n_particles = n_part
 
-        ! 1. 初始化 DA 传播器
-        this%current_epoch = initial_epoch  ! 确立初始时间
-        this%da_order = opt_da_order
-        ! 2. 初始化 GMM 状态
+        ! 安全的可选参数赋值：只有外部传了，才覆盖默认值
+        if (present(n_part)) this%n_particles = n_part
+        if (present(opt_da_order)) this%da_order = opt_da_order
+        if (present(opt_em_tol)) this%em_tol = opt_em_tol
+        if (present(opt_em_max_iter)) this%em_max_iter = opt_em_max_iter
+
+        ! 初始化 GMM 状态
         if (present(initial_gmm)) then
             this%gmm_state = initial_gmm
         else 
             call this%gmm_state%init_from_single(n_comp, initial_mean, initial_cov)
         end if
-        ! 3. 初始化 EM 参数
-        if (present(opt_em_tol)) this%em_tol = opt_em_tol
-        if (present(opt_em_max_iter)) this%em_max_iter = opt_em_max_iter
 
         write(*,*) '[EMDAC] 滤波器初始化完成！'
         write(*,*) '  初始历元: ', this%current_epoch
-        write(*,*) '  初始均值: ', this%state_mean
         write(*,*) '  粒子总数: ', this%n_particles
         write(*,*) '  DA 阶数 : ', this%da_order
         write(*,*) '  EM 最大迭代次数: ', this%em_max_iter

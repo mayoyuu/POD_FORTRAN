@@ -20,6 +20,7 @@ program pod_emdac_test
     integer :: opt_em_max_iter = 50
     real(DP) :: opt_em_tol = 1.0e-4_DP
     integer :: n_components = 5
+    logical :: gmm_in_switch = .false.  ! 补充了 GMM 初始化开关的默认值
 
     ! ===================================================================
     ! 0. 全局物理环境初始化 (最先执行！)
@@ -56,6 +57,9 @@ program pod_emdac_test
             case ('-n', '--ncomp')
                 call get_command_argument(i+1, arg_str); read(arg_str, *) n_components
                 i = i + 1
+            case ('-gmm', '--use_gmm')
+                ! 增加一个无参开关，碰到这个参数就开启 GMM 初始化
+                gmm_in_switch = .true.
         end select
         i = i + 1
     end do
@@ -69,16 +73,24 @@ program pod_emdac_test
     write(*,*) 'DA 阶数      : ', opt_da_order
     write(*,*) 'EM 最大迭代  : ', opt_em_max_iter
     write(*,*) 'EM 收敛容差  : ', opt_em_tol
+    write(*,*) 'GMM 初始化   : ', gmm_in_switch
     write(*,*) '--------------------------------------------------'
     write(*,*) '观测数据输入 : ', trim(obs_file)
     write(*,*) '定轨结果输出 : ', trim(output_json_file)
     write(*,*) '--------------------------------------------------'
     
-    ! 直接调用核心 API 进行“黑盒”执行
-    call run_emdac_orbit_determination(obs_file, site_json_file, &
-                                       initial_json_file, output_json_file, &
-                                       opt_particles, opt_da_order, &
-                                       opt_em_max_iter, opt_em_tol, n_components)
+    ! 直接调用核心 API 进行“黑盒”执行，采用极其安全的【全关键字传参】模式
+    call run_emdac_orbit_determination( &
+        obs_file          = obs_file, &
+        site_json_file    = site_json_file, &
+        gmm_in_switch     = gmm_in_switch, &
+        initial_json_file = initial_json_file, &
+        output_json_file  = output_json_file, &
+        opt_particles     = opt_particles, &
+        opt_da_order      = opt_da_order, &
+        opt_em_max_iter   = opt_em_max_iter, &
+        opt_em_tol        = opt_em_tol, &
+        n_components      = n_components)
                                        
     write(*,*) '✅ 测试任务圆满完成！'
     write(*,*) '=================================================='

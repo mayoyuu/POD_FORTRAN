@@ -22,22 +22,23 @@ contains
     !> 核心集成接口：执行完整的 EMDAC 轨道定轨流程
     !> ======================================================================
     subroutine run_emdac_orbit_determination(obs_file, site_json_file, gmm_in_switch, &
-                                             initial_json_file, output_json_file, &
+                                             initial_json_file, output_json_file, n_components&
                                              opt_particles, opt_da_order, &
-                                             opt_em_max_iter, opt_em_tol, n_components)
+                                             opt_em_max_iter, opt_em_tol)
         
         character(len=*), intent(in) :: obs_file           ! 观测文件路径 (.obs)
         character(len=*), intent(in) :: site_json_file     ! 测站配置文件路径 (.json)
         character(len=*), intent(in) :: initial_json_file  ! 初始先验状态文件路径 (.opm/.json)
         character(len=*), intent(in) :: output_json_file   ! 输出定轨结果文件路径 (.opm/.json)
         logical, intent(in) :: gmm_in_switch               ! GMM 初始化开关
+        integer,  intent(in), optional :: n_components       ! GMM 分量数量
+        
         
         integer,  intent(in), optional :: opt_particles      ! 粒子总数
         integer,  intent(in), optional :: opt_da_order       ! DA 阶数
         integer,  intent(in), optional :: opt_em_max_iter    ! EM 算法最大迭代次数
         real(DP), intent(in), optional :: opt_em_tol         ! EM 算法收敛容差
-        integer,  intent(in), optional :: n_components       ! GMM 分量数量
-        
+    
         ! 局部变量：核心对象
         type(emdac_filter) :: my_filter
         type(observation_station) :: current_station
@@ -45,7 +46,7 @@ contains
         ! 状态与时间变量
         real(DP) :: initial_mean(6), final_mean(6)
         real(DP) :: initial_cov(6,6), final_cov(6,6)
-        type(uq_gmm_state_type) :: initial_gmm, final_gmm
+        type(uq_gmm_state_type) :: initial_gmm
 
         real(DP) :: y_meas(2), noise_R(2,2)
         real(DP) :: et_current, et_obs, dt
@@ -60,7 +61,7 @@ contains
         ! 2. 初始状态加载 (从文件读取先验值)
         if (gmm_in_switch) then
             call load_initial_opm(initial_json_file, et_current, initial_mean, initial_cov, initial_gmm, gmm_in_switch)
-            call my_filter%init(et_current, initial_mean,initial_cov, initial_gmm = initial_gmm, n_components)
+            call my_filter%init(et_current, initial_mean,initial_cov, n_components, initial_gmm = initial_gmm)
         else
             ! 从 JSON 文件加载单一高斯先验状态
             call load_initial_opm(initial_json_file, et_current, initial_mean, initial_cov)
@@ -102,9 +103,8 @@ contains
         call my_filter%get_current_epoch(et_current)
         call my_filter%get_current_state(final_mean)
         call my_filter%get_current_cov(final_cov)
-        call my_filter%get_current_gmm(final_gmm)
         
-        call write_json_opm(output_json_file, final_mean, final_cov, final_gmm, 0.0_DP, "CAT_TARGET", et_current)
+        call write_json_opm(output_json_file, final_mean, final_cov, my_filter%gmm_state, 0.0_DP, "CAT_TARGET", et_current)
         
     end subroutine run_emdac_orbit_determination
 
