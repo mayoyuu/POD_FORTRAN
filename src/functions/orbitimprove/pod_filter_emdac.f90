@@ -87,6 +87,8 @@ contains
         if (present(opt_em_tol)) this%em_tol = opt_em_tol
         if (present(opt_em_max_iter)) this%em_max_iter = opt_em_max_iter
 
+        call dace_initialize(this%da_order, 6)
+
         ! 初始化 GMM 状态
         if (present(initial_gmm)) then
             this%gmm_state = initial_gmm
@@ -226,7 +228,9 @@ contains
             write(*,*) '[警告] 测量更新的历元与滤波器当前历元不匹配！请先调用 time_update。'
         end if
 
-        call dace_initialize(this%da_order, dim)
+        ! call dace_initialize(this%da_order, dim)
+        call dace_push_to(this%da_order)
+
         call pos_j2000%init(dim)
         do i = 1, 3
             pos_j2000%elements(i) = this%state_mean(i) + da_var(i)
@@ -295,6 +299,14 @@ contains
         ! 更新全局均值
         call this%update_global_mean()
         call this%update_global_cov()
+
+        ! ==========================================================
+        ! 1. 销毁局部 DA 对象 (修复内存泄漏)
+        call pos_j2000%destroy()
+        call measurement_da%destroy()
+        
+        ! 2. 弹出临时阶数，恢复全局默认阶数
+        call dace_pop_to()
 
         ! 释放临时数组内存
         deallocate(log_likelihood, particles_z, means_z, P_zz, P_xz, K_gain, P_zz_inv, innovation, det_Pzz, mahalanobis_sq)

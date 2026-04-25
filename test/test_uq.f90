@@ -3,6 +3,7 @@ program test_uq_api
     use pod_engine_module, only: pod_engine_init
     use pod_spice, only: str2et
     use pod_force_model_module
+    use pod_dace_classes
     
     ! 引入我们新改版的 API 和必需的常量开关
     use pod_uq_propagation, only: run_uq_propagation, METHOD_MC, METHOD_DA
