@@ -13,6 +13,7 @@ module pod_dace_classes
     public :: operator(**)
     public :: sin, cos, exp, sqrt, atan2, asin
     public :: matmul
+    public :: dace_set_to, dace_push_to, dace_pop_to, dace_set_eps, dace_get_to
 
     ! =========================================================
     ! 1. C 接口绑定
@@ -177,6 +178,34 @@ module pod_dace_classes
             real(c_double), intent(in) :: vals(*)
             real(c_double), intent(out) :: res
         end subroutine c_fdace_eval_all
+
+        ! === 截断与阶数控制 C 接口 ===
+        subroutine c_fdace_set_to(ot) bind(C, name="fdace_set_to")
+            import :: c_int; integer(c_int), value :: ot
+        end subroutine c_fdace_set_to
+
+        subroutine c_fdace_push_to(ot) bind(C, name="fdace_push_to")
+            import :: c_int; integer(c_int), value :: ot
+        end subroutine c_fdace_push_to
+
+        subroutine c_fdace_pop_to() bind(C, name="fdace_pop_to")
+        end subroutine c_fdace_pop_to
+
+        subroutine c_fdace_set_eps(eps) bind(C, name="fdace_set_eps")
+            import :: c_double; real(c_double), value :: eps
+        end subroutine c_fdace_set_eps
+
+        subroutine c_fdace_trim(hi, min_ord, max_ord, ho) bind(C, name="fdace_trim")
+            import :: c_int; integer(c_int), value :: hi, min_ord, max_ord, ho
+        end subroutine c_fdace_trim
+
+        subroutine c_fdace_trunc(hi, ho) bind(C, name="fdace_trunc")
+            import :: c_int; integer(c_int), value :: hi, ho
+        end subroutine c_fdace_trunc
+
+        function c_fdace_get_to() bind(C, name="fdace_get_to")
+            import :: c_int; integer(c_int) :: c_fdace_get_to
+        end function c_fdace_get_to
     end interface
 
     ! 在模块顶部类型定义区补充
@@ -206,6 +235,9 @@ module pod_dace_classes
         procedure :: get_deriv_value => da_get_deriv_value
         generic :: eval => da_eval_var, da_eval_all
 
+        procedure :: trim => da_trim
+        procedure :: trunc => da_trunc
+        
         final :: da_auto_destroy
     end type DA
 
@@ -280,6 +312,9 @@ module pod_dace_classes
         generic :: eval => vector_eval_var, vector_eval_all
 
         procedure :: norm2 => vector_norm2 ! 向量的二范数
+
+        procedure :: trim => vector_trim
+        procedure :: trunc => vector_trunc
 
         final :: vector_auto_destroy
 
@@ -1018,5 +1053,73 @@ contains
         end if
         this%size = 0
     end subroutine vector_auto_destroy
+
+    ! ==========================================
+    ! 截断与阶数全局控制实现
+    ! ==========================================
+    subroutine dace_set_to(order)
+        integer, intent(in) :: order
+        call c_fdace_set_to(int(order, c_int))
+    end subroutine dace_set_to
+
+    subroutine dace_push_to(order)
+        integer, intent(in) :: order
+        call c_fdace_push_to(int(order, c_int))
+    end subroutine dace_push_to
+
+    subroutine dace_pop_to()
+        call c_fdace_pop_to()
+    end subroutine dace_pop_to
+
+    subroutine dace_set_eps(eps)
+        real(8), intent(in) :: eps
+        call c_fdace_set_eps(real(eps, c_double))
+    end subroutine dace_set_eps
+
+    ! 获取当前有效阶数
+    integer function dace_get_to()
+        dace_get_to = int(c_fdace_get_to())
+    end function dace_get_to
+
+    ! ==========================================
+    ! DA 多项式对象截断实现
+    ! ==========================================
+    type(DA) function da_trim(this, min_ord, max_ord) result(res)
+        class(DA), intent(in) :: this
+        integer, intent(in) :: min_ord, max_ord
+        call res%init()
+        call c_fdace_trim(this%handle, int(min_ord, c_int), int(max_ord, c_int), res%handle)
+    end function da_trim
+
+    type(DA) function da_trunc(this) result(res)
+        class(DA), intent(in) :: this
+        call res%init()
+        call c_fdace_trunc(this%handle, res%handle)
+    end function da_trunc
+
+    ! ==========================================
+    ! AlgebraicVector 向量对象截断实现
+    ! ==========================================
+    type(AlgebraicVector) function vector_trim(this, min_ord, max_ord) result(res)
+        class(AlgebraicVector), intent(in) :: this
+        integer, intent(in) :: min_ord, max_ord
+        integer :: i
+        
+        call res%init(this%size)
+        do i = 1, this%size
+            ! 对向量里的每一个 DA 元素执行 trim
+            res%elements(i) = this%elements(i)%trim(min_ord, max_ord)
+        end do
+    end function vector_trim
+
+    type(AlgebraicVector) function vector_trunc(this) result(res)
+        class(AlgebraicVector), intent(in) :: this
+        integer :: i
+        
+        call res%init(this%size)
+        do i = 1, this%size
+            res%elements(i) = this%elements(i)%trunc()
+        end do
+    end function vector_trunc
 
 end module pod_dace_classes

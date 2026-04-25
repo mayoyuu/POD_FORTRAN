@@ -220,4 +220,29 @@ extern "C" {
         // 4. 自动销毁临时的 compiledDA
         *result = da_registry[h_in].eval(args_vec);
     }
+
+    // ==========================================
+    // 截断与阶数控制 (Truncation & Order Control)
+    // ==========================================
+    
+    // 1. 全局截断阶数控制
+    void fdace_set_to(int ot) { DACE::DA::setTO(ot); }
+    void fdace_push_to(int ot) { DACE::DA::pushTO(ot); }
+    void fdace_pop_to() { DACE::DA::popTO(); }
+
+    // 2. 基于数值大小的微小系数截断 (Epsilon)
+    void fdace_set_eps(double eps) { DACE::DA::setEps(eps); }
+
+    // 3. 特定多项式的阶数裁剪 (Trimming)
+    void fdace_trim(int h_in, int min_ord, int max_ord, int h_out) {
+        da_registry[h_out] = da_registry[h_in].trim(min_ord, max_ord);
+    }
+
+    // 4. 常数项的数学取整截断 (Trunc)
+    void fdace_trunc(int h_in, int h_out) {
+        da_registry[h_out] = da_registry[h_in].trunc();
+    }
+
+    // 获取当前截断阶数
+    int fdace_get_to() { return DACE::DA::getTO(); }
 }
