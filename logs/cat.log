@@ -2,4 +2,16 @@
     CAT Fortran System Log
 ==========================================
 
-[2026-03-13 17:31:28] [INFO] [pod_init] System initialization completed
+[2026-04-23 15:03:49] [INFO] [pod_init] System initialization completed
+==========================================
+    CAT Fortran System Log (OOP Simple)
+==========================================
+
+[2026-04-23 15:03:49] [INFO] Logger initialized successfully
+[2026-04-23 15:03:49] [INFO] [pod_system_simple] System initialized successfully
+==========================================
+    CAT Fortran System Log (OOP Simple)
+==========================================
+
+[2026-04-23 15:03:49] [INFO] Logger initialized successfully
+[2026-04-23 15:03:49] [INFO] Logger cleanup completed

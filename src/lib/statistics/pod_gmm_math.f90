@@ -273,9 +273,15 @@ contains
         do i = 1, n_clusters
             ! 该簇的总责任度 (论文中的 \mathcal{W}_i)
             responsibility(i) = sum(omega(i, :))
+            if (responsibility(i) < 1.0d-30) responsibility(i) = 1.0d-30
             
             ! 1. 更新均值 
-            means(:, i) = sum(particles * reshape(omega(i, :), [1, n_particles]), dim=2) / responsibility(i)
+            ! 将 (n_particles) 的向量在第 1 维扩展 d 次，变为 (d, n_particles)
+            means(:, i) = 0.0_DP
+            do j = 1, n_particles
+                means(:, i) = means(:, i) + particles(:, j) * omega(i, j)
+            end do
+            means(:, i) = means(:, i) / responsibility(i)
             
             ! 2. 更新协方差矩阵
             covariances(:, :, i) = 0.0_DP

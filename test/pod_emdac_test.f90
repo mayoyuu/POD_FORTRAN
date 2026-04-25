@@ -16,7 +16,7 @@ program pod_emdac_test
     
     ! 算法控制参数 (赋予默认值)
     integer :: opt_particles = 100000
-    integer :: opt_da_order = 2
+    integer :: opt_da_order = 3
     integer :: opt_em_max_iter = 50
     real(DP) :: opt_em_tol = 1.0e-4_DP
     integer :: n_components = 5
@@ -31,9 +31,9 @@ program pod_emdac_test
     write(*,*) '>>> 物理引擎初始化完成！'
     
     ! 1. 默认文件路径
-    obs_file          = 'data/DROB_20251210_20260111_cor.obs'
+    obs_file          = 'input/DROB_20251210_20260111_cor.obs'
     site_json_file    = 'config/site.json'
-    initial_json_file = 'data/DROb_20251210_9.opm'
+    initial_json_file = 'input/DROb_20251210_9.opm'
     output_json_file  = 'output/emdac_result.opm'
     
     ! 2. 灵活解析命令行可选参数

@@ -13,6 +13,7 @@ module pod_uq_state_module
     contains
         ! 重命名为 allocate_memory，明确它只做内存分配
         procedure :: allocate_memory => state_allocate_memory
+        procedure :: deallocate_memory => state_deallocate_memory 
         procedure :: compute_moments => state_compute_moments
     end type uq_state_type
 
@@ -27,6 +28,14 @@ contains
         allocate(this%samples(dim, n_particles))
         this%samples = 0.0_DP
     end subroutine state_allocate_memory
+
+    subroutine state_deallocate_memory(this)
+        class(uq_state_type), intent(inout) :: this
+        
+        if (allocated(this%samples)) deallocate(this%samples)
+        if (allocated(this%mean))    deallocate(this%mean)
+        if (allocated(this%cov))     deallocate(this%cov)
+    end subroutine state_deallocate_memory
     
     ! 计算均值和协方差
     subroutine state_compute_moments(this)

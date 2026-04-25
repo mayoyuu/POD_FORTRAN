@@ -4,6 +4,7 @@ module pod_obs_io_module
     use pod_global, only: DP, MAX_STRING_LEN
     use pod_measurement_base_module, only: observation_station
     use pod_basicmath_module, only: PI
+    use pod_time_module, only: utc_to_et
     implicit none
     private
     
@@ -21,6 +22,7 @@ contains
         
         integer :: u_obs, ios, i
         character(len=MAX_STRING_LEN) :: line, sys, site_id
+        character(len=40) :: utc_str
         integer :: year, month, day, hour, min
         real(DP) :: sec, ra_deg, dec_deg, dummy1, dummy2
         
@@ -49,9 +51,11 @@ contains
         ra_rad  = ra_deg * PI / 180.0_DP
         dec_rad = dec_deg * PI / 180.0_DP
         
-        ! TODO: 调用你的时间转换库将 YYYY MM DD HH MM SS.SSS 转为历元 et (TDB秒)
-        ! et = calendar_to_tdb(year, month, day, hour, min, sec)
-        et = 0.0_DP ! 占位
+        write(utc_str, '(I4.4,"-",I2.2,"-",I2.2," ",I2.2,":",I2.2,":",F12.6)') &
+              year, month, day, hour, min, sec
+        
+        ! 调用 pod_time_module 转换历元 (UTC -> TDB)
+        et = utc_to_et(trim(utc_str))
         
         ! 3. 在 JSON 中查找对应的测站位置
         call parse_site_json(json_file, trim(site_id), station)

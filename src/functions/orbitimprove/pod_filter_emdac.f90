@@ -5,16 +5,17 @@
 !-----------------------------------------------------------------------------------------
 module pod_filter_emdac_module
     use pod_global, only: DP
+    use pod_basicmath_module, only: PI
     use pod_dace_classes
     use pod_uq_gmm_state_module, only: uq_gmm_state_type
     use pod_uq_state_module, only: uq_state_type
     use pod_gmm_math_module, only: fit_gmm_to_particles
-    use pod_uq_propagation, only: run_particle_propagation
+    use pod_uq_propagation, only: run_particle_propagation, METHOD_DA
     use pod_measurement_base_module, only: observation_station 
     use pod_measurement_da_module, only: compute_measurement_da
     use pod_basicmath_module, only: inverse_and_determinant
-     use pod_random_module, only: generate_multivariate_normal
-
+    use pod_random_module, only: generate_multivariate_normal
+    
     implicit none
     private
     
@@ -153,33 +154,34 @@ contains
     subroutine filter_time_update(this, et)
         class(emdac_filter), intent(inout) :: this
         real(DP), intent(in) :: et  ! 目标历元 (绝对时间)
-        type(uq_state_type) :: uq_in
+        type(uq_state_type) :: uq_particles
         real(DP) :: t_end
         integer :: dim
         
         dim = this%gmm_state%state_dim
-        call uq_in%allocate_memory(dim, this%n_particles)
+        call uq_particles%allocate_memory(dim, this%n_particles)
         
         ! 步骤 A: 桥接参数空间与粒子空间 —— 根据 GMM 权重生成散布粒子
-        call sample_particles_from_gmm(this%gmm_state, this%n_particles, uq_in%samples)
+        call this%sample_particles_from_gmm(uq_particles%samples)
 
         t_end = et - this%current_epoch
         ! 步骤 B: 调用 DA 传播器进行高度非线性的动力学积分
-        call run_particle_propagation(uq_in, this%state_mean, this%current_epoch, &
-                                      0.0, t_end, METHOD_DA,  propagated_particles, &
+        call run_particle_propagation(uq_particles, this%state_mean, this%current_epoch, &
+                                      0.0_DP, t_end, METHOD_DA,  this%propagated_particles, &
                                       da_order=this%da_order, &
                                       reference_orbit_out=this%state_mean) 
         
         ! 步骤 C: 重新执行 K-means + EM 算法，提取传播后的 GMM 拓扑结构
         write(*,*) '[EMDAC] 执行高斯混合聚类...'
-        call fit_gmm_to_particles(propagated_particles%samples, this%gmm_state, this%em_max_iter, this%em_tol, &
+        ! uq_particles%samples = this%propagated_particles%samples ! 直接使用传播后的粒子进行聚类
+        call fit_gmm_to_particles(this%propagated_particles%samples, this%gmm_state, this%em_max_iter, this%em_tol, &
                                  this%current_omega, this%current_W)
 
         ! 时间更新
         this%current_epoch = et                         
         
         ! 释放临时粒子对象内存，保留 this%propagated_particles 供后续测量更新使用
-        call uq_in%deallocate_memory()
+        call uq_particles%deallocate_memory()
         
     end subroutine filter_time_update
 
@@ -195,8 +197,9 @@ contains
         real(DP), intent(in)               :: et          ! 历元
         type(observation_station), intent(in):: station   ! 测站信息
         
-        class(AlgebraicVector) :: pos_j2000, measurement_da
-        integer :: j, n_comp, ny, info
+        type(AlgebraicVector) :: pos_j2000, measurement_da
+        type(DA) :: temp_da
+        integer :: i, j, n_comp, dim, ny, info
         real(DP), allocatable :: particles_z(:,:) ! 存储每个粒子的预测测量值 (ny, n_particles)
         real(DP), allocatable :: means_z(:,:)   ! 存储每个核的预测测量均值 (ny, n_comp)
         real(DP), allocatable :: P_zz(:,:,:), P_xz(:,:,:), K_gain(:,:,:), P_zz_inv(:,:,:) ! 存储每个核的预测测量协方差、交叉协方差、卡尔曼增益和协方差逆
@@ -226,32 +229,32 @@ contains
         call dace_initialize(this%da_order, dim)
         call pos_j2000%init(dim)
         do i = 1, 3
-            pos_j2000(i) = this%state_mean(i) + da_var(i)
-            pos_j2000(i+3) = this%state_mean(i+3) + da_var(i+3)
+            pos_j2000%elements(i) = this%state_mean(i) + da_var(i)
+            pos_j2000%elements(i+3) = this%state_mean(i+3) + da_var(i+3)
         end do
     
-
+        call measurement_da%init(ny)
         call compute_measurement_da(pos_j2000, et, station, 'OPTICAL', measurement_da)
 
         ! 进一步进行测量更新，更新权重、均值和协方差
         ! 计算每个粒子的预测测量值
-        do j = 1, n_particles
-            particles_z(:, j) = measurement_da%eval(propagated_particles%samples(:, j) - pos_j2000%elements)
+        do j = 1, this%n_particles
+            particles_z(:, j) = measurement_da%eval(this%propagated_particles%samples(:, j) - this%state_mean)
         end do
         
         do i = 1, n_comp
             means_z(:, i) = 0.0_DP
             P_xz(:,:, i) = 0.0_DP
             P_xz(:,:, i) = 0.0_DP
-            do j = 1, n_particles
+            do j = 1, this%n_particles
                 means_z(:, i) = means_z(:, i) + this%current_omega(i, j) * particles_z(:, j)                                                              
             end do
             means_z(:, i) = means_z(:, i) / this%current_W(i)
-            do j = 1, n_particles
-                P_zz(:,:, i) = P_zz(:,:, i) + this%current_omega(i, j) * matmul(reshape(particles_z(:, j) - means_z(:, i), (/ny, 1/)), &
-                                                                                 reshape(particles_z(:, j) - means_z(:, i), (/1, ny/))) + noise_R
-                P_xz(:,:, i) = P_xz(:,:, i) + this%current_omega(i, j) * matmul(reshape(propagated_particles%samples(:, j) - this%state_mean, (/dim, 1/)), &
-                                                                                    reshape(particles_z(:, j) - means_z(:, i), (/1, ny/)))   
+            do j = 1, this%n_particles
+                P_zz(:,:, i) = P_zz(:,:, i) + this%current_omega(i, j) * matmul(reshape(particles_z(:, j) - &
+                means_z(:, i), (/ny, 1/)), reshape(particles_z(:, j) - means_z(:, i), (/1, ny/))) + noise_R
+                P_xz(:,:, i) = P_xz(:,:, i) + this%current_omega(i, j) * matmul(reshape(this%propagated_particles%samples(:, j) - &
+                this%state_mean, (/dim, 1/)), reshape(particles_z(:, j) - means_z(:, i), (/1, ny/)))   
             end do
             P_zz(:,:, i) = P_zz(:,:, i) / this%current_W(i)
             P_xz(:,:, i) = P_xz(:,:, i) / this%current_W(i)
@@ -263,7 +266,8 @@ contains
             K_gain(:,:, i) = matmul(P_xz(:,:, i), P_zz_inv(:,:, i))
 
             this%gmm_state%components(i)%mean = this%gmm_state%components(i)%mean + matmul(K_gain(:,:, i), y_meas - means_z(:, i))
-            this%gmm_state%components(i)%cov = this%gmm_state%components(i)%cov - matmul(K_gain(:,:, i), matmul(P_zz(:,:, i), transpose(K_gain(:,:, i))))
+            this%gmm_state%components(i)%cov = this%gmm_state%components(i)%cov - matmul(K_gain(:,:, i), &
+            matmul(P_zz(:,:, i), transpose(K_gain(:,:, i))))
             
             innovation(:, i) = y_meas - means_z(:, i)
             mahalanobis_sq(i) = dot_product(innovation(:, i), matmul(P_zz_inv(:,:, i), innovation(:, i)))
@@ -300,24 +304,18 @@ contains
     !> ======================================================================
     !> 根据 GMM 的权重和分布，精确采样生成离散粒子云
     !> ======================================================================
-    subroutine sample_particles_from_gmm(gmm, n_particles, samples)
-        use pod_global, only: DP
-        use pod_uq_gmm_state_module, only: uq_gmm_state_type
-        ! 引入已有的高效随机数模块
-        use pod_random_module, only: generate_multivariate_normal
+    subroutine sample_particles_from_gmm(this, samples_out)
+        class(emdac_filter), intent(inout) :: this
+        real(DP), dimension(:,:), intent(out) :: samples_out
         
-        implicit none
-        type(uq_gmm_state_type), intent(in)   :: gmm
-        integer, intent(in)                   :: n_particles
-        real(DP), dimension(:,:), intent(out) :: samples ! (dim, n_particles)
-        
-        integer :: n_comp, i
+        integer :: n_p, n_comp, i
         integer :: remainder, max_weight_idx
         integer, allocatable :: num_per_comp(:)
         real(DP) :: max_weight
         integer :: start_idx, end_idx, p_count
         
-        n_comp = gmm%n_components
+        n_comp = this%gmm_state%n_components
+        n_p = this%n_particles
         
         allocate(num_per_comp(n_comp))
         
@@ -330,18 +328,18 @@ contains
         
         do i = 1, n_comp
             ! 按权重比例四舍五入分配粒子数
-            num_per_comp(i) = nint(gmm%components(i)%weight * real(n_particles, DP))
+            num_per_comp(i) = nint(this%gmm_state%components(i)%weight * real(n_p, DP))
             p_count = p_count + num_per_comp(i)
             
             ! 记录权重最大的分量，用于吸收分配误差
-            if (gmm%components(i)%weight > max_weight) then
-                max_weight = gmm%components(i)%weight
+            if (this%gmm_state%components(i)%weight > max_weight) then
+                max_weight = this%gmm_state%components(i)%weight
                 max_weight_idx = i
             end if
         end do
         
         ! 修正总数：将多出或缺少的粒子直接补给权重最大的那个高斯核
-        remainder = n_particles - p_count
+        remainder = n_p - p_count
         num_per_comp(max_weight_idx) = num_per_comp(max_weight_idx) + remainder
         
         ! ---------------------------------------------------------
@@ -356,9 +354,9 @@ contains
             end_idx = start_idx + num_per_comp(i) - 1
             
             ! 直接复用底层的 OpenMP 多元正态生成器，传入数组切片
-            call generate_multivariate_normal(gmm%components(i)%mean, &
-                                              gmm%components(i)%cov,  &
-                                              samples(:, start_idx:end_idx))
+            call generate_multivariate_normal(this%gmm_state%components(i)%mean, &
+                                              this%gmm_state%components(i)%cov,  &
+                                              samples_out(:, start_idx:end_idx))
             
             ! 更新下一个核的起始索引
             start_idx = end_idx + 1
@@ -380,7 +378,7 @@ contains
     subroutine update_global_cov(this)
         class(emdac_filter), intent(inout) :: this
         integer :: i
-        real(DP) :: dim
+        integer :: dim
         dim = size(this%state_mean)
         this%state_cov = 0.0_DP
         do i = 1, this%gmm_state%n_components

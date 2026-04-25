@@ -1,14 +1,25 @@
 # POD Fortran 配置文件
-# 生成时间: 2026-02-04 11:03:01             
+# 生成时间: 2026-04-23 15:03:27             
 
 # 轨道传播参数
+LU = 384400.0
+TU = 375190.26189464843
+MU = 6.045626292270688E+24
+VU = 1.024546847401753
+AccU = 2.730739444643263E-06
 propagation_step = 60.0
-propagation_tolerance = 1.0e-12
+propagation_abs_tol = 1.0e-12
+propagation_rel_tol = 1.0e-12
 max_propagation_steps = 10000
 rk4_step_size = 60.0
-rkf45_tolerance = 1.0e-12
+rkf45_abs_tol = 1.0e-12
+rkf45_rel_tol = 1.0e-12
 rkf45_min_step = 1.0e-6
 rkf45_max_step = 3600.0
+rkf78_abs_tol = 1.0e-12
+rkf78_rel_tol = 1.0e-12
+rkf78_min_step = 1.0e-6
+rkf78_max_step = 3600.0
 
 # 轨道改进参数
 convergence_tolerance = 1.0e-8
@@ -43,13 +54,16 @@ parallel_computation = false
 memory_limit = 1.0e9
 use_gpu = false
 
-# 力模型参数
-use_j2_perturbation = true
-use_atmospheric_drag = false
-use_solar_radiation_pressure = false
-use_third_body_gravity = false
-j2_degree = 2
-j2_order = 2
+# 力模型参数 (地月空间 Cislunar 特化)
+use_earth_nspheric = true
+use_moon_nspheric = true
+use_third_body = true
+use_srp = true
+use_drag = false
+use_relativity = false
+earth_degree = 10
+moon_degree = 10
+active_planets = 3, 10, 11
 
 # 测量模型参数
 measurement_noise_std = 1.0e-3

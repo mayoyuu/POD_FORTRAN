@@ -63,23 +63,37 @@ contains
                 end do
             end do
             
-            ! 提取 GMM 状态
+           ! 提取 GMM 状态
             if (present(gmm_state)) then
-                ! 解析总分量数并初始化
+                ! 1. 解析总分量数并初始化
                 call extract_json_value(line, '"GMM_N_COMPONENTS"', tmp_val, found)
                 if (found) then
                     n_components = nint(tmp_val)
-                    call gmm_state%init(6, n_components)
+                    
+                    ! [修正1] 调用模块中真实存在的方法分配主容器
+                    call gmm_state%allocate_components(n_components, 6)
+                    
+                    ! [修正2] 极其重要！必须立即为每个分量的内部 allocatable 数组分配内存
+                    do i = 1, n_components
+                        allocate(gmm_state%components(i)%mean(6))
+                        allocate(gmm_state%components(i)%cov(6,6))
+                        gmm_state%components(i)%weight = 0.0_DP
+                        gmm_state%components(i)%mean   = 0.0_DP
+                        gmm_state%components(i)%cov    = 0.0_DP
+                    end do
+                    
                     if (present(has_gmm)) has_gmm = .true.
                 end if
                 
-                ! 解析当前块的 INDEX
+                ! 2. 解析当前块的 INDEX
                 call extract_json_value(line, '"INDEX"', tmp_val, found)
                 if (found) comp_idx = nint(tmp_val)
                 
-                ! 填充对应 INDEX 的属性
+                ! 3. 填充对应 INDEX 的属性
                 if (comp_idx > 0 .and. comp_idx <= gmm_state%n_components) then
                     call extract_json_value(line, '"WEIGHT"', gmm_state%components(comp_idx)%weight, found)
+                    
+                    ! 此时 mean 已经 allocate，可以直接安全地接收数据
                     call extract_json_array6(line, '"MEAN"', gmm_state%components(comp_idx)%mean, found)
                     
                     ! 提取 GMM 全协方差矩阵 (读取下三角，对称赋值)
@@ -87,6 +101,7 @@ contains
                         do k = 1, j
                             call extract_json_value(line, '"COV_' // char(48+j) // '_' // char(48+k) // '"', tmp_val, found)
                             if (found) then
+                                ! 此时 cov 已经 allocate，直接按索引赋值是安全的
                                 gmm_state%components(comp_idx)%cov(j,k) = tmp_val
                                 gmm_state%components(comp_idx)%cov(k,j) = tmp_val ! 保证对称矩阵
                             end if
@@ -144,7 +159,6 @@ contains
             end do
         end do
         
-        ! 写入 GMM 核心描述
        ! 写入 GMM 核心描述
         if (present(gmm_state)) then
             write(u, '(A,I0,A)') '    "GMM_N_COMPONENTS": ', gmm_state%n_components, ','
@@ -161,9 +175,11 @@ contains
                     do k = 1, j
                         if (j == 6 .and. k == 6) then
                             ! 最后一项不加逗号，遵循严格的 JSON 语法
-                            write(u, '(A,A,A,A,A,ES22.15)') '            "COV_', char(48+j), '_', char(48+k), '": ', gmm_state%components(i)%cov(j,k)
+                            write(u, '(A,A,A,A,A,ES22.15)') '            "COV_', char(48+j), '_', char(48+k), '": ',&
+                             gmm_state%components(i)%cov(j,k)
                         else
-                            write(u, '(A,A,A,A,A,ES22.15,A)') '            "COV_', char(48+j), '_', char(48+k), '": ', gmm_state%components(i)%cov(j,k), ','
+                            write(u, '(A,A,A,A,A,ES22.15,A)') '            "COV_', char(48+j), '_', char(48+k), '": ', &
+                            gmm_state%components(i)%cov(j,k), ','
                         end if
                     end do
                 end do
