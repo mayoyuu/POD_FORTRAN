@@ -1,5 +1,6 @@
 module pod_random_module
     use pod_global, only: DP
+    use pod_basicmath_module, only: eigenvalue_decomposition, PI, dpotrf
     implicit none
     private
     
@@ -7,23 +8,6 @@ module pod_random_module
     public :: init_random_seed
     public :: randn
     public :: generate_multivariate_normal
-
-    real(DP), parameter :: PI = 3.14159265358979323846_DP
-
-    ! ========================================================
-    ! 显式声明 LAPACK 外部接口 (解决 implicit-interface 报错)
-    ! ========================================================
-    interface
-        subroutine dpotrf(uplo, n, a, lda, info)
-            import :: DP
-            implicit none
-            character(len=1), intent(in) :: uplo
-            integer, intent(in)          :: n
-            real(DP), intent(inout)      :: a(lda, *)
-            integer, intent(in)          :: lda
-            integer, intent(out)         :: info
-        end subroutine dpotrf
-    end interface
 
 contains
 
@@ -67,10 +51,11 @@ contains
         integer :: dim, n_particles, i, j, info
         real(DP), allocatable :: L(:,:)
         real(DP), allocatable :: Z(:,:)
+        real(DP), allocatable :: eigvals_R(:), eigvals_I(:)        
         
         dim = size(mean)
         n_particles = size(samples, 2)
-        
+
         ! 1. 复制协方差矩阵 (因为 dpotrf 会覆盖输入矩阵)
         allocate(L(dim, dim))
         L = cov
@@ -79,9 +64,25 @@ contains
         ! 'L' 表示计算并返回下三角矩阵
         call dpotrf('L', dim, L, dim, info)
         
-        if (info /= 0) then
+       if (info /= 0) then
             write(*,*) '[ERROR] Cholesky 分解失败！协方差矩阵可能非正定。错误代码: ', info
-            ! 可以在这里加入特征值分解(SVD)作为后备方案，以处理奇异矩阵
+            ! 在这里加入更详细的错误诊断，输出协方差矩阵，以及协方差矩阵的特征值
+            write(*,*) '输入的协方差矩阵:'
+            do i = 1, dim
+                write(*,*) (cov(i, j), j = 1, dim)
+            end do
+            
+            ! 【修改点】分配内存给特征值数组
+            allocate(eigvals_R(dim), eigvals_I(dim))
+            
+            ! 【修改点】因为 vr 是 optional 参数，必须使用 info=info 关键字传参跳过 vr
+            call eigenvalue_decomposition(cov, eigvals_R, eigvals_I, info=info)
+            write(*,*) '协方差矩阵特征值: ', eigvals_R, eigvals_I
+            
+            ! 释放错误诊断时使用的内存
+            deallocate(eigvals_R, eigvals_I)
+            
+            ! 可以考虑在这里加入特征值分解(SVD)作为后备方案，以处理奇异矩阵
             return
         end if
         

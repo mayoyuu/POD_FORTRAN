@@ -16,7 +16,7 @@ program pod_emdac_test
     
     ! 算法控制参数 (赋予默认值)
     integer :: opt_particles = 100000
-    integer :: opt_da_order = 3
+    integer :: opt_da_order = 4
     integer :: opt_em_max_iter = 50
     real(DP) :: opt_em_tol = 1.0e-4_DP
     integer :: n_components = 5
@@ -90,7 +90,8 @@ program pod_emdac_test
         opt_da_order      = opt_da_order, &
         opt_em_max_iter   = opt_em_max_iter, &
         opt_em_tol        = opt_em_tol, &
-        n_components      = n_components)
+        n_components      = n_components, &
+        opt_da_order     = opt_da_order ) ! 注意：DA 阶数参数也传入了 Runner，供内部自适应使用   )
                                        
     write(*,*) '✅ 测试任务圆满完成！'
     write(*,*) '=================================================='

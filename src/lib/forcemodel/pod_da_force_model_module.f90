@@ -91,7 +91,7 @@ contains
         real(DP), dimension(3) :: body_pos, body_vel
         type(AlgebraicVector) ::  r_rel
         type(AlgebraicVector) :: acc_z, acc_t
-        real(DP), dimension(3,3) :: rot_to_body
+        real(DP), dimension(3,3) :: rot_to_body, rot_to_inertial
 
         acc_grav = 0.0_DP
 
@@ -127,7 +127,8 @@ contains
                     ! write(*,*) '>>> 地球非球形引力分量 (地固系), 田谐: ', acc_t%elements(1), acc_t%elements(2), &
                     ! acc_t%elements(3)
                     
-                    acc_grav = acc_grav + matmul(transpose(rot_to_body), acc_z + acc_t)
+                    rot_to_inertial = transpose(rot_to_body)
+                    acc_grav = acc_grav + matmul(rot_to_inertial, acc_z + acc_t)
                 end if
                 
             ! ==========================================
@@ -155,7 +156,8 @@ contains
                     moon_grav%dr_da = matmul(rot_to_body, r_rel)
                     call moon_grav%f_zonal_da(acc_z)
                     call moon_grav%f_tesseral_da(acc_t)
-                    acc_grav = acc_grav + matmul(transpose(rot_to_body), acc_z + acc_t)
+                    rot_to_inertial = transpose(rot_to_body)
+                    acc_grav = acc_grav + matmul(rot_to_inertial, acc_z + acc_t)
                 end if
                 
             end if

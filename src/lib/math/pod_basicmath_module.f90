@@ -58,6 +58,18 @@ module pod_basicmath_module
     ! LAPACK Interfaces for Matrix Inversion
     !========================================================
     interface
+
+        ! 加入 Cholesky 分解接口
+        subroutine dpotrf(uplo, n, a, lda, info)
+            import :: DP
+            implicit none
+            character(len=1), intent(in) :: uplo
+            integer, intent(in)          :: n
+            real(DP), intent(inout)      :: a(lda, *)
+            integer, intent(in)          :: lda
+            integer, intent(out)         :: info
+        end subroutine dpotrf
+
         subroutine dgetrf(m, n, a, lda, ipiv, info)
             import :: DP
             implicit none
@@ -76,11 +88,24 @@ module pod_basicmath_module
             real(DP), intent(out)        :: work(*)
             integer, intent(out)         :: info
         end subroutine dgetri
+
+
+        subroutine dgeev(jobvl, jobvr, n, a, lda, wr, wi, vl, ldvl, vr, ldvr, work, lwork, info)
+            import :: DP
+            implicit none
+            character, intent(in)            :: jobvl, jobvr
+            integer, intent(in)              :: n, lda, ldvl, ldvr, lwork
+            real(DP), intent(inout)          :: a(lda, *)
+            real(DP), intent(out)            :: wr(*), wi(*), vl(ldvl, *), vr(ldvr, *)
+            real(DP), intent(out)            :: work(*)
+            integer, intent(out)             :: info
+        end subroutine dgeev
     end interface
 
     private
     public :: cross_product, dot_product_3d, vector_magnitude, normalize_vector
     public :: norm_vector, norm_matrix, inverse_matrix, matrix_determinant, inverse_and_determinant,PI
+    public :: eigenvalue_decomposition,dpotrf, dgeev, dgetrf, dgetri
 
     real(DP), parameter :: PI = 3.14159265358979323846_DP
     
@@ -380,5 +405,58 @@ contains
         deallocate(ipiv)
         deallocate(work)
     end subroutine inverse_and_determinant
+
+    !> Calculate eigenvalues and eigenvectors of a general real square matrix
+    !> 
+    !> Uses LAPACK's DGEEV routine.
+    !> 
+    !> @param[in]  A       Input square matrix (N x N)
+    !> @param[out] wr      Real parts of the eigenvalues
+    !> @param[out] wi      Imaginary parts of the eigenvalues
+    !> @param[out] vr      Right eigenvectors (optional)
+    !> @param[out] info    Status code (0 = success, <0 = illegal value, >0 = convergence failed)
+    subroutine eigenvalue_decomposition(A, wr, wi, vr, info)
+        real(DP), dimension(:,:), intent(in)           :: A
+        real(DP), dimension(:), intent(out)             :: wr, wi
+        real(DP), dimension(:,:), intent(out), optional :: vr
+        integer, intent(out)                            :: info
+        
+        integer :: n, lwork, ldvr
+        character :: jobvr
+        real(DP), allocatable :: work(:), A_tmp(:,:)
+        real(DP), dimension(1,1) :: dummy_vl ! Left eigenvectors not requested
+        real(DP) :: work_query(1)
+        
+        n = size(A, 1)
+        allocate(A_tmp(n, n))
+        A_tmp = A ! DGEEV overwrites the input matrix
+        
+        ! Determine if right eigenvectors are requested
+        if (present(vr)) then
+            jobvr = 'V'
+            ldvr = n
+        else
+            jobvr = 'N'
+            ldvr = 1
+        end if
+        
+        ! 1. Workspace query
+        call dgeev('N', jobvr, n, A_tmp, n, wr, wi, dummy_vl, 1, vr, ldvr, work_query, -1, info)
+        lwork = int(work_query(1))
+        allocate(work(lwork))
+        
+        ! 2. Compute Eigenvalues (and optionally Eigenvectors)
+        if (present(vr)) then
+            call dgeev('N', jobvr, n, A_tmp, n, wr, wi, dummy_vl, 1, vr, ldvr, work, lwork, info)
+        else
+            ! Use a dummy array for vr if not requested
+            block
+                real(DP) :: dummy_vr(1,1)
+                call dgeev('N', jobvr, n, A_tmp, n, wr, wi, dummy_vl, 1, dummy_vr, 1, work, lwork, info)
+            end block
+        end if
+        
+        deallocate(work, A_tmp)
+    end subroutine eigenvalue_decomposition
 
 end module pod_basicmath_module

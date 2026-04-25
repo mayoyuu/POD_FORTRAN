@@ -167,6 +167,8 @@ contains
         call this%sample_particles_from_gmm(uq_particles%samples)
 
         t_end = et - this%current_epoch
+
+        write(*,*) '[EMDAC] 正在进行时间更新...'
         ! 步骤 B: 调用 DA 传播器进行高度非线性的动力学积分
         call run_particle_propagation(uq_particles, this%state_mean, this%current_epoch, &
                                       0.0_DP, t_end, METHOD_DA,  this%propagated_particles, &
@@ -201,6 +203,8 @@ contains
         
         type(AlgebraicVector) :: pos_j2000, measurement_da
         type(DA) :: temp_da
+        type(CompiledDA) :: compiled_meas
+        real(DP), allocatable :: eval_inputs_meas(:)
         integer :: i, j, n_comp, dim, ny, info
         real(DP), allocatable :: particles_z(:,:) ! 存储每个粒子的预测测量值 (ny, n_particles)
         real(DP), allocatable :: means_z(:,:)   ! 存储每个核的预测测量均值 (ny, n_comp)
@@ -222,6 +226,7 @@ contains
         allocate(means_z(ny, n_comp), innovation(ny, n_comp))
         allocate(P_zz(ny, ny, n_comp), P_zz_inv(ny, ny, n_comp))
         allocate(P_xz(dim, ny, n_comp), K_gain(dim, ny, n_comp))
+        allocate(eval_inputs_meas(dim))
         
         ! 确保此时的滤波器时间与观测时间对齐
         if (abs(this%current_epoch - et) > 1.0e-6_DP) then
@@ -236,31 +241,36 @@ contains
             pos_j2000%elements(i) = this%state_mean(i) + da_var(i)
             pos_j2000%elements(i+3) = this%state_mean(i+3) + da_var(i+3)
         end do
-    
+        
+        write(*,*) '[EMDAC] 计算测量 DA 映射...'
         call measurement_da%init(ny)
         call compute_measurement_da(pos_j2000, et, station, 'OPTICAL', measurement_da)
+
+        compiled_meas = measurement_da%compile()
 
         ! 进一步进行测量更新，更新权重、均值和协方差
         ! 计算每个粒子的预测测量值
         do j = 1, this%n_particles
-            particles_z(:, j) = measurement_da%eval(this%propagated_particles%samples(:, j) - this%state_mean)
+            eval_inputs_meas(:) = this%propagated_particles%samples(:, j) - this%state_mean(:)
+            particles_z(:, j) = compiled_meas%eval(eval_inputs_meas)
         end do
         
+        write(*,*) '[EMDAC] 计算测量更新...'
         do i = 1, n_comp
             means_z(:, i) = 0.0_DP
             P_xz(:,:, i) = 0.0_DP
-            P_xz(:,:, i) = 0.0_DP
+            P_zz(:,:, i) = 0.0_DP
             do j = 1, this%n_particles
                 means_z(:, i) = means_z(:, i) + this%current_omega(i, j) * particles_z(:, j)                                                              
             end do
             means_z(:, i) = means_z(:, i) / this%current_W(i)
             do j = 1, this%n_particles
                 P_zz(:,:, i) = P_zz(:,:, i) + this%current_omega(i, j) * matmul(reshape(particles_z(:, j) - &
-                means_z(:, i), (/ny, 1/)), reshape(particles_z(:, j) - means_z(:, i), (/1, ny/))) + noise_R
+                means_z(:, i), (/ny, 1/)), reshape(particles_z(:, j) - means_z(:, i), (/1, ny/)))
                 P_xz(:,:, i) = P_xz(:,:, i) + this%current_omega(i, j) * matmul(reshape(this%propagated_particles%samples(:, j) - &
-                this%state_mean, (/dim, 1/)), reshape(particles_z(:, j) - means_z(:, i), (/1, ny/)))   
+                this%gmm_state%components(i)%mean, (/dim, 1/)), reshape(particles_z(:, j) - means_z(:, i), (/1, ny/)))   
             end do
-            P_zz(:,:, i) = P_zz(:,:, i) / this%current_W(i)
+            P_zz(:,:, i) = P_zz(:,:, i) / this%current_W(i) + noise_R
             P_xz(:,:, i) = P_xz(:,:, i) / this%current_W(i)
 
             ! 计算对数似然概率
@@ -272,6 +282,10 @@ contains
             this%gmm_state%components(i)%mean = this%gmm_state%components(i)%mean + matmul(K_gain(:,:, i), y_meas - means_z(:, i))
             this%gmm_state%components(i)%cov = this%gmm_state%components(i)%cov - matmul(K_gain(:,:, i), &
             matmul(P_zz(:,:, i), transpose(K_gain(:,:, i))))
+
+            ! 【新增防线】：强制对称化，消除浮点不对称误差
+            this%gmm_state%components(i)%cov = 0.5_DP * (this%gmm_state%components(i)%cov + &
+            transpose(this%gmm_state%components(i)%cov))
             
             innovation(:, i) = y_meas - means_z(:, i)
             mahalanobis_sq(i) = dot_product(innovation(:, i), matmul(P_zz_inv(:,:, i), innovation(:, i)))
