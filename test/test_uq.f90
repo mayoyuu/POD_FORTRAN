@@ -42,6 +42,7 @@ program test_uq_api
    ! ==========================================
     ! 2. 极致清爽的 API 调用
     ! ==========================================
+    call dace_initialize(2, 6)
     write(*,*) '=== 测试 1: 使用 DA 算法传播 ==='
     call run_uq_propagation( &
         nominal_state = nominal_orbit, &

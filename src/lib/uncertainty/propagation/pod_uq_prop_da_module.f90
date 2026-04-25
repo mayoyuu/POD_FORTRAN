@@ -75,7 +75,9 @@ contains
         call set_propagation_epoch(this%epoch0)
 
         ! 2. 初始化 DA 中心状态并注入独立方差
-        call dace_initialize(this%da_order, dim)
+        ! call dace_initialize(this%da_order, dim)
+        call dace_push_to(this%da_order) ! 设置 DA 阶数
+
         call state_da_0%init(dim)
         do i = 1, 3
             ! 物理均值 + 物理摄动量，随后直接除以特征量度进行无量纲化
@@ -135,6 +137,20 @@ contains
         if (this%verbose) then
             call output_state%compute_moments()
         end if
+
+        ! 2. 遍历并销毁积分器返回的轨迹数组中的每一个 DA 元素（极其关键！）
+        if (allocated(states)) then
+            do i = 1, size(states)
+                call states(i)%destroy()
+            end do
+            deallocate(states)
+        end if
+
+        ! 3. 释放时间数组
+        if (allocated(times)) deallocate(times)
+        
+        ! 4. 弹出当前阶数，恢复引擎状态
+        call dace_pop_to()
 
         if (this%verbose) write(*,*) '[DA Propagator] 误差传播计算完毕。'
     end subroutine da_propagate
