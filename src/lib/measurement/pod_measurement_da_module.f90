@@ -94,6 +94,13 @@ contains
         call measurement_da%set(1, ra)
         call measurement_da%set(2, dec)
         
+        ! 【新增内存清理】：手动斩断局部变量泄漏
+        call rel_j2000%destroy()
+        call rel_unit%destroy()
+        call ra%destroy()
+        call dec%destroy()
+        call range_mag%destroy()
+        
     end subroutine compute_optical_measurement_da
 
 
@@ -147,6 +154,13 @@ contains
         call measurement_da%set(1, range_mag)
         call measurement_da%set(2, azimuth)
         call measurement_da%set(3, elevation)
+        
+        ! 【新增内存清理】：手动斩断局部变量泄漏
+        call rel_itrf%destroy()
+        call rel_enu%destroy()
+        call range_mag%destroy()
+        call azimuth%destroy()
+        call elevation%destroy()
         
     end subroutine compute_radar_measurement_da
 

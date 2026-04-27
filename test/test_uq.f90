@@ -36,14 +36,14 @@ program test_uq_api
     initial_covariance(6,6) = 1.0D-3**2
 
     t0 = 0.0_DP
-    tf = 86400.0_DP
+    tf = 86400.0_DP*10
     dt = 60.0_DP
     call str2et('2024-03-09T12:00:00', epoch_start) 
 
    ! ==========================================
     ! 2. 极致清爽的 API 调用
     ! ==========================================
-    call dace_initialize(2, 6)
+    call dace_initialize(4, 6)
     write(*,*) '=== 测试 1: 使用 DA 算法传播 ==='
     call run_uq_propagation( &
         nominal_state = nominal_orbit, &
@@ -55,6 +55,7 @@ program test_uq_api
         n_particles   = 10000, &
         save_results_to_file = .false., &
         initial_state_out = initial_dist, &
+        da_order = 4,&
         final_state_out   = final_dist_da, &
         file_prefix   = './output/da_run_orbit_1'&! <--- 传入文件前缀 (可选参数)
     )

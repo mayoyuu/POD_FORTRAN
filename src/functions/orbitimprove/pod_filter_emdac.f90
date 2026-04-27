@@ -34,7 +34,7 @@ module pod_filter_emdac_module
         integer                 :: n_particles = 10000 ! 粒子总数
         real(DP)                :: em_tol = 1.0e-4_DP   ! EM 算法收敛容差
         integer                 :: em_max_iter = 50     ! EM 算法最大迭代次数
-        integer                 :: da_order = 2         ! DA 阶数
+        integer                 :: da_order = 4         ! DA 阶数
 
         type(uq_state_type) :: propagated_particles   ! 保存时间更新后的粒子
         real(DP), allocatable :: current_omega(:,:)   ! 保存 EM 聚类后的责任度矩阵
@@ -64,26 +64,27 @@ contains
 
     !> 初始化函数，一次性注入所有配置并确立初始历元
     !> 初始化函数，一次性注入所有配置并确立初始历元
-    subroutine filter_init(this, initial_epoch, initial_mean, initial_cov, n_comp, &
-                           initial_gmm, n_part, opt_da_order, opt_em_tol, opt_em_max_iter)
+    subroutine filter_init(this, initial_epoch, initial_mean, initial_cov, n_comp,max_da_order,&
+                           initial_gmm, n_part, opt_em_tol, opt_em_max_iter)
         class(emdac_filter), intent(inout) :: this
         real(DP), intent(in) :: initial_epoch
         real(DP), intent(in) :: initial_mean(:), initial_cov(:,:)
         integer, intent(in)  :: n_comp  ! 必传参数全部挪到前面
-        
+        integer, intent(in) :: max_da_order
+
         ! 所有的 optional 参数统一放到后面
         type(uq_gmm_state_type), intent(in), optional :: initial_gmm
-        integer, intent(in), optional :: n_part, opt_da_order, opt_em_max_iter
+        integer, intent(in), optional :: n_part, opt_em_max_iter
         real(DP), intent(in), optional :: opt_em_tol
 
         ! 基础必传赋值
         this%current_epoch = initial_epoch
         this%state_mean = initial_mean
         this%state_cov = initial_cov
+        this%da_order = max_da_order
 
         ! 安全的可选参数赋值：只有外部传了，才覆盖默认值
         if (present(n_part)) this%n_particles = n_part
-        if (present(opt_da_order)) this%da_order = opt_da_order
         if (present(opt_em_tol)) this%em_tol = opt_em_tol
         if (present(opt_em_max_iter)) this%em_max_iter = opt_em_max_iter
 
@@ -254,6 +255,8 @@ contains
             eval_inputs_meas(:) = this%propagated_particles%samples(:, j) - this%state_mean(:)
             particles_z(:, j) = compiled_meas%eval(eval_inputs_meas)
         end do
+
+        call compiled_meas%destroy()
         
         write(*,*) '[EMDAC] 计算测量更新...'
         do i = 1, n_comp

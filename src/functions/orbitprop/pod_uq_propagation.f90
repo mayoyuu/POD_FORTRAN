@@ -24,7 +24,7 @@ contains
     subroutine run_uq_propagation(nominal_state, initial_cov, epoch0, t_start, t_end,&
                                   method_switch, n_particles, &
                                   save_results_to_file, initial_state_out, final_state_out, &
-                                  integrator_switch, file_prefix)
+                                  da_order,integrator_switch, file_prefix)
         
         real(DP), intent(in) :: nominal_state(6)   ! 标称轨道 (作为均值)
         real(DP), intent(in) :: initial_cov(6,6)   ! 初始协方差矩阵
@@ -34,6 +34,7 @@ contains
         ! integer,  intent(in) :: integrator_switch  ! 积分器开关 (INTEG_RK4, INTEG_RKF45 等)
         integer,  intent(in) :: n_particles        ! 生成的粒子数量
         logical,  intent(in) :: save_results_to_file ! 是否将结果落盘
+        integer,  intent(in), optional :: da_order  ! 可选的 DA 展开阶数 (仅对 DA 方法有效)
         integer,  intent(in), optional :: integrator_switch ! 可选的积分器开关参数
         character(len=*), intent(in), optional :: file_prefix ! 【新增】声明
         
@@ -75,6 +76,13 @@ contains
             call propagator%set_integrator(integrator_switch)
         end if
         call propagator%set_verbosity(.true.)
+
+        if (present(da_order) .and. method_switch == METHOD_DA) then
+            select type (propagator)
+                type is (uq_da_propagator)
+                    call propagator%set_da_order(da_order)
+            end select
+        end if
         
         ! 4. 核心计算
         write(*,*) '--------------------------------------------------'

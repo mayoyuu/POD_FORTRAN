@@ -23,7 +23,7 @@ contains
     !> ======================================================================
     subroutine run_emdac_orbit_determination(obs_file, site_json_file, gmm_in_switch, &
                                              initial_json_file, output_json_file, n_components,&
-                                             opt_particles, opt_da_order, &
+                                             max_da_order,opt_particles, &
                                              opt_em_max_iter, opt_em_tol)
         
         character(len=*), intent(in) :: obs_file           ! 观测文件路径 (.obs)
@@ -31,11 +31,11 @@ contains
         character(len=*), intent(in) :: initial_json_file  ! 初始先验状态文件路径 (.opm/.json)
         character(len=*), intent(in) :: output_json_file   ! 输出定轨结果文件路径 (.opm/.json)
         logical, intent(in) :: gmm_in_switch               ! GMM 初始化开关
-        integer,  intent(in), optional :: n_components       ! GMM 分量数量
-        
+        integer,  intent(in) :: n_components       ! GMM 分量数量
+        integer,  intent(in) :: max_da_order       ! DA 阶数
+    
         logical :: has_gmm_loaded
         integer,  intent(in), optional :: opt_particles      ! 粒子总数
-        integer,  intent(in), optional :: opt_da_order       ! DA 阶数
         integer,  intent(in), optional :: opt_em_max_iter    ! EM 算法最大迭代次数
         real(DP), intent(in), optional :: opt_em_tol         ! EM 算法收敛容差
     
@@ -65,11 +65,11 @@ contains
         ! 2. 初始状态加载 (从文件读取先验值)
         if (gmm_in_switch) then
             call load_initial_opm(initial_json_file, et_current, initial_mean, initial_cov, initial_gmm, has_gmm_loaded)
-            call my_filter%init(et_current, initial_mean,initial_cov, n_components, initial_gmm = initial_gmm)
+            call my_filter%init(et_current, initial_mean,initial_cov, n_components, max_da_order,initial_gmm = initial_gmm)
         else
             ! 从 JSON 文件加载单一高斯先验状态
             call load_initial_opm(initial_json_file, et_current, initial_mean, initial_cov)
-            call my_filter%init(et_current, initial_mean,initial_cov, n_components)
+            call my_filter%init(et_current, initial_mean,initial_cov, n_components, max_da_order)
         end if
         
         ! 3. 滤波器装配与初始化
@@ -99,9 +99,9 @@ contains
             ! ==========================================================
             ! 智能 DA 阶数调整逻辑 (完全基于步长时间判定)
             ! ==========================================================
-            if (is_first_step .and. present(opt_da_order)) then
+            if (is_first_step) then
                 ! 1. 如果是第一步，且用户指定了 opt_da_order，无条件遵从用户输入
-                current_order = opt_da_order
+                current_order = max_da_order
             else
                 ! 2. 后续步骤 (或用户没指定的第一步)，走基于步长 dt 的智能选择逻辑
                 if (abs(dt) > 86400.0_DP) then

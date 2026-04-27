@@ -87,11 +87,10 @@ program pod_emdac_test
         initial_json_file = initial_json_file, &
         output_json_file  = output_json_file, &
         opt_particles     = opt_particles, &
-        opt_da_order      = opt_da_order, &
+        max_da_order      = opt_da_order, &
         opt_em_max_iter   = opt_em_max_iter, &
         opt_em_tol        = opt_em_tol, &
-        n_components      = n_components, &
-        opt_da_order     = opt_da_order ) ! 注意：DA 阶数参数也传入了 Runner，供内部自适应使用   )
+        n_components      = n_components ) ! 注意：DA 阶数参数也传入了 Runner，供内部自适应使用   )
                                        
     write(*,*) '✅ 测试任务圆满完成！'
     write(*,*) '=================================================='

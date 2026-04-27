@@ -16,8 +16,8 @@ rkf45_abs_tol = 1.0e-14
 rkf45_rel_tol = 1.0e-14
 rkf45_min_step = 1.0e-6
 rkf45_max_step = 3000.0
-rkf78_abs_tol = 1.0e-14
-rkf78_rel_tol = 1.0e-14
+rkf78_abs_tol = 1.0e-10
+rkf78_rel_tol = 1.0e-10
 rkf78_min_step = 1.0e-6
 rkf78_max_step = 3000.0
 

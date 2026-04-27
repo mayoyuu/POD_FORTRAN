@@ -148,6 +148,9 @@ contains
 
         ! 3. 释放时间数组
         if (allocated(times)) deallocate(times)
+
+        call state_da_0%destroy()
+        call state_da_f%destroy()
         
         ! 4. 弹出当前阶数，恢复引擎状态
         call dace_pop_to()
