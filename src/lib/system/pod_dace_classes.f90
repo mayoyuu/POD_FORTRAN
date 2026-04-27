@@ -206,6 +206,97 @@ module pod_dace_classes
         function c_fdace_get_to() bind(C, name="fdace_get_to")
             import :: c_int; integer(c_int) :: c_fdace_get_to
         end function c_fdace_get_to
+
+        ! === 向量化极速批处理 C 接口 ===
+        subroutine c_fdace_vector_assign_real(ho, val, size) bind(C, name="fdace_vector_assign_real")
+            import :: c_int, c_double
+            integer(c_int), intent(inout) :: ho(*)
+            real(c_double), value :: val
+            integer(c_int), value :: size
+        end subroutine c_fdace_vector_assign_real
+
+        subroutine c_fdace_vector_add(h1, h2, ho, size) bind(C, name="fdace_vector_add")
+            import :: c_int
+            integer(c_int), intent(in) :: h1(*), h2(*)
+            integer(c_int), intent(out) :: ho(*)
+            integer(c_int), value :: size
+        end subroutine c_fdace_vector_add
+
+        subroutine c_fdace_vector_sub(h1, h2, ho, size) bind(C, name="fdace_vector_sub")
+            import :: c_int
+            integer(c_int), intent(in) :: h1(*), h2(*)
+            integer(c_int), intent(out) :: ho(*)
+            integer(c_int), value :: size
+        end subroutine c_fdace_vector_sub
+
+        subroutine c_fdace_vector_add_real_array(h1, arr, ho, size) bind(C, name="fdace_vector_add_real_array")
+            import :: c_int, c_double
+            integer(c_int), intent(in) :: h1(*)
+            real(c_double), intent(in) :: arr(*)
+            integer(c_int), intent(out) :: ho(*)
+            integer(c_int), value :: size
+        end subroutine c_fdace_vector_add_real_array
+
+        subroutine c_fdace_real_array_sub_vector(arr, h2, ho, size) bind(C, name="fdace_real_array_sub_vector")
+            import :: c_int, c_double
+            real(c_double), intent(in) :: arr(*)
+            integer(c_int), intent(in) :: h2(*)
+            integer(c_int), intent(out) :: ho(*)
+            integer(c_int), value :: size
+        end subroutine c_fdace_real_array_sub_vector
+
+        subroutine c_fdace_vector_sub_real_array(h1, arr, ho, size) bind(C, name="fdace_vector_sub_real_array")
+            import :: c_int, c_double
+            integer(c_int), intent(in) :: h1(*)
+            real(c_double), intent(in) :: arr(*)
+            integer(c_int), intent(out) :: ho(*)
+            integer(c_int), value :: size
+        end subroutine c_fdace_vector_sub_real_array
+
+        subroutine c_fdace_vector_mul_double(h1, val, ho, size) bind(C, name="fdace_vector_mul_double")
+            import :: c_int, c_double
+            integer(c_int), intent(in) :: h1(*)
+            real(c_double), value :: val
+            integer(c_int), intent(out) :: ho(*)
+            integer(c_int), value :: size
+        end subroutine c_fdace_vector_mul_double
+
+        subroutine c_fdace_da_mul_vector(h_val, h_vec, ho, size) bind(C, name="fdace_da_mul_vector")
+            import :: c_int
+            integer(c_int), value :: h_val
+            integer(c_int), intent(in) :: h_vec(*)
+            integer(c_int), intent(out) :: ho(*)
+            integer(c_int), value :: size
+        end subroutine c_fdace_da_mul_vector
+
+        subroutine c_fdace_vector_div_da(h_vec, h_val, ho, size) bind(C, name="fdace_vector_div_da")
+            import :: c_int
+            integer(c_int), intent(in) :: h_vec(*)
+            integer(c_int), value :: h_val
+            integer(c_int), intent(out) :: ho(*)
+            integer(c_int), value :: size
+        end subroutine c_fdace_vector_div_da
+
+        subroutine c_fdace_vector_negate(h_in, ho, size) bind(C, name="fdace_vector_negate")
+            import :: c_int
+            integer(c_int), intent(in) :: h_in(*)
+            integer(c_int), intent(out) :: ho(*)
+            integer(c_int), value :: size
+        end subroutine c_fdace_vector_negate
+
+        subroutine c_fdace_vector_dot_vector(h1, h2, h_out, size) bind(C, name="fdace_vector_dot_vector")
+            import :: c_int
+            integer(c_int), intent(in) :: h1(*), h2(*)
+            integer(c_int), intent(in) :: h_out
+            integer(c_int), value :: size
+        end subroutine c_fdace_vector_dot_vector
+
+        subroutine c_fdace_real3x3_matmul_vector(mat, h_vec, ho) bind(C, name="fdace_real3x3_matmul_vector")
+            import :: c_int, c_double
+            real(c_double), intent(in) :: mat(3,3)
+            integer(c_int), intent(in) :: h_vec(*)
+            integer(c_int), intent(out) :: ho(*)
+        end subroutine c_fdace_real3x3_matmul_vector
     end interface
 
     ! 在模块顶部类型定义区补充
@@ -722,163 +813,199 @@ contains
     end subroutine vector_assign_vector
 
     ! ==========================================
-    ! 向量 = 实数 (例如: fl = 0.0_DP)
+    ! 极速向量化运算实现区域 (消除 FFI 循环开销)
     ! ==========================================
+
     subroutine vector_assign_real(lhs, val)
         class(AlgebraicVector), intent(inout) :: lhs
         real(8), intent(in) :: val
-        integer :: i
+        integer(c_int), allocatable :: ho(:)
         
-        ! 安全检查：如果向量还没有设定大小，直接返回或报错
-        ! (因为一个不知道维度的向量，无法给它的分量赋值)
         if (lhs%size <= 0) then
             write(*,*) "[警告] AlgebraicVector 未初始化大小，无法执行标量赋值！"
             return
         end if
         
-        ! 遍历每一个分量，将标量赋给它
-        do i = 1, lhs%size
-            ! 这里会自动触发底层的 da_assign_real，极其安全且高效
-            lhs%elements(i) = val
-        end do
+        allocate(ho(lhs%size))
+        ho = lhs%elements%handle
+        call c_fdace_vector_assign_real(ho, val, lhs%size)
     end subroutine vector_assign_real
-
-    type(AlgebraicVector) function vector_sub_vector(v1, v2) result(res)
-        class(AlgebraicVector), intent(in) :: v1, v2
-        integer :: i
-        if (v1%size /= v2%size) stop "ERROR: Vector Subtraction Dimension Mismatch!"
-        call res%init(v1%size)
-        do i = 1, v1%size
-            res%elements(i) = v1%elements(i) - v2%elements(i)
-        end do
-    end function vector_sub_vector
-
-    ! ==========================================
-    ! DA 向量 - 实数一维数组 (例如: position - body_pos)
-    ! ==========================================
-    type(AlgebraicVector) function vector_sub_real_array(vec, arr) result(res)
-        class(AlgebraicVector), intent(in) :: vec
-        real(8), intent(in) :: arr(:)
-        integer :: i
-        
-        if (vec%size /= size(arr)) then
-            write(*,*) "[致命错误] 向量减法维度不匹配 (DA 向量 - 实数数组)！"
-            stop
-        end if
-        
-        call res%init(vec%size)
-        do i = 1, vec%size
-            ! 这里会自动触发底层的 DA - 实数 重载，速度极快
-            res%elements(i) = vec%elements(i) - arr(i)
-        end do
-    end function vector_sub_real_array
-
-    ! ==========================================
-    ! 实数一维数组 - DA 向量 (例如: body_pos - position)
-    ! ==========================================
-    type(AlgebraicVector) function real_array_sub_vector(arr, vec) result(res)
-        real(8), intent(in) :: arr(:)
-        class(AlgebraicVector), intent(in) :: vec
-        integer :: i
-        
-        if (size(arr) /= vec%size) then
-            write(*,*) "[致命错误] 向量减法维度不匹配 (实数数组 - DA 向量)！"
-            stop
-        end if
-        
-        call res%init(vec%size)
-        do i = 1, vec%size
-            ! 自动触发底层的 实数 - DA 重载
-            res%elements(i) = arr(i) - vec%elements(i)
-        end do
-    end function real_array_sub_vector
 
     type(AlgebraicVector) function vector_add_vector(v1, v2) result(res)
         class(AlgebraicVector), intent(in) :: v1, v2
-        integer :: i
+        integer(c_int), allocatable :: h1(:), h2(:), ho(:)
+        
+        if (v1%size /= v2%size) stop "ERROR: Vector Add Dimension Mismatch!"
         call res%init(v1%size)
-        do i = 1, v1%size
-            res%elements(i) = v1%elements(i) + v2%elements(i)
-        end do
+        
+        allocate(h1(v1%size), h2(v1%size), ho(v1%size))
+        h1 = v1%elements%handle
+        h2 = v2%elements%handle
+        ho = res%elements%handle
+        
+        call c_fdace_vector_add(h1, h2, ho, v1%size)
     end function vector_add_vector
 
-        type(AlgebraicVector) function vector_add_real_array(vec, arr) result(res)
+    type(AlgebraicVector) function vector_sub_vector(v1, v2) result(res)
+        class(AlgebraicVector), intent(in) :: v1, v2
+        integer(c_int), allocatable :: h1(:), h2(:), ho(:)
+        
+        if (v1%size /= v2%size) stop "ERROR: Vector Subtraction Dimension Mismatch!"
+        call res%init(v1%size)
+        
+        allocate(h1(v1%size), h2(v1%size), ho(v1%size))
+        h1 = v1%elements%handle
+        h2 = v2%elements%handle
+        ho = res%elements%handle
+        
+        call c_fdace_vector_sub(h1, h2, ho, v1%size)
+    end function vector_sub_vector
+
+    type(AlgebraicVector) function vector_sub_real_array(vec, arr) result(res)
         class(AlgebraicVector), intent(in) :: vec
         real(8), intent(in) :: arr(:)
-        integer :: i
+        integer(c_int), allocatable :: h1(:), ho(:)
         
-        if (vec%size /= size(arr)) then
-            write(*,*) "[致命错误] 向量加法维度不匹配 (DA 向量 - 实数数组)！"
-            stop
-        end if
-        
+        if (vec%size /= size(arr)) stop "[致命错误] 向量减法维度不匹配 (DA 向量 - 实数数组)！"
         call res%init(vec%size)
-        do i = 1, vec%size
-            ! 这里会自动触发底层的 DA - 实数 重载，速度极快
-            res%elements(i) = vec%elements(i) + arr(i)
-        end do
+        
+        allocate(h1(vec%size), ho(vec%size))
+        h1 = vec%elements%handle
+        ho = res%elements%handle
+        
+        call c_fdace_vector_sub_real_array(h1, arr, ho, vec%size)
+    end function vector_sub_real_array
+
+    type(AlgebraicVector) function real_array_sub_vector(arr, vec) result(res)
+        real(8), intent(in) :: arr(:)
+        class(AlgebraicVector), intent(in) :: vec
+        integer(c_int), allocatable :: h2(:), ho(:)
+        
+        if (size(arr) /= vec%size) stop "[致命错误] 向量减法维度不匹配 (实数数组 - DA 向量)！"
+        call res%init(vec%size)
+        
+        allocate(h2(vec%size), ho(vec%size))
+        h2 = vec%elements%handle
+        ho = res%elements%handle
+        
+        call c_fdace_real_array_sub_vector(arr, h2, ho, vec%size)
+    end function real_array_sub_vector
+
+    type(AlgebraicVector) function vector_add_real_array(vec, arr) result(res)
+        class(AlgebraicVector), intent(in) :: vec
+        real(8), intent(in) :: arr(:)
+        integer(c_int), allocatable :: h1(:), ho(:)
+        
+        if (vec%size /= size(arr)) stop "[致命错误] 向量加法维度不匹配 (DA 向量 - 实数数组)！"
+        call res%init(vec%size)
+        
+        allocate(h1(vec%size), ho(vec%size))
+        h1 = vec%elements%handle
+        ho = res%elements%handle
+        
+        call c_fdace_vector_add_real_array(h1, arr, ho, vec%size)
     end function vector_add_real_array
 
-    ! ==========================================
-    ! 实数一维数组 + DA 向量 (例如: body_pos + position)
-    ! ==========================================
     type(AlgebraicVector) function real_array_add_vector(arr, vec) result(res)
         real(8), intent(in) :: arr(:)
         class(AlgebraicVector), intent(in) :: vec
-        integer :: i
+        integer(c_int), allocatable :: h2(:), ho(:)
         
-        if (size(arr) /= vec%size) then
-            write(*,*) "[致命错误] 向量加法维度不匹配 (实数数组 - DA 向量)！"
-            stop
-        end if
-        
+        if (size(arr) /= vec%size) stop "[致命错误] 向量加法维度不匹配 (实数数组 - DA 向量)！"
         call res%init(vec%size)
-        do i = 1, vec%size
-            ! 自动触发底层的 实数 - DA 重载
-            res%elements(i) = arr(i) + vec%elements(i)
-        end do
+        
+        allocate(h2(vec%size), ho(vec%size))
+        h2 = vec%elements%handle
+        ho = res%elements%handle
+        
+        call c_fdace_vector_add_real_array(h2, arr, ho, vec%size)
     end function real_array_add_vector
 
     type(AlgebraicVector) function real_mul_vector(val, vec) result(res)
         real(8), intent(in) :: val
         class(AlgebraicVector), intent(in) :: vec
-        integer :: i
+        integer(c_int), allocatable :: h1(:), ho(:)
+        
         call res%init(vec%size)
-        do i = 1, vec%size
-            res%elements(i) = val * vec%elements(i)
-        end do
+        
+        allocate(h1(vec%size), ho(vec%size))
+        h1 = vec%elements%handle
+        ho = res%elements%handle
+        
+        call c_fdace_vector_mul_double(h1, val, ho, vec%size)
     end function real_mul_vector
 
     type(AlgebraicVector) function da_mul_vector(val, vec) result(res)
         class(DA), intent(in) :: val
         class(AlgebraicVector), intent(in) :: vec
-        integer :: i
+        integer(c_int), allocatable :: h_vec(:), ho(:)
+        
         call res%init(vec%size)
-        do i = 1, vec%size
-            res%elements(i) = val * vec%elements(i)
-        end do
+        
+        allocate(h_vec(vec%size), ho(vec%size))
+        h_vec = vec%elements%handle
+        ho = res%elements%handle
+        
+        call c_fdace_da_mul_vector(val%handle, h_vec, ho, vec%size)
     end function da_mul_vector
 
     type(DA) function vector_dot_vector(v1, v2) result(res)
         class(AlgebraicVector), intent(in) :: v1, v2
-        integer :: i
+        integer(c_int), allocatable :: h1(:), h2(:)
+        
         if (v1%size /= v2%size) stop "ERROR: Vector Dot Product Dimension Mismatch!"
         call res%init() 
-        res = 0.0_DP 
-        do i = 1, v1%size
-            res = res + (v1%elements(i) * v2%elements(i))
-        end do
+        
+        allocate(h1(v1%size), h2(v1%size))
+        h1 = v1%elements%handle
+        h2 = v2%elements%handle
+        
+        call c_fdace_vector_dot_vector(h1, h2, res%handle, v1%size)
     end function vector_dot_vector
 
-    ! 一元负号: -Vector
     type(AlgebraicVector) function unary_minus_vector(v1) result(res)
         class(AlgebraicVector), intent(in) :: v1
-        integer :: i
+        integer(c_int), allocatable :: h_in(:), ho(:)
+        
         call res%init(v1%size)
-        do i = 1, v1%size
-            res%elements(i) = -v1%elements(i) ! 自动调用 DA 的一元负号
-        end do
+        
+        allocate(h_in(v1%size), ho(v1%size))
+        h_in = v1%elements%handle
+        ho = res%elements%handle
+        
+        call c_fdace_vector_negate(h_in, ho, v1%size)
     end function unary_minus_vector
+
+    type(AlgebraicVector) function vector_div_da(vec, val) result(res)
+        class(AlgebraicVector), intent(in) :: vec
+        class(DA), intent(in) :: val
+        integer(c_int), allocatable :: h_vec(:), ho(:)
+        
+        call res%init(vec%size)
+        
+        allocate(h_vec(vec%size), ho(vec%size))
+        h_vec = vec%elements%handle
+        ho = res%elements%handle
+        
+        call c_fdace_vector_div_da(h_vec, val%handle, ho, vec%size)
+    end function vector_div_da
+
+    function real3x3_matmul_vector(mat, vec) result(res)
+        real(8), intent(in) :: mat(3,3)
+        class(AlgebraicVector), intent(in) :: vec
+        type(AlgebraicVector) :: res
+        integer(c_int), allocatable :: h_vec(:), ho(:)
+        
+        if (vec%size /= 3) stop "[致命错误] 矩阵乘法要求 DA 向量维度必须为 3！"
+        
+        call res%init(3)
+        
+        allocate(h_vec(3), ho(3))
+        h_vec = vec%elements%handle
+        ho = res%elements%handle
+        
+        call c_fdace_real3x3_matmul_vector(mat, h_vec, ho)
+    end function real3x3_matmul_vector
 
     ! 向量 * 实数 (补齐交换律)
     type(AlgebraicVector) function vector_mul_real(vec, val) result(res)
@@ -901,56 +1028,12 @@ contains
         res = vec * (1.0_DP / val)
     end function vector_div_real
 
-    ! 向量 / DA
-    type(AlgebraicVector) function vector_div_da(vec, val) result(res)
-        class(AlgebraicVector), intent(in) :: vec
-        class(DA), intent(in) :: val
-        integer :: i
-        call res%init(vec%size)
-        do i = 1, vec%size
-            res%elements(i) = vec%elements(i) / val ! 自动调用 DA / DA
-        end do
-    end function vector_div_da
-
     type(DA) function vector_norm2(this) result(res)
         class(AlgebraicVector), intent(in) :: this
         
         ! 直接利用向量点乘 (this * this) 得到 DA 标量，再开根号
         res = sqrt(this * this)
     end function vector_norm2
-
-    ! ==========================================
-    ! 3x3 实数矩阵 * DA 向量 (例如: matmul(rot_to_body, dr_da))
-    ! ==========================================
-    function real3x3_matmul_vector(mat, vec) result(res)
-        real(8), intent(in) :: mat(3,3)
-        class(AlgebraicVector), intent(in) :: vec
-        type(AlgebraicVector) :: res
-        integer :: i, j
-        
-        ! 安全检查
-        if (vec%size /= 3) then
-            write(*,*) "[致命错误] 矩阵乘法要求 DA 向量维度必须为 3！"
-            stop
-        end if
-        
-        ! 1. 为结果向量分配 C++ 句柄内存
-        call res%init(3)
-        
-        ! 2. 触发 vector_assign_real，一键清零 (极其安全)
-        do i = 1, 3
-            res%elements(i) = 0.0_DP
-        end do
-        
-        ! 3. 标准矩阵乘法展开
-        ! 这里的乘号和加号，全部会自动路由到你写好的底层 DA 重载！
-        do i = 1, 3
-            do j = 1, 3
-                res%elements(i) = res%elements(i) + mat(i,j) * vec%elements(j)
-            end do
-        end do
-        
-    end function real3x3_matmul_vector
 
     !--- vector_cons 实现
     function vector_cons(this) result(res)

@@ -245,4 +245,67 @@ extern "C" {
 
     // 获取当前截断阶数
     int fdace_get_to() { return DACE::DA::getTO(); }
+
+    
+    // ==========================================
+    // 向量化/批处理代数运算 (极速降低 FFI 开销)
+    // ==========================================
+    
+    void fdace_vector_assign_real(int* ho, double val, int size) {
+        for(int i = 0; i < size; ++i) da_registry[ho[i]] = val;
+    }
+
+    void fdace_vector_add(const int* h1, const int* h2, int* ho, int size) {
+        for(int i = 0; i < size; ++i) da_registry[ho[i]] = da_registry[h1[i]] + da_registry[h2[i]];
+    }
+
+    void fdace_vector_sub(const int* h1, const int* h2, int* ho, int size) {
+        for(int i = 0; i < size; ++i) da_registry[ho[i]] = da_registry[h1[i]] - da_registry[h2[i]];
+    }
+
+    void fdace_vector_add_real_array(const int* h1, const double* arr, int* ho, int size) {
+        for(int i = 0; i < size; ++i) da_registry[ho[i]] = da_registry[h1[i]] + arr[i];
+    }
+
+    void fdace_real_array_sub_vector(const double* arr, const int* h2, int* ho, int size) {
+        for(int i = 0; i < size; ++i) da_registry[ho[i]] = arr[i] - da_registry[h2[i]];
+    }
+
+    void fdace_vector_sub_real_array(const int* h1, const double* arr, int* ho, int size) {
+        for(int i = 0; i < size; ++i) da_registry[ho[i]] = da_registry[h1[i]] - arr[i];
+    }
+
+    void fdace_vector_mul_double(const int* h1, double val, int* ho, int size) {
+        for(int i = 0; i < size; ++i) da_registry[ho[i]] = da_registry[h1[i]] * val;
+    }
+
+    void fdace_da_mul_vector(int h_val, const int* h_vec, int* ho, int size) {
+        for(int i = 0; i < size; ++i) da_registry[ho[i]] = da_registry[h_val] * da_registry[h_vec[i]];
+    }
+
+    void fdace_vector_div_da(const int* h_vec, int h_val, int* ho, int size) {
+        for(int i = 0; i < size; ++i) da_registry[ho[i]] = da_registry[h_vec[i]] / da_registry[h_val];
+    }
+
+    void fdace_vector_negate(const int* h_in, int* ho, int size) {
+        for(int i = 0; i < size; ++i) da_registry[ho[i]] = -da_registry[h_in[i]];
+    }
+
+    void fdace_vector_dot_vector(const int* h1, const int* h2, int* h_out, int size) {
+        da_registry[*h_out] = 0.0;
+        for(int i = 0; i < size; ++i) {
+            da_registry[*h_out] += da_registry[h1[i]] * da_registry[h2[i]];
+        }
+    }
+
+    void fdace_real3x3_matmul_vector(const double* mat, const int* h_vec, int* ho) {
+        // C++ 接收 Fortran 传来的 3x3 矩阵，默认是列优先布局 (Column-Major)
+        for(int i = 0; i < 3; ++i) {
+            da_registry[ho[i]] = 0.0;
+            for(int j = 0; j < 3; ++j) {
+                // Fortran mat(i,j) 对应 C++ 一维数组的 mat[i + j*3]
+                da_registry[ho[i]] += mat[i + j*3] * da_registry[h_vec[j]];
+            }
+        }
+    }
 }
