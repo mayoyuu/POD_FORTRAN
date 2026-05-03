@@ -25,7 +25,7 @@ program pod_emdac_test
     ! ===================================================================
     ! 0. 全局物理环境初始化 (最先执行！)
     ! ===================================================================
-    config_file = 'config/pod_config.txt'
+    config_file = 'dummy_test_config.txt'
     write(*,*) '>>> 正在初始化 CAT POD 物理引擎与星历环境...'
     call pod_engine_init(trim(config_file))
     write(*,*) '>>> 物理引擎初始化完成！'
@@ -34,7 +34,7 @@ program pod_emdac_test
     obs_file          = 'input/DROB_20251210_20260111_cor.obs'
     site_json_file    = 'config/site.json'
     initial_json_file = 'input/DROb_20251210_9.opm'
-    output_json_file  = 'output/emdac_result.opm'
+    output_json_file  = 'output/emdac_result_only_time_update_fix_order_is_3.opm'
     
     ! 2. 灵活解析命令行可选参数
     num_args = command_argument_count()

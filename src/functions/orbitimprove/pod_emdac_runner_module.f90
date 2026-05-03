@@ -71,6 +71,10 @@ contains
             call load_initial_opm(initial_json_file, et_current, initial_mean, initial_cov)
             call my_filter%init(et_current, initial_mean,initial_cov, n_components, max_da_order)
         end if
+
+        write(*,*) '  [Runner] 滤波器初始化完成'
+        write(*,*) '    初始均值: ', initial_mean
+        write(*,*) '    初始历元: ', et_current
         
         ! 3. 滤波器装配与初始化
         if (present(opt_particles)) then
@@ -92,7 +96,15 @@ contains
             call load_single_observation(obs_file, site_json_file, obs_count, &
                                          et_obs, y_meas(1), y_meas(2), current_station, is_eof)
             if (is_eof) exit
+
+            write(*,*) 'Station ECEF:', current_station%ecef_position
+            write(*,*) 'Station geodetic:', current_station%latitude, current_station%longitude, current_station%altitude
             
+            call my_filter%get_current_epoch(et_current)
+            write(*,*) '  传播前时间为: ', et_current
+            call my_filter%get_current_state(final_mean)
+            write(*,*) '  传播前位置为: ',  final_mean
+
             ! 计算积分步长
             dt = et_obs - et_current
             
@@ -112,7 +124,6 @@ contains
                     current_order = 2    ! 步长在1小时到1天之间 -> 2阶
                 end if
             end if
-            
             ! 应用最新计算出的阶数
             call my_filter%set_da_order(current_order)
             is_first_step = .false. ! 第一步已走完，切断强制覆盖机制
@@ -122,10 +133,25 @@ contains
                   ' dt:', dt, 's, DA阶数:', current_order
             
             call my_filter%time_update(et_obs)
-            call my_filter%measurement_update(y_meas, noise_R, et_obs, current_station)
+            call my_filter%get_current_epoch(et_current)
+            write(*,*) '  传播后时间为: ', et_current
+            call my_filter%get_current_state(final_mean)
+            write(*,*) '  时间更新后结果为: ',  final_mean
 
-            et_current = et_obs
+            call my_filter%measurement_update(y_meas, noise_R, et_obs, current_station)
+            call my_filter%get_current_epoch(et_current)
+            write(*,*) '  测量更新后时间为: ', et_current
+            call my_filter%get_current_state(final_mean)
+            write(*,*) '  测量更新后结果为: ',  final_mean
+
+            
+             ! 观测更新放在时间更新之后，确保每一步都能看到 DA 传播的效果
+
             obs_count = obs_count + 1
+
+            !! 测试阶段只测第一步
+            ! if (obs_count > 2) exit
+
         end do
         
         write(*,*) '  [Runner] 滤波结束，有效观测数: ', obs_count - 1

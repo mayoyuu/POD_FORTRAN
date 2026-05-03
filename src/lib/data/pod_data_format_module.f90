@@ -17,7 +17,7 @@ module pod_data_format_module
 contains
 
 
-   !> ======================================================================
+    !> ======================================================================
     !> 读取标准的 OPM JSON 格式并初始化状态
     !> ======================================================================
     subroutine load_initial_opm(json_file, et, state, cov, gmm_state, has_gmm)
@@ -27,9 +27,10 @@ contains
         real(DP), intent(out)        :: cov(6,6)
         type(uq_gmm_state_type), intent(out), optional :: gmm_state
         logical, intent(out), optional :: has_gmm
-
+ 
         integer :: u_json, ios, i, j, k
         integer :: comp_idx, n_components
+        integer :: depth, ci          ! [FIX] JSON 嵌套深度计数器及字符索引
         real(DP) :: tmp_val
         character(len=MAX_STRING_LEN) :: line
         character(len=64) :: epoch_str
@@ -42,6 +43,7 @@ contains
         et = 0.0_DP
         epoch_str = ""
         comp_idx = 0
+        depth = 0                     ! [FIX] 初始化嵌套深度为 0
         if (present(has_gmm)) has_gmm = .false.
         
         open(newunit=u_json, file=json_file, status='old', iostat=ios)
@@ -51,19 +53,34 @@ contains
             read(u_json, '(A)', iostat=ios) line
             if (ios < 0) exit ! 文件结束
             
-            ! 提取时间
-            call extract_json_string(line, '"EPOCH"', epoch_str, found)
-            
-            ! 提取状态向量与主协方差矩阵 (自动处理对称性)
-            do i = 1, 6
-                call extract_json_value(line, '"'//trim(s_keys(i))//'"', state(i), found)
-                do j = 1, i
-                    call extract_json_value(line, '"C'//trim(s_keys(i))//'_'//trim(s_keys(j))//'"', cov(i,j), found)
-                    if (found) cov(j,i) = cov(i,j) 
-                end do
+            ! [FIX] 逐字符扫描当前行，更新 JSON 嵌套深度
+            !       '{'  → 进入一层嵌套，depth +1
+            !       '}'  → 退出一层嵌套，depth -1
+            !       深度在解析之前更新，因此形如 '"FIT_EPOCH": {' 的行
+            !       扫描完后 depth 已从 1 变为 2，不会被误解析。
+            do ci = 1, len_trim(line)
+                if (line(ci:ci) == '{') depth = depth + 1
+                if (line(ci:ci) == '}') depth = depth - 1
             end do
             
-           ! 提取 GMM 状态
+            ! [FIX] 仅在最外层 JSON 对象（depth == 1）提取 EPOCH 与状态向量。
+            !       这保证了不会把 FIT_EPOCH / INI_EPOCH 等嵌套块内的同名字段
+            !       误读进来，与 X / Y / Z 等值的语义完全一致。
+            if (depth == 1) then
+                ! 提取时间
+                call extract_json_string(line, '"EPOCH"', epoch_str, found)
+                
+                ! 提取状态向量与主协方差矩阵 (自动处理对称性)
+                do i = 1, 6
+                    call extract_json_value(line, '"'//trim(s_keys(i))//'"', state(i), found)
+                    do j = 1, i
+                        call extract_json_value(line, '"C'//trim(s_keys(i))//'_'//trim(s_keys(j))//'"', cov(i,j), found)
+                        if (found) cov(j,i) = cov(i,j) 
+                    end do
+                end do
+            end if
+            
+           ! 提取 GMM 状态（GMM 解析自身维护 comp_idx，不受外层深度约束）
             if (present(gmm_state)) then
                 ! 1. 解析总分量数并初始化
                 call extract_json_value(line, '"GMM_N_COMPONENTS"', tmp_val, found)
@@ -113,6 +130,7 @@ contains
         
         close(u_json)
         
+        write(*,*) '提取的初始时间为：', trim(epoch_str)
         if (trim(epoch_str) /= "") call str2et(trim(epoch_str), et)
         
     end subroutine load_initial_opm

@@ -13,6 +13,7 @@ module pod_filter_emdac_module
     use pod_uq_propagation, only: run_particle_propagation, METHOD_DA
     use pod_measurement_base_module, only: observation_station 
     use pod_measurement_da_module, only: compute_measurement_da
+    use pod_measurement_model_module, only: compute_measurement
     use pod_basicmath_module, only: inverse_and_determinant
     use pod_random_module, only: generate_multivariate_normal
     
@@ -160,9 +161,11 @@ contains
         type(uq_state_type) :: uq_particles
         real(DP) :: t_end
         integer :: dim
+        real(DP) :: temp_mean(6)
         
         dim = this%gmm_state%state_dim
         call uq_particles%allocate_memory(dim, this%n_particles)
+
         
         ! 步骤 A: 桥接参数空间与粒子空间 —— 根据 GMM 权重生成散布粒子
         call this%sample_particles_from_gmm(uq_particles%samples)
@@ -174,7 +177,9 @@ contains
         call run_particle_propagation(uq_particles, this%state_mean, this%current_epoch, &
                                       0.0_DP, t_end, METHOD_DA,  this%propagated_particles, &
                                       da_order=this%da_order, &
-                                      reference_orbit_out=this%state_mean) 
+                                      reference_orbit_out=temp_mean) ! 传出传播后的均值，供后续 EM 聚类使用
+        
+        this%state_mean = temp_mean ! 更新滤波器的全局均值为传播后的均值，供后续测量更新使用
         
         ! 步骤 C: 重新执行 K-means + EM 算法，提取传播后的 GMM 拓扑结构
         write(*,*) '[EMDAC] 执行高斯混合聚类...'
@@ -205,9 +210,9 @@ contains
         type(AlgebraicVector) :: pos_j2000, measurement_da
         type(DA) :: temp_da
         type(CompiledDA) :: compiled_meas
-        real(DP), allocatable :: eval_inputs_meas(:)
+        real(DP), allocatable :: eval_inputs_meas(:)! eval_results_meas(:)
         integer :: i, j, n_comp, dim, ny, info
-        real(DP), allocatable :: particles_z(:,:) ! 存储每个粒子的预测测量值 (ny, n_particles)
+        real(DP), allocatable :: particles_z(:,:)! particles_z_not_da(:, :) ! 存储每个粒子的预测测量值 (ny, n_particles)
         real(DP), allocatable :: means_z(:,:)   ! 存储每个核的预测测量均值 (ny, n_comp)
         real(DP), allocatable :: P_zz(:,:,:), P_xz(:,:,:), K_gain(:,:,:), P_zz_inv(:,:,:) ! 存储每个核的预测测量协方差、交叉协方差、卡尔曼增益和协方差逆
         ! real(DP), allocatable :: innovation(:), log_likelihood(:)
@@ -224,10 +229,12 @@ contains
         ! 显式分配所有 allocatable 数组的内存！
         allocate(log_likelihood(n_comp), det_Pzz(n_comp), mahalanobis_sq(n_comp))
         allocate(particles_z(ny, this%n_particles))
-        allocate(means_z(ny, n_comp), innovation(ny, n_comp))
+        ! allocate(particles_z(ny, this%n_particles), particles_z_not_da(ny, this%n_particles)) ! 存储 DA 和非 DA 的预测测量值，供后续分析使用
+        allocate(means_z(ny, n_comp), innovation(ny, n_comp))   ! 存储 DA 和非 DA 的预测测量均值，供后续分析使用
         allocate(P_zz(ny, ny, n_comp), P_zz_inv(ny, ny, n_comp))
         allocate(P_xz(dim, ny, n_comp), K_gain(dim, ny, n_comp))
         allocate(eval_inputs_meas(dim))
+        ! allocate(eval_inputs_meas(dim), eval_results_meas(ny))
         
         ! 确保此时的滤波器时间与观测时间对齐
         if (abs(this%current_epoch - et) > 1.0e-6_DP) then
@@ -235,7 +242,8 @@ contains
         end if
 
         ! call dace_initialize(this%da_order, dim)
-        call dace_push_to(this%da_order)
+        ! call dace_push_to(this%da_order)
+        call dace_push_to(2) ! 【新增】测量更新阶段固定使用2阶 DA，基本上误差在1e-16
 
         call pos_j2000%init(dim)
         do i = 1, 3
@@ -249,6 +257,9 @@ contains
 
         compiled_meas = measurement_da%compile()
 
+        ! write(*,*) 'Real y_meas: ', y_meas
+        ! write(*,*) 'Predicted means_z (comp 1): ', measurement_da%cons()! 直接评估中心轨道的预测测量值，供后续分析使用
+
         ! 进一步进行测量更新，更新权重、均值和协方差
         ! 计算每个粒子的预测测量值
         do j = 1, this%n_particles
@@ -256,6 +267,14 @@ contains
             particles_z(:, j) = compiled_meas%eval(eval_inputs_meas)
         end do
 
+        ! ! 使用非 DA 的方式计算预测测量值，以便与DA比较，分析 DA 映射的非线性误差
+        ! do j = 1, 10 ! 只分析前10个粒子，避免输出过多信息
+        !     eval_inputs_meas(:) = this%propagated_particles%samples(:, j)
+        !     call compute_measurement(eval_inputs_meas, et, station, 'OPTICAL', eval_results_meas)
+        !     particles_z_not_da(:, j) = eval_results_meas
+        !     write(*,*) '粒子 ', j, ': DA 预测测量 = ', particles_z(:, j), ' 非 DA 预测测量 = ', particles_z_not_da(:, j)
+        !     write(*,*) '  预测测量差异 (DA - 非 DA) = ', particles_z(:, j) - particles_z_not_da(:, j)
+        ! end do
         call compiled_meas%destroy()
         
         write(*,*) '[EMDAC] 计算测量更新...'

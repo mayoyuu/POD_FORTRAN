@@ -13,6 +13,7 @@ program test_orbit_propagation
     
     type(orbit_state) :: initial_state
     type(propagation_result) :: result
+    real(DP) :: propagation_time, epoch_end
     
     write(*,*) "=================================================="
     write(*,*) "       POD System - 轨道传播顶层集成测试        "
@@ -29,10 +30,13 @@ program test_orbit_propagation
     
     ! A. 准备初始状态 ( km, km/s, UTC)
     write(*,*) ">>> 正在装载轨道初始状态..."
-    call str2et('2024-03-09T12:00:00', initial_state%epoch)
-    initial_state%state = [100000.0_DP, 50000.0_DP, 20000.0_DP, &  ! 位置 (km)
-                                1.5_DP,      2.5_DP,      0.5_DP]  ! 速度 (km/s)
+    call str2et('2025-12-09T18:39:46.3680', initial_state%epoch)
+    call str2et('2026-01-11T21:44:01.247999', epoch_end)
     
+    initial_state%state = [-321297.69007257116_DP,133068.22288313005_DP, 73161.5765643454_DP, &  ! 位置标称值 (km)
+                                        -0.8302491438122398_DP, -0.6171754616163115_DP, -0.3597639886185437_DP]  ! 速度标称值 (km/s)
+                    
+    propagation_time = epoch_end - initial_state%epoch
     ! B. 传播
     ! 参数说明: 
     ! - initial_state: 刚才设置的物理状态
@@ -40,7 +44,7 @@ program test_orbit_propagation
     ! - 2:             选择 RKF78 (1代表RKF45，2代表RKF78)
     ! - result:        用于接收输出结果的结构体
     write(*,*) ">>> 开始轨道积分..."
-    call propagate_orbit(initial_state, 86400.0_DP, METHOD_RKF78, result)
+    call propagate_orbit(initial_state, propagation_time, METHOD_RKF78, result)
     
     ! =========================================================
     ! 3. 结果处理

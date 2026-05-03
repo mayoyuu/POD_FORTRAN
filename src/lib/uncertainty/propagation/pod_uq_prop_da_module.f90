@@ -116,7 +116,9 @@ contains
         compiled_state = state_da_f%compile()
 
         eval_inputs = 0.0_DP
-        this%propagated_ref_orbit = compiled_state%eval(eval_inputs) ! 【新增】缓存中心轨道的常数项，供后续分析使用
+        this%propagated_ref_orbit = state_da_f%cons() ! 【新增】缓存中心轨道的常数项，供后续分析使用
+        ! 这里的 eval_inputs 是相对于中心轨道的偏差向量，因此直接使用 input_state%samples(:, i) - input_state%mean(:) 就可以了，无
+        ! compiled_state%eval(eval_inputs) ! 【新增】缓存中心轨道的常数项，供后续分析使用
         
         !$omp parallel do default(none) &
         !$omp private(i, eval_inputs, eval_results) &
