@@ -32,9 +32,6 @@ module pod_filter_emdac_module
         real(DP), allocatable :: state_cov(:,:)         ! 当前 GMM 的全局协方差 (动态分配)     
         type(uq_gmm_state_type), public :: gmm_state            ! 当前 k 时刻的 GMM 状态
 
-        real(DP), dimension(:,:) :: process_noise       ! 过程噪声矩阵 Q (可选，视具体实现而定)
-        real(DP), dimension(:,:) :: measurement_noise    ! 测量噪声
-
         integer                 :: n_particles = 10000 ! 粒子总数
         real(DP)                :: em_tol = 1.0e-4_DP   ! EM 算法收敛容差
         integer                 :: em_max_iter = 50     ! EM 算法最大迭代次数
@@ -62,13 +59,15 @@ module pod_filter_emdac_module
         procedure :: get_current_state => filter_get_current_state
         procedure :: get_current_cov => filter_get_current_cov
         procedure :: get_current_gmm => filter_get_current_gmm
+
+        procedure :: get_random_addos_from_noise
     end type emdac_filter
 
 contains
 
     !> 初始化函数，一次性注入所有配置并确立初始历元
     !> 初始化函数，一次性注入所有配置并确立初始历元
-    subroutine filter_init(this, initial_epoch, initial_mean, initial_cov, n_comp, max_da_order,&
+    subroutine filter_init(this, initial_epoch, initial_mean, initial_cov, n_comp, max_da_order, &
                            initial_gmm, n_part, opt_em_tol, opt_em_max_iter)
         class(emdac_filter), intent(inout) :: this
         real(DP), intent(in) :: initial_epoch
@@ -158,35 +157,41 @@ contains
     !> 2. 时间更新 (Time Update)
     !> 逻辑: k步GMM -> 按权重采样粒子 -> DA动力学传播 -> EM聚类 -> k+1步GMM
     !> ======================================================================
-    subroutine filter_time_update(this, et)
+    subroutine filter_time_update(this, et, noise_Q)
         class(emdac_filter), intent(inout) :: this
         real(DP), intent(in) :: et  ! 目标历元 (绝对时间)
-        type(uq_state_type) :: uq_particles
+        real(DP), dimension(:,:), intent(in), optional:: noise_Q    ! 过程噪声协方差 Q
         real(DP) :: t_end
-        integer :: dim
-        real(DP) :: temp_mean(6)
         
-        dim = this%gmm_state%state_dim
-        call uq_particles%allocate_memory(dim, this%n_particles)
+        integer :: dim
+        real(DP), allocatable :: temp_mean(:)
+        type(uq_state_type) :: uq_particles
+        real(DP), allocatable :: noise_vec(:,:)
 
+        dim = this%gmm_state%state_dim
+        allocate(temp_mean(dim))
+        allocate(noise_vec(dim, this%n_particles))
+        noise_vec = 0.0_DP
+        call uq_particles%allocate_memory(dim, this%n_particles)
         
         ! 步骤 A: 桥接参数空间与粒子空间 —— 根据 GMM 权重生成散布粒子
         call this%sample_particles_from_gmm(uq_particles%samples)
 
-        t_end = et - this%current_epoch
-
         write(*,*) '[EMDAC] 正在进行时间更新...'
+        t_end = et - this%current_epoch
         ! 步骤 B: 调用 DA 传播器进行高度非线性的动力学积分
         call run_particle_propagation(uq_particles, this%state_mean, this%current_epoch, &
                                       0.0_DP, t_end, METHOD_DA,  this%propagated_particles, &
                                       da_order=this%da_order, &
                                       reference_orbit_out=temp_mean) ! 传出传播后的均值，供后续 EM 聚类使用
         
-        this%state_mean = temp_mean ! 更新滤波器的全局均值为传播后的均值，供后续测量更新使用
+        this%state_mean = temp_mean ! 更新滤波器的全局均值为传播后的均值，供后续测量更新使用，过程噪声均值为0,此处不增加噪声项
+        ! ! 增加过程噪声
+        if(present(noise_Q)) call this%get_random_addos_from_noise(noise_Q, this%n_particles,noise_vec)
+        this%propagated_particles%samples = this%propagated_particles%samples + noise_vec
         
         ! 步骤 C: 重新执行 K-means + EM 算法，提取传播后的 GMM 拓扑结构
         write(*,*) '[EMDAC] 执行高斯混合聚类...'
-        ! uq_particles%samples = this%propagated_particles%samples ! 直接使用传播后的粒子进行聚类
         call fit_gmm_to_particles(this%propagated_particles%samples, this%gmm_state, this%em_max_iter, this%em_tol, &
                                  this%current_omega, this%current_W)
 
@@ -211,14 +216,13 @@ contains
         type(observation_station), intent(in):: station   ! 测站信息
         
         type(AlgebraicVector) :: pos_j2000, measurement_da
-        type(DA) :: temp_da
+        ! type(DA) :: temp_da
         type(CompiledDA) :: compiled_meas
         real(DP), allocatable :: eval_inputs_meas(:)! eval_results_meas(:)
         integer :: i, j, n_comp, dim, ny, info
         real(DP), allocatable :: particles_z(:,:)! particles_z_not_da(:, :) ! 存储每个粒子的预测测量值 (ny, n_particles)
         real(DP), allocatable :: means_z(:,:)   ! 存储每个核的预测测量均值 (ny, n_comp)
         real(DP), allocatable :: P_zz(:,:,:), P_xz(:,:,:), K_gain(:,:,:), P_zz_inv(:,:,:) ! 存储每个核的预测测量协方差、交叉协方差、卡尔曼增益和协方差逆
-        ! real(DP), allocatable :: innovation(:), log_likelihood(:)
         real(DP), allocatable :: log_likelihood(:) ! 存储每个核的对数似然概率 (n_comp)
         real(DP), allocatable :: innovation(:, :) ! 存储每个核的测量残差 (ny, n_comp)
         real(DP), allocatable :: det_Pzz(:),  mahalanobis_sq(:) ! 存储每个核的 P_zz 行列式和马氏距离平方 (n_comp)
@@ -441,12 +445,13 @@ contains
         end do
     end subroutine update_global_cov
 
-    subroutine get_random_addos_from_noise(this, n_samples, addos_out)
+    subroutine get_random_addos_from_noise(this, noise_Q, n_samples, addos_out)
         class(emdac_filter), intent(in) :: this
+        real(DP), dimension(:,:), intent(in):: noise_Q  
         integer, intent(in) :: n_samples
         real(DP), dimension(:,:), intent(out) :: addos_out
         
-        call generate_multivariate_normal(0.0_DP, this%process_noise, addos_out)
+        call generate_multivariate_normal(0.0_DP, noise_R, addos_out)
     end subroutine get_random_addos_from_noise
 
 

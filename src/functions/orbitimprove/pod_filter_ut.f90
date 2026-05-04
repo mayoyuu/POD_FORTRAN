@@ -23,40 +23,35 @@ module pod_ut_filter_module
         real(DP), allocatable :: sigma_points(:,:)  ! Sigma 点矩阵
         real(DP), allocatable :: Weights(:)  ! Sigma 点权重
 
-        
-        real(DP), allocatable :: process_noise(:,:)  ! 过程噪声矩阵
-        real(DP), allocatable :: measurement_noise(:,:)  ! 测量噪声矩阵
-
         real(DP) :: kappa  ! UT 参数
 
     contains
-        procedure :: filter_time_update
-        procedure :: filter_measurement_update
-        procedure :: get_noise_vecs_from_noise
+        procedure :: time_update => filter_time_update
+        procedure :: measurement_update => filter_measurement_update
+        
         procedure :: filter_init
-        procedure :: calculate_sigma_points
+       
+        procedure :: get_noise_vecs_from_noise
     end type ut_filter
 
 contains
 
-    subroutine filter_init(this, initial_state, initial_cov, process_noise, measurement_noise, kappa)
+    subroutine filter_init(this, initial_state, initial_cov, kappa)
         class(ut_filter), intent(inout) :: this
         real(DP), intent(in) :: initial_state(:)
         real(DP), intent(in) :: initial_cov(:,:)
-        real(DP), intent(in) :: process_noise(:,:)
-        real(DP), intent(in) :: measurement_noise(:,:)
         real(DP), intent(in) :: kappa
 
         this%state_mean = initial_state
         this%state_cov = initial_cov
-        this%process_noise = process_noise
-        this%measurement_noise = measurement_noise
         this%kappa = kappa
     end subroutine filter_init
+
     !> 时间更新：使用轨道传播器进行状态预测
-    subroutine filter_time_update(this, et)
+    subroutine filter_time_update(this, et, noise_Q)
         class(ut_filter), intent(inout) :: this
         real(DP), intent(in) :: et  ! 更新时间
+        real(DP), dimension(:,:), intent(in), optional:: noise_Q    ! 过程噪声协方差 Q
 
         integer :: dimension
         real(DP), allocatable :: sigma_points(:,:), Weights(:), propagated_points(:,:), noise_vec(:,:)
@@ -65,7 +60,7 @@ contains
         type(propagation_result) :: result
         real(DP) :: t_end
 
-        initilal_state%state = this%state_mean
+        initial_state%state = this%state_mean
         initial_state%epoch = this%current_epoch
 
         t_end = et - this%current_epoch
@@ -74,6 +69,7 @@ contains
         allocate(sigma_points(dimension, 2*dimension+1), propagated_points(dimension, 2*dimension+1))
         allocate(Weights(2*dimension+1))
         allocate(noise_vec(dimension, 2*dimension+1))
+        noise_vec = 0.0_DP
         ! 权重
         Weights(1) = this%kappa / (dimension + this%kappa)
         Weights(2:2*dimension+1) = 1.0_DP / (2.0_DP * (dimension + this%kappa))
@@ -83,21 +79,21 @@ contains
 
         ! 调用轨道传播器进行状态预测
         !! 增加过噪
-        call get_noise_vecs_from_noise(this, 2*dimension+1, noise_vec)
+        if(present(noise_Q)) call this%get_noise_vecs_from_noise(noise_Q, 2*dimension+1, noise_vec)
         
-        for i = 1, size(sigma_points, 2)
+        do i = 1, size(sigma_points, 2)
             call propagate_orbit(sigma_points(:, i), t_end, METHOD_RKF78, result)
-            propagated_points(:, i) = result%states(:, end) + noise_vec(:,i) ! 使用传播结果的最终状态
+            propagated_points(:, i) = result%states(result%n_steps, :) + noise_vec(:,i) ! 使用传播结果的最终状态
         end do
        
         ! 根据传播结果计算预测的状态均值和协方差
         this%state_mean = 0.0_DP
-        for i = 1, size(sigma_points, 2)
+        do i = 1, size(sigma_points, 2)
             this%state_mean = this%state_mean + Weights(i) * propagated_points(:, i)  ! 使用传播结果的最终状态
         end do    
         
         this%state_cov = 0.0_DP
-        for i = 1, size(sigma_points, 2)
+        do i = 1, size(sigma_points, 2)
             this%state_cov = this%state_cov + Weights(i) * matmul(reshape(propagated_points(:, i) - &
             this%state_mean, (/dimension, 1/)), reshape(propagated_points(:, i) - this%state_mean, (/1, dimension/)))
         end do
@@ -116,9 +112,10 @@ contains
     end subroutine filter_time_update
 
     !> 测量更新：融合测量信息，更新状态和协方差
-    subroutine filter_measurement_update(this, y_meas, et, station)
+    subroutine filter_measurement_update(this, y_meas, noise_R, et, station)
         class(ut_filter), intent(inout) :: this
         real(DP), dimension(:), intent(in) :: y_meas  ! 真实测量值
+        real(DP), dimension(:,:), intent(in):: noise_R    ! 测量噪声协方差 R
         real(DP), intent(in) :: et  ! 测量时间
         type(observation_station), intent(in) :: station  ! 测站信息
 
@@ -140,7 +137,7 @@ contains
         P_zz_inv(measurement_dim, measurement_dim))
         ! 1. 计算预测测量值
         predicted_measurement = 0.0_DP
-        for i = 1, size(this%sigma_points, 2)
+        do i = 1, size(this%sigma_points, 2)
             points_z(:, i) = compute_measurement(this%sigma_points(:, i), et, station, 'OPTICAL') 
             predicted_measurement = predicted_measurement + this%Weights(i) * points_z(:, i) 
         end do
@@ -148,14 +145,14 @@ contains
         ! 2. 计算协方差矩阵 P_xz 和 P_zz
         P_xz = 0.0_DP
         P_zz = 0.0_DP
-        for i = 1, size(this%sigma_points, 2)
+        do i = 1, size(this%sigma_points, 2)
             P_xz = P_xz + this%Weights(i) * matmul(reshape(this%sigma_points(:, i) - this%state_mean, (/state_dim, 1/)), 
             &reshape(points_z(:, i) - predicted_measurement, (/1, measurement_dim/)))
             P_zz = P_zz + this%Weights(i) * matmul(reshape(points_z(:, i) - predicted_measurement, (/measurement_dim, 1/)),
             & reshape(points_z(:, i) - predicted_measurement, (/1, measurement_dim/)))
         end do
         ! 加上测量噪声协方差
-        P_zz = P_zz + this%measurement_noise
+        P_zz = P_zz + noise_R
 
         ! 3. 计算卡尔曼增益
         call inverse_and_determinant(P_zz, P_zz_inv, det_Pzz)
@@ -170,12 +167,13 @@ contains
     end subroutine filter_measurement_update
 
 
-    subroutine get_noise_vecs_from_noise(this, n_samples, addos_out)
+    subroutine get_noise_vecs_from_noise(this, noise_Q, n_samples, addos_out)
         class(ut_filter), intent(in) :: this
+        real(DP), dimension(:,:), intent(in):: noise_Q  
         integer, intent(in) :: n_samples
         real(DP), dimension(:,:), intent(out) :: addos_out
         
-        call generate_multivariate_normal(0.0_DP, this%process_noise, addos_out)
+        call generate_multivariate_normal(0.0_DP, noise_Q, addos_out)
     end subroutine get_noise_vecs_from_noise
 
     subroutine calculate_sigma_points(mean, cov, kappa, sigma_points)
@@ -190,6 +188,7 @@ contains
         ! 计算协方差矩阵的平方根（Cholesky分解）
         real(DP), allocatable :: sqrt_cov(:,:)
         allocate(sqrt_cov(dimension, dimension))
+        sqrt_cov = cov
         call dpotrf('L', dimension, sqrt_cov, dimension, info)
 
         ! 生成sigma点

@@ -45,7 +45,7 @@ contains
         
         ! 状态与时间变量
         real(DP) :: initial_mean(6), final_mean(6)
-        real(DP) :: initial_cov(6,6), final_cov(6,6)
+        real(DP) :: initial_cov(6,6), final_cov(6,6), noise_Q(6,6)
         type(uq_gmm_state_type) :: initial_gmm
 
         real(DP) :: y_meas(2), noise_R(2,2)
@@ -107,7 +107,12 @@ contains
 
             ! 计算积分步长
             dt = et_obs - et_current
-            
+
+            ! 给出noise_Q
+            do i = 1,3
+                noise_Q(i,i) = dt*dt/2*1e-6_DP*dt*dt/2*1e-6_DP
+                noise_Q(i+3,i+3) = dt*1e-6_DP*dt*1e-6_DP
+            end do
             ! ==========================================================
             ! 智能 DA 阶数调整逻辑 (完全基于步长时间判定)
             ! ==========================================================
@@ -132,7 +137,7 @@ contains
             write(*,'(A,I0,A,F10.2,A,I1)') '  [Runner] 处理观测 #', obs_count, &
                   ' dt:', dt, 's, DA阶数:', current_order
             
-            call my_filter%time_update(et_obs)
+            call my_filter%time_update(et_obs, noise_Q)
             call my_filter%get_current_epoch(et_current)
             write(*,*) '  传播后时间为: ', et_current
             call my_filter%get_current_state(final_mean)
