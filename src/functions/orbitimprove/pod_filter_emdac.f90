@@ -32,6 +32,9 @@ module pod_filter_emdac_module
         real(DP), allocatable :: state_cov(:,:)         ! 当前 GMM 的全局协方差 (动态分配)     
         type(uq_gmm_state_type), public :: gmm_state            ! 当前 k 时刻的 GMM 状态
 
+        real(DP), dimension(:,:) :: process_noise       ! 过程噪声矩阵 Q (可选，视具体实现而定)
+        real(DP), dimension(:,:) :: measurement_noise    ! 测量噪声
+
         integer                 :: n_particles = 10000 ! 粒子总数
         real(DP)                :: em_tol = 1.0e-4_DP   ! EM 算法收敛容差
         integer                 :: em_max_iter = 50     ! EM 算法最大迭代次数
@@ -65,7 +68,7 @@ contains
 
     !> 初始化函数，一次性注入所有配置并确立初始历元
     !> 初始化函数，一次性注入所有配置并确立初始历元
-    subroutine filter_init(this, initial_epoch, initial_mean, initial_cov, n_comp,max_da_order,&
+    subroutine filter_init(this, initial_epoch, initial_mean, initial_cov, n_comp, max_da_order,&
                            initial_gmm, n_part, opt_em_tol, opt_em_max_iter)
         class(emdac_filter), intent(inout) :: this
         real(DP), intent(in) :: initial_epoch
@@ -437,5 +440,22 @@ contains
                         reshape(this%gmm_state%components(i)%mean - this%state_mean, (/1, dim/))))
         end do
     end subroutine update_global_cov
+
+    subroutine get_random_addos_from_noise(this, n_samples, addos_out)
+        class(emdac_filter), intent(in) :: this
+        integer, intent(in) :: n_samples
+        real(DP), dimension(:,:), intent(out) :: addos_out
+        
+        call generate_multivariate_normal(0.0_DP, this%process_noise, addos_out)
+    end subroutine get_random_addos_from_noise
+
+
+    subroutine filter_destroy(this)
+        class(emdac_filter), intent(inout) :: this
+        call this%gmm_state%destroy()
+        if (allocated(this%state_mean)) deallocate(this%state_mean)
+        if (allocated(this%state_cov)) deallocate(this%state_cov)
+        ! 释放其他可能的资源，例如过程噪声和测量噪声矩阵
+    end subroutine filter_destroy
 
 end module pod_filter_emdac_module
