@@ -33,6 +33,9 @@ module pod_da_force_model_module
     real(DP), parameter :: SOLAR_CONSTANT = 1367.0_DP       ! W/m^2
     real(DP), parameter :: SPEED_OF_LIGHT = 299792458.0_DP  ! m/s
     real(DP), parameter :: AU_KM = 149597870.7_DP           ! 1 AU (km)
+    ! 新增：用于相对论效应的光速 (km/s)
+    real(DP), parameter :: C_LIGHT_KM = SPEED_OF_LIGHT * 1.0e-3_DP   ! 299792.458 km/s
+
 
 contains
     ! 设置基准历元的接口 (顶层调用)
