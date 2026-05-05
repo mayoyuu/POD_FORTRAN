@@ -46,12 +46,13 @@ contains
         real(DP), intent(in) :: time  ! 这里的 time 必须是绝对 TDB 秒数
         type(AlgebraicVector), intent(out) :: acceleration
         
-        type(AlgebraicVector) :: acc_grav, acc_drag, acc_srp
+        type(AlgebraicVector) :: acc_grav, acc_drag, acc_srp, acc_rel
 
         ! 初始化AlgebraicVector
         if (acc_grav%size /= 3) call acc_grav%init(3)
         if (acc_drag%size /= 3) call acc_drag%init(3)
         if (acc_srp%size /= 3) call acc_srp%init(3)
+        if (acc_rel%size /= 3) call acc_rel%init(3)
         if (acceleration%size /= 3) call acceleration%init(3)
         
         ! 安全检查
@@ -74,9 +75,16 @@ contains
         else
             acc_srp = 0.0_DP
         end if
+
+        ! 相对论效应 (新增)
+        if (config%use_relativity) then
+            call da_compute_post_newtonian(position, velocity, time, acc_rel)
+        else
+            acc_rel = 0.0_DP
+        end if
         
         ! 3. 总和
-        acceleration = acc_grav + acc_drag + acc_srp
+        acceleration = acc_grav + acc_drag + acc_srp + acc_rel
     end subroutine da_compute_acceleration
 
     !> 核心：多体统一引力网计算 (对标深空架构)
@@ -209,7 +217,6 @@ contains
         is_gravity_network_loaded = .true.
     end subroutine init_gravity_network
 
-    ! ... (保留原来的 options/status 打印等辅助函数) ... 
     subroutine da_compute_atmospheric_drag(position, velocity, acceleration)
         type(AlgebraicVector), intent(in) :: position, velocity
         type(AlgebraicVector), intent(inout) :: acceleration
@@ -253,137 +260,127 @@ contains
         end if
     end subroutine compute_atmospheric_density
 
-    !! 计算光压效应
     ! ======================================================================
-    ! 计算太阳辐射压 (SRP) 加速度
+    ! 太阳辐射压 (SRP) —— 标准炮弹球模型，支持可选参数
     ! ======================================================================
-    subroutine da_compute_solar_radiation_pressure(position, time, acceleration)
+    subroutine da_compute_solar_radiation_pressure(position, time, acceleration, Cr, SMR, RP)
         type(AlgebraicVector), intent(in) :: position
-        real(DP), intent(in) :: time  ! 必须传入时间以获取动态太阳位置
+        real(DP), intent(in) :: time
         type(AlgebraicVector), intent(inout) :: acceleration
+        real(DP), intent(in), optional :: Cr, SMR, RP   ! 新增可选参数
         
-        real(DP) :: solar_distance, solar_factor, reflectivity, area_mass_ratio
-        real(DP) :: nominal_srp_pressure
+        real(DP) :: solar_distance, reflectivity, area_mass_ratio, nominal_rp
         real(DP), dimension(3) :: sun_position, sun_velocity
         type(AlgebraicVector) :: relative_pos, solar_direction
 
-        
         call relative_pos%init(3)
         call solar_direction%init(3)
         
-        ! 1. 动态获取当前时刻太阳相对于地球的位置
+        ! 默认值 (与 f_SRP 对齐)
+        reflectivity = 1.25_DP
+        area_mass_ratio = 7.5e-3_DP
+        nominal_rp = SOLAR_CONSTANT / SPEED_OF_LIGHT   ! ≈ 4.56e-6 N/m²
+        
+        if (present(Cr)) reflectivity = Cr
+        if (present(SMR)) area_mass_ratio = SMR
+        if (present(RP))  nominal_rp = RP
+        
+        ! 动态获取太阳位置
         call get_body_state('SUN', time, 'EARTH', sun_position, sun_velocity)
-        
-        ! 2. 计算从太阳指向卫星的相对位置向量
-        ! 注意：位置相减 (Sat - Sun) 得到的是背离太阳的方向，正是光压的推力方向
         relative_pos = position - sun_position
-        solar_distance = norm2(relative_pos%cons())  ! 计算太阳距离 (km)
-        
-        ! 提取单位方向向量
+        solar_distance = norm2(relative_pos%cons())
         solar_direction = relative_pos / solar_distance
         
-        ! 3. 卫星属性参数设置 (可由外部传入，这里暂用默认值)
-        reflectivity = 1.25_DP         ! 反射系数 (Cr)
-        area_mass_ratio = 7.0e-3_DP    ! 面质比 (m²/kg)
+        ! 核心炮弹球模型公式
+        acceleration = reflectivity * area_mass_ratio * nominal_rp * &
+                      (AU_KM / solar_distance)**2 * solar_direction
+        ! 单位转换 m/s² -> km/s²
+        acceleration = acceleration * 1.0e-3_DP
         
-        ! 4. 计算 1 AU 处的标准辐射压强 P_0 (单位: N/m² 或 kg/(m·s²))
-        ! P_0 = 1367 (W/m²) / 299792458 (m/s) ≈ 4.56e-6 N/m²
-        nominal_srp_pressure = SOLAR_CONSTANT / SPEED_OF_LIGHT
-        
-        ! 5. 核心物理公式计算 (得到加速度大小，单位: m/s²)
-        ! 公式: a = P_0 * Cr * (A/M) * (AU / r)^2
-        solar_factor = nominal_srp_pressure * reflectivity * area_mass_ratio * &
-                      (AU_KM / solar_distance)**2
-        
-        ! 6. 附加上方向，并进行极其关键的单位转换 (m/s² -> km/s²)
-        acceleration = (solar_factor * 1.0e-3_DP) * solar_direction
-
-        ! ... 前面计算 solar_factor 和 solar_direction 的代码保持不变 ...
-        
-        ! 引入阴影模型
-        ! real(DP) :: nu_earth, nu_moon, nu_total
-        ! real(DP), dimension(3) :: moon_position, moon_velocity
-        
-        ! ! 7. 计算地球阴影因子 (传入相对于地球的坐标)
-        ! call compute_illumination_factor(position, sun_position, EARTH_RADIUS, nu_earth)
-        
-        ! ! 8. 计算月球阴影因子 (必须传入相对于月球的坐标)
-        ! call get_body_state('MOON', time, 'EARTH', moon_position, moon_velocity)
-        ! call compute_illumination_factor(position - moon_position, &
-        !                                  sun_position - moon_position, &
-        !                                  1737.4_DP, nu_moon) ! 月球半径 1737.4 km
-        
-        ! ! 9. 综合光照因子 (取两者相乘是业界处理多重遮挡的标准近似做法)
-        ! nu_total = nu_earth * nu_moon
-        
-        ! ! 10. 最终施加带有圆锥形阴影修正的加速度
-        ! acceleration = nu_total * (solar_factor * 1.0e-3_DP) * solar_direction
-        
-        
+        ! 如需阴影模型，可在此调用 compute_illumination_factor (已实现，当前未激活)
     end subroutine da_compute_solar_radiation_pressure
 
     ! ======================================================================
-    ! 计算极其严密的圆锥形光照因子 (视圆面相交法)
-    ! 返回值 nu: 0.0 (本影/全食), 1.0 (全照), (0.0, 1.0) (半影/偏食)
+    ! 后牛顿相对论效应 (一级)，只考虑日、地、月 (DA 版本)
+    ! ======================================================================
+    subroutine da_compute_post_newtonian(position, velocity, time, acc_rel)
+        type(AlgebraicVector), intent(in) :: position, velocity
+        real(DP), intent(in) :: time
+        type(AlgebraicVector), intent(inout) :: acc_rel
+        
+        integer :: i
+        integer, parameter :: rel_bodies(3) = [3, 10, 11]   ! 地球、月球、太阳
+        real(DP), dimension(3) :: body_pos, body_vel
+        type(AlgebraicVector) :: r_rel, v_rel
+        type(DA) :: r, v2, r_dot_v
+
+        acc_rel = 0.0_DP
+        
+        ! 需要临时变量
+        call r_rel%init(3)
+        call v_rel%init(3)
+        
+        do i = 1, 3
+            call get_body_state(body_names(rel_bodies(i)), time, 'EARTH', body_pos, body_vel)
+            r_rel = position - body_pos      ! DA - DP
+            v_rel = velocity - body_vel
+            r = r_rel%norm2()                ! DA 模长
+            if (r%cons() < 1.0e-12_DP) cycle ! 避免奇异
+            
+            v2 = dot_product(v_rel, v_rel)   ! DA 标量
+            r_dot_v = dot_product(r_rel, v_rel) / r   ! (DA⋅DA)/DA = DA
+            
+            ! 一阶后牛顿加速度 (与 f_PNE 完全一致)
+            acc_rel = acc_rel + gm_planets(rel_bodies(i)) / (C_LIGHT_KM**2 * r**2) * ( &
+                     (4.0_DP * gm_planets(rel_bodies(i)) / r - v2) * (r_rel / r) + &
+                     4.0_DP * r_dot_v * v_rel )
+        end do
+    end subroutine da_compute_post_newtonian
+
+    ! ======================================================================
+    ! 光照因子 (圆锥形阴影) — 保留作为可选扩展，当前未在主 SRP 中调用
     ! ======================================================================
     subroutine compute_illumination_factor(r_sat_wrt_body, r_sun_wrt_body, R_body, nu)
-        real(DP), dimension(3), intent(in) :: r_sat_wrt_body  ! 卫星相对于遮挡天体的位置
-        real(DP), dimension(3), intent(in) :: r_sun_wrt_body  ! 太阳相对于遮挡天体的位置
-        real(DP), intent(in) :: R_body                        ! 遮挡天体的真实物理半径(km)
-        real(DP), intent(out) :: nu                           ! 光照因子 (0 到 1)
+        real(DP), dimension(3), intent(in) :: r_sat_wrt_body
+        real(DP), dimension(3), intent(in) :: r_sun_wrt_body
+        real(DP), intent(in) :: R_body
+        real(DP), intent(out) :: nu
         
-        real(DP), parameter :: R_SUN = 695700.0_DP            ! 太阳真实半径 (km)
+        real(DP), parameter :: R_SUN = 695700.0_DP
         real(DP), parameter :: PI = 3.14159265358979323846_DP
         
         real(DP), dimension(3) :: r_sat_to_sun, r_sat_to_body
         real(DP) :: dist_sat_to_sun, dist_sat_to_body
         real(DP) :: a, b, c, cos_c, x, y, area_overlap
         
-        ! 1. 计算卫星到太阳、卫星到遮挡天体的向量和距离
         r_sat_to_sun = r_sun_wrt_body - r_sat_wrt_body
-        r_sat_to_body = -r_sat_wrt_body  ! 遮挡天体在原点
-        
+        r_sat_to_body = -r_sat_wrt_body
         dist_sat_to_sun = norm2(r_sat_to_sun)
         dist_sat_to_body = norm2(r_sat_to_body)
         
-        ! 极值保护：如果卫星已经砸在天体内部了，直接全黑
         if (dist_sat_to_body <= R_body) then
             nu = 0.0_DP
             return
         end if
         
-        ! 2. 计算视半径 (Apparent Angular Radius)
-        ! a = 太阳的视半径，b = 遮挡天体的视半径
         a = asin(R_SUN / dist_sat_to_sun)
         b = asin(R_body / dist_sat_to_body)
-        
-        ! 3. 计算视圆心角距 (Apparent Angular Separation) c
         cos_c = dot_product(r_sat_to_sun, r_sat_to_body) / (dist_sat_to_sun * dist_sat_to_body)
-        cos_c = max(-1.0_DP, min(1.0_DP, cos_c)) ! 防止浮点截断导致 acos 越界
+        cos_c = max(-1.0_DP, min(1.0_DP, cos_c))
         c = acos(cos_c)
         
-        ! 4. 核心几何判断：四个极其严密的物理边界
         if (c >= a + b) then
-            ! 完全没有遮挡 (全照)
             nu = 1.0_DP
         else if (c <= b - a) then
-            ! 天体视圆完全盖住太阳 (全食 / 本影)
             nu = 0.0_DP
         else if (c <= a - b) then
-            ! 太阳视圆太大，天体完全在太阳内部 (环食 / 伪本影)
-            ! 光照因子 = 1 - (天体视面积 / 太阳视面积)
             nu = 1.0_DP - (b / a)**2
         else
-            ! 圆面部分相交 (偏食 / 半影)
-            ! 利用余弦定理求解两个扇形的重叠面积
             x = (c**2 + a**2 - b**2) / (2.0_DP * c)
             y = sqrt(max(0.0_DP, a**2 - x**2))
-            
             area_overlap = a**2 * acos(x / a) + b**2 * acos((c - x) / b) - c * y
-            
             nu = 1.0_DP - area_overlap / (PI * a**2)
         end if
-        
     end subroutine compute_illumination_factor
     
 
