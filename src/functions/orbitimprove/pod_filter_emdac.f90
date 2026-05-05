@@ -447,20 +447,27 @@ contains
 
     subroutine get_random_addos_from_noise(this, noise_Q, n_samples, addos_out)
         class(emdac_filter), intent(in) :: this
-        real(DP), dimension(:,:), intent(in):: noise_Q  
+        real(DP), dimension(:,:), intent(in) :: noise_Q  
         integer, intent(in) :: n_samples
         real(DP), dimension(:,:), intent(out) :: addos_out
-        
-        call generate_multivariate_normal(0.0_DP, noise_R, addos_out)
+
+        real(DP), allocatable :: zero_mean(:)
+        integer :: dim
+
+        dim = size(noise_Q, 1)
+        allocate(zero_mean(dim))
+        zero_mean = 0.0_DP
+        call generate_multivariate_normal(zero_mean, noise_Q, addos_out)
+        deallocate(zero_mean)
     end subroutine get_random_addos_from_noise
 
 
-    subroutine filter_destroy(this)
-        class(emdac_filter), intent(inout) :: this
-        call this%gmm_state%destroy()
-        if (allocated(this%state_mean)) deallocate(this%state_mean)
-        if (allocated(this%state_cov)) deallocate(this%state_cov)
-        ! 释放其他可能的资源，例如过程噪声和测量噪声矩阵
-    end subroutine filter_destroy
+    ! subroutine filter_destroy(this)
+    !     class(emdac_filter), intent(inout) :: this
+    !     call this%gmm_state%destroy()
+    !     if (allocated(this%state_mean)) deallocate(this%state_mean)
+    !     if (allocated(this%state_cov)) deallocate(this%state_cov)
+    !     ! 释放其他可能的资源，例如过程噪声和测量噪声矩阵
+    ! end subroutine filter_destroy
 
 end module pod_filter_emdac_module

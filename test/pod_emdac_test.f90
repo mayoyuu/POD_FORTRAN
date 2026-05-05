@@ -34,7 +34,7 @@ program pod_emdac_test
     obs_file          = 'input/DROB_20251210_20260111_cor.obs'
     site_json_file    = 'config/site.json'
     initial_json_file = 'input/DROb_20251210_9.opm'
-    output_json_file  = 'output/emdac_result_only_time_update_fix_order_is_3.opm'
+    output_json_file  = 'output/emdac_result_with_process_noise.opm'
     
     ! 2. 灵活解析命令行可选参数
     num_args = command_argument_count()

@@ -19,12 +19,11 @@ contains
     !> 执行基于无迹卡尔曼滤波（UKF）的轨道确定流程
     !> ======================================================================
     subroutine run_ut_orbit_determination(obs_file, site_json_file, initial_json_file, &
-                                          output_json_file, kappa)
+                                          output_json_file)
         character(len=*), intent(in) :: obs_file           ! 观测文件 (.obs)
         character(len=*), intent(in) :: site_json_file     ! 测站配置文件 (.json)
         character(len=*), intent(in) :: initial_json_file  ! 初始先验状态文件 (.json)
         character(len=*), intent(in) :: output_json_file   ! 输出结果文件 (.json)
-        real(DP),         intent(in) :: kappa              ! UT 参数，通常取值 3-n 或 0
 
         ! 核心对象
         type(ut_filter)       :: my_filter
@@ -37,6 +36,7 @@ contains
         real(DP) :: et_current, et_obs, dt
         integer  :: obs_count, i
         logical  :: is_eof
+        real(DP), parameter :: sigma_a = 1.0e-11_DP   ! km/s²
 
         ! ---- 1. 测量噪声协方差（光学赤经赤纬，0.1角秒精度）----
         noise_R = 0.0_DP
@@ -47,7 +47,7 @@ contains
         call load_initial_opm(initial_json_file, et_current, initial_mean, initial_cov)
 
         ! ---- 3. 初始化 UT 滤波器 ----
-        call my_filter%filter_init(initial_mean, initial_cov, kappa)
+        call my_filter%filter_init(et_current, initial_mean, initial_cov)
 
         write(*,*) '  [UT Runner] 滤波器初始化完成'
         write(*,*) '    初始历元：', et_current
@@ -68,20 +68,32 @@ contains
             ! 构造与时间步长相关的过程噪声 Q（简单白噪声模型）
             noise_Q = 0.0_DP
             do i = 1, 3
-                noise_Q(i,i)   = (0.5_DP * dt**2 * 1.0e-6_DP)**2   ! 位置噪声
-                noise_Q(i+3,i+3) = (dt * 1.0e-6_DP)**2             ! 速度噪声
+                noise_Q(i,i)       = (dt**4 / 4.0_DP) * sigma_a**2
+                noise_Q(i+3,i+3)   = dt**2 * sigma_a**2
+                noise_Q(i,i+3)     = (dt**3 / 2.0_DP) * sigma_a**2
+                noise_Q(i+3,i)     = noise_Q(i,i+3)       ! 对称
             end do
 
-            write(*,'(A,I0,A,F10.2,A)') '  [UT Runner] 处理观测 #', obs_count, &
-                  '  时间步长 dt =', dt, ' 秒'
+            write(*,*) '  [UT Runner] 处理观测 #', obs_count, &
+                    '  观测时刻 et_obs = ', et_obs, ' 秒', &
+                    '  时间步长 dt =', dt, ' 秒'
 
-            ! 时间更新（传播 + 过程噪声叠加）
             call my_filter%time_update(et_obs, noise_Q)
+            call my_filter%get_current_epoch(et_current)
+            write(*,*) '  传播后时间为: ', et_current
+            call my_filter%get_current_state(final_mean)
+            write(*,*) '  时间更新后结果为: ',  final_mean
 
-            ! 测量更新（利用实际观测修正）
             call my_filter%measurement_update(y_meas, noise_R, et_obs, current_station)
+            call my_filter%get_current_epoch(et_current)
+            write(*,*) '  测量更新后时间为: ', et_current
+            call my_filter%get_current_state(final_mean)
+            write(*,*) '  测量更新后结果为: ',  final_mean
 
             obs_count = obs_count + 1
+
+            ! ! 测试阶段只测第一步
+            ! if (obs_count > 5) exit
         end do
 
         write(*,*) '  [UT Runner] 滤波结束，有效观测数：', obs_count - 1
@@ -94,7 +106,8 @@ contains
         ! 使用不带 GMM 状态参数的 write_json_opm 重载版本（若库中提供）
         ! 若库中仅有带 gmm_state 的版本，可改为：
         !   call write_json_opm(output_json_file, final_mean, final_cov, et_current)
-        call write_json_opm(output_json_file, final_mean, final_cov, et_current)
+        call write_json_opm(output_json_file, final_mean, final_cov, &
+                    rms = 0.0_DP, obj_id = "DRO", et_last = et_current)
 
         write(*,*) '  [UT Runner] 结果已写入：', trim(output_json_file)
 

@@ -46,6 +46,7 @@ contains
         ! 状态与时间变量
         real(DP) :: initial_mean(6), final_mean(6)
         real(DP) :: initial_cov(6,6), final_cov(6,6), noise_Q(6,6)
+        real(DP), parameter :: sigma_a = 1.0e-11_DP   ! km/s²
         type(uq_gmm_state_type) :: initial_gmm
 
         real(DP) :: y_meas(2), noise_R(2,2)
@@ -109,9 +110,12 @@ contains
             dt = et_obs - et_current
 
             ! 给出noise_Q
-            do i = 1,3
-                noise_Q(i,i) = dt*dt/2*1e-6_DP*dt*dt/2*1e-6_DP
-                noise_Q(i+3,i+3) = dt*1e-6_DP*dt*1e-6_DP
+            noise_Q = 0.0_DP
+            do i = 1, 3
+                noise_Q(i,i)       = (dt**4 / 4.0_DP) * sigma_a**2
+                noise_Q(i+3,i+3)   = dt**2 * sigma_a**2
+                noise_Q(i,i+3)     = (dt**3 / 2.0_DP) * sigma_a**2
+                noise_Q(i+3,i)     = noise_Q(i,i+3)       ! 对称
             end do
             ! ==========================================================
             ! 智能 DA 阶数调整逻辑 (完全基于步长时间判定)
@@ -166,7 +170,7 @@ contains
         call my_filter%get_current_state(final_mean)
         call my_filter%get_current_cov(final_cov)
         
-        call write_json_opm(output_json_file, final_mean, final_cov, my_filter%gmm_state, 0.0_DP, "CAT_TARGET", et_current)
+        call write_json_opm(output_json_file, final_mean, final_cov, my_filter%gmm_state, 0.0_DP, "DRO", et_current)
         
     end subroutine run_emdac_orbit_determination
 
