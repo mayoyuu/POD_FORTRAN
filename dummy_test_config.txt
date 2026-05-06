@@ -58,12 +58,12 @@ use_gpu = false
 use_earth_nspheric = true
 use_moon_nspheric = true
 use_third_body = true
-use_srp = true
+use_srp = false
 use_drag = false
-use_relativity = true
+use_relativity = false
 active_planets = 3,10,11
-earth_degree = 30
-moon_degree = 30
+earth_degree = 10
+moon_degree = 10
 
 
 # 测量模型参数

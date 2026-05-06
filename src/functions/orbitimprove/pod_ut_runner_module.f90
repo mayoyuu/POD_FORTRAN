@@ -70,8 +70,8 @@ contains
             do i = 1, 3
                 noise_Q(i,i)       = (dt**4 / 4.0_DP) * sigma_a**2
                 noise_Q(i+3,i+3)   = dt**2 * sigma_a**2
-                noise_Q(i,i+3)     = (dt**3 / 2.0_DP) * sigma_a**2
-                noise_Q(i+3,i)     = noise_Q(i,i+3)       ! 对称
+                ! noise_Q(i,i+3)     = (dt**3 / 2.0_DP) * sigma_a**2
+                ! noise_Q(i+3,i)     = noise_Q(i,i+3)       ! 对称
             end do
 
             write(*,*) '  [UT Runner] 处理观测 #', obs_count, &

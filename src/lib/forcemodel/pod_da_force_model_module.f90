@@ -330,8 +330,8 @@ contains
             r = r_rel%norm2()                ! DA 模长
             if (r%cons() < 1.0e-12_DP) cycle ! 避免奇异
             
-            v2 = dot_product(v_rel, v_rel)   ! DA 标量
-            r_dot_v = dot_product(r_rel, v_rel) / r   ! (DA⋅DA)/DA = DA
+            v2 = v_rel*v_rel   ! DA 标量
+            r_dot_v = r_rel*v_rel / r   ! (DA⋅DA)/DA = DA
             
             ! 一阶后牛顿加速度 (与 f_PNE 完全一致)
             acc_rel = acc_rel + gm_planets(rel_bodies(i)) / (C_LIGHT_KM**2 * r**2) * ( &

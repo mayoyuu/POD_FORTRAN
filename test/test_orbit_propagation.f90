@@ -30,11 +30,12 @@ program test_orbit_propagation
     
     ! A. 准备初始状态 ( km, km/s, UTC)
     write(*,*) ">>> 正在装载轨道初始状态..."
-    call str2et('2025-12-09T18:39:46.3680', initial_state%epoch)
-    call str2et('2026-01-11T21:44:01.247999', epoch_end)
+    call str2et('2025-12-15T00:00:01.000000', initial_state%epoch)
+    call str2et('2026-01-01T17:22:00.999000 ', epoch_end)
+   
     
-    initial_state%state = [-321297.69007257116_DP,133068.22288313005_DP, 73161.5765643454_DP, &  ! 位置标称值 (km)
-                                        -0.8302491438122398_DP, -0.6171754616163115_DP, -0.3597639886185437_DP]  ! 速度标称值 (km/s)
+    initial_state%state = [-402779.291910_DP,-181111.455576_DP,-109249.167033_DP, &  ! 位置标称值 (km)
+                                        0.291707_DP,-0.504100_DP,-0.263272_DP]  ! 速度标称值 (km/s)
                     
     propagation_time = epoch_end - initial_state%epoch
     ! B. 传播
