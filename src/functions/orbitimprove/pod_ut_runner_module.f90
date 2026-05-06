@@ -6,7 +6,7 @@ module pod_ut_runner_module
     use pod_obs_io_module, only: load_single_observation
     use pod_measurement_base_module, only: observation_station
     use pod_basicmath_module, only: PI
-    use pod_data_format_module, only: load_initial_opm, write_json_opm
+    use pod_data_format_module, only: load_initial_opm, write_json_opm, write_residual_line
 
     implicit none
     private
@@ -19,11 +19,11 @@ contains
     !> 执行基于无迹卡尔曼滤波（UKF）的轨道确定流程
     !> ======================================================================
     subroutine run_ut_orbit_determination(obs_file, site_json_file, initial_json_file, &
-                                          output_json_file)
+                                          output_file_name)
         character(len=*), intent(in) :: obs_file           ! 观测文件 (.obs)
         character(len=*), intent(in) :: site_json_file     ! 测站配置文件 (.json)
         character(len=*), intent(in) :: initial_json_file  ! 初始先验状态文件 (.json)
-        character(len=*), intent(in) :: output_json_file   ! 输出结果文件 (.json)
+        character(len=*), intent(in) :: output_file_name   ! 输出结果文件 (.json)
 
         ! 核心对象
         type(ut_filter)       :: my_filter
@@ -37,6 +37,10 @@ contains
         integer  :: obs_count, i
         logical  :: is_eof
         real(DP), parameter :: sigma_a = 1.0e-11_DP   ! km/s²
+
+        real(DP) :: step_res(6)    ! 存储最近一次测量更新的 6 列残差
+        real(DP) :: step_comp(2)   ! 存储最近一次计算出的预测观测值 (Lon, Lat)
+        
 
         ! ---- 1. 测量噪声协方差（光学赤经赤纬，0.1角秒精度）----
         noise_R = 0.0_DP
@@ -90,7 +94,15 @@ contains
             call my_filter%get_current_state(final_mean)
             write(*,*) '  测量更新后结果为: ',  final_mean
 
-            obs_count = obs_count + 1
+
+            call my_filter%get_last_residual(step_res, step_comp)
+    
+            ! 调用写入函数
+            ! obs_count == 1 时为 true，创建新文件；之后为 false，追加写入
+            call write_residual_line(output_file_name, et_obs, y_meas, step_comp, &
+                                    step_res, trim(current_station%name), (obs_count == 1))
+
+            obs_count = obs_count + 1                        
 
             ! ! 测试阶段只测第一步
             ! if (obs_count > 5) exit
@@ -105,11 +117,11 @@ contains
 
         ! 使用不带 GMM 状态参数的 write_json_opm 重载版本（若库中提供）
         ! 若库中仅有带 gmm_state 的版本，可改为：
-        !   call write_json_opm(output_json_file, final_mean, final_cov, et_current)
-        call write_json_opm(output_json_file, final_mean, final_cov, &
+        !   call write_json_opm(output_file_name, final_mean, final_cov, et_current)
+        call write_json_opm(output_file_name, final_mean, final_cov, &
                     rms = 0.0_DP, obj_id = "DRO", et_last = et_current)
 
-        write(*,*) '  [UT Runner] 结果已写入：', trim(output_json_file)
+        write(*,*) '  [UT Runner] 结果已写入：', trim(output_file_name)
 
     end subroutine run_ut_orbit_determination
 

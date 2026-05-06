@@ -7,7 +7,7 @@
 module pod_filter_ut_module
     use pod_global, only: DP
     use pod_orbit_propagation, only: propagate_orbit,  orbit_state, propagation_result
-    use pod_basicmath_module, only: inverse_and_determinant, dpotrf
+    use pod_basicmath_module, only: inverse_and_determinant, dpotrf, PI
     use pod_random_module, only: generate_multivariate_normal
     use pod_integrator_module, only: METHOD_RKF45, METHOD_RKF78
     use pod_measurement_model_module, only: compute_measurement
@@ -35,6 +35,9 @@ module pod_filter_ut_module
         real(DP) :: beta  = 2.0_DP
         real(DP) :: kappa = 0.0_DP
 
+        real(DP) :: last_residual(6)    ! 存储最近一次测量更新的 6 列残差
+        real(DP) :: last_comp_val(2)   ! 存储最近一次计算出的预测观测值 (Lon, Lat)
+
     contains
         procedure :: time_update => filter_time_update
         procedure :: measurement_update => filter_measurement_update
@@ -45,6 +48,8 @@ module pod_filter_ut_module
         procedure :: get_current_epoch => filter_get_current_epoch
         procedure :: get_current_state => filter_get_current_state
         procedure :: get_current_cov => filter_get_current_cov
+        procedure :: get_last_residual => filter_get_last_residual
+
     end type ut_filter
 
 contains
@@ -83,6 +88,14 @@ contains
         real(DP), dimension(:,:), intent(out) :: cov_out
         cov_out = this%state_cov
     end subroutine filter_get_current_cov
+
+        !> 获取单步残差的接口
+    subroutine filter_get_last_residual(this, res_out, comp_out)
+        class(ut_filter), intent(in) :: this
+        real(DP), intent(out) :: res_out(6), comp_out(2)
+        res_out = this%last_residual
+        comp_out = this%last_comp_val
+    end subroutine filter_get_last_residual
 
     !> 时间更新：使用轨道传播器进行状态预测
     subroutine filter_time_update(this, et, noise_Q)
@@ -175,6 +188,7 @@ contains
         real(DP) :: det_Pzz
         real(DP), allocatable :: Kalman_gain(:,:)
         integer :: i, info, measurement_dim, state_dim
+        real(DP) :: pred_z_pre(2)
 
         measurement_dim = size(y_meas)
         state_dim = size(this%state_mean)
@@ -184,8 +198,26 @@ contains
 
         allocate(P_xz(state_dim, measurement_dim), P_zz(measurement_dim, measurement_dim), &
         P_zz_inv(measurement_dim, measurement_dim))
+
+        ! ==========================================================
+        ! 【核心新增】：计算更新前的残差 (Innovation) 用于输出报告
+        ! ==========================================================
+        call compute_measurement(this%state_mean, et, station, 'OPTICAL',pred_z_pre) 
+        
+        this%last_comp_val = pred_z_pre(1:2)
+        this%last_residual = 0.0_DP
+        ! 1. dA * cos(Dec) 单位：arcsec
+        this%last_residual(1) = (y_meas(1) - pred_z_pre(1)) * 3600.0_DP &
+        * cos(y_meas(2) * PI / 180.0_DP)
+        ! 2. dDec 单位：arcsec
+        this%last_residual(2) = (y_meas(2) - pred_z_pre(2)) * 3600.0_DP
+        ! 3. Total Angle Residual
+        this%last_residual(3) = sqrt(this%last_residual(1)**2 + this%last_residual(2)**2)
+        ! 4-6. 占位符 (未来可扩展 RTN 残差)
+        this%last_residual(4:6) = 0.0_DP
         ! 1. 计算预测测量值
         predicted_measurement = 0.0_DP
+
         do i = 1, size(this%sigma_points, 2)
             call compute_measurement(this%sigma_points(:, i), et, station, 'OPTICAL',points_z(:,i)) 
             predicted_measurement = predicted_measurement + this%Weights_m(i) * points_z(:, i) 

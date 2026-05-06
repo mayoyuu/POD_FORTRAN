@@ -10,7 +10,7 @@ program pod_emdac_test
 
     ! 命令行与配置参数
     character(len=MAX_STRING_LEN) :: config_file
-    character(len=MAX_STRING_LEN) :: obs_file, initial_json_file, output_json_file, site_json_file
+    character(len=MAX_STRING_LEN) :: obs_file, initial_json_file, output_file_name, site_json_file
     character(len=32) :: arg_str
     integer :: i, num_args
     
@@ -19,14 +19,14 @@ program pod_emdac_test
     integer :: opt_da_order = 4
     integer :: opt_em_max_iter = 50
     real(DP) :: opt_em_tol = 1.0e-4_DP
-    integer :: n_components = 5
+    integer :: n_components = 3
     logical :: gmm_in_switch = .false.  ! 补充了 GMM 初始化开关的默认值
 
     ! ===================================================================
     ! 0. 全局物理环境初始化 (最先执行！)
     ! ===================================================================
     config_file = 'dummy_test_config.txt'
-    write(*,*) '>>> 正在初始化 CAT POD 物理引擎与星历环境...'
+    write(*,*) '>>> 正在初始化 POD 物理引擎与星历环境...'
     call pod_engine_init(trim(config_file))
     write(*,*) '>>> 物理引擎初始化完成！'
     
@@ -34,7 +34,7 @@ program pod_emdac_test
     obs_file          = 'input/DROB_20251210_20260111_cor.obs'
     site_json_file    = 'config/site.json'
     initial_json_file = 'input/DROb_20251210_9.opm'
-    output_json_file  = 'output/emdac_result_with_process_noise.opm'
+    output_file_name  = 'output/DROb_202601_1_emdac_result_with_process_noise'
     
     ! 2. 灵活解析命令行可选参数
     num_args = command_argument_count()
@@ -76,7 +76,7 @@ program pod_emdac_test
     write(*,*) 'GMM 初始化   : ', gmm_in_switch
     write(*,*) '--------------------------------------------------'
     write(*,*) '观测数据输入 : ', trim(obs_file)
-    write(*,*) '定轨结果输出 : ', trim(output_json_file)
+    write(*,*) '定轨结果输出 : ', trim(output_file_name)
     write(*,*) '--------------------------------------------------'
     
     ! 直接调用核心 API 进行“黑盒”执行，采用极其安全的【全关键字传参】模式
@@ -85,7 +85,7 @@ program pod_emdac_test
         site_json_file    = site_json_file, &
         gmm_in_switch     = gmm_in_switch, &
         initial_json_file = initial_json_file, &
-        output_json_file  = output_json_file, &
+        output_file_name  = output_file_name, &
         opt_particles     = opt_particles, &
         max_da_order      = opt_da_order, &
         opt_em_max_iter   = opt_em_max_iter, &

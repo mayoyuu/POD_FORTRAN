@@ -40,6 +40,9 @@ module pod_filter_emdac_module
         type(uq_state_type) :: propagated_particles   ! 保存时间更新后的粒子
         real(DP), allocatable :: current_omega(:,:)   ! 保存 EM 聚类后的责任度矩阵
         real(DP), allocatable :: current_W(:)         ! 保存各核的总责任度
+
+        real(DP) :: last_residual(6)    ! 存储最近一次测量更新的 6 列残差
+        real(DP) :: last_comp_val(2)   ! 存储最近一次计算出的预测观测值 (Lon, Lat)
         
     contains
 
@@ -59,6 +62,7 @@ module pod_filter_emdac_module
         procedure :: get_current_state => filter_get_current_state
         procedure :: get_current_cov => filter_get_current_cov
         procedure :: get_current_gmm => filter_get_current_gmm
+        procedure :: get_last_residual => filter_get_last_residual
 
         procedure :: get_random_addos_from_noise
     end type emdac_filter
@@ -152,6 +156,13 @@ contains
         gmm_out = this%gmm_state
     end subroutine filter_get_current_gmm
 
+    !> 获取单步残差的接口
+    subroutine filter_get_last_residual(this, res_out, comp_out)
+        class(emdac_filter), intent(in) :: this
+        real(DP), intent(out) :: res_out(6), comp_out(2)
+        res_out = this%last_residual
+        comp_out = this%last_comp_val
+    end subroutine filter_get_last_residual
 
     !> ======================================================================
     !> 2. 时间更新 (Time Update)
@@ -227,6 +238,7 @@ contains
         real(DP), allocatable :: innovation(:, :) ! 存储每个核的测量残差 (ny, n_comp)
         real(DP), allocatable :: det_Pzz(:),  mahalanobis_sq(:) ! 存储每个核的 P_zz 行列式和马氏距离平方 (n_comp)
         real(DP) :: sum_exp
+        real(DP) :: pred_z_pre(2)
         
         
         n_comp = this%gmm_state%n_components
@@ -242,6 +254,8 @@ contains
         allocate(P_xz(dim, ny, n_comp), K_gain(dim, ny, n_comp))
         allocate(eval_inputs_meas(dim))
         ! allocate(eval_inputs_meas(dim), eval_results_meas(ny))
+        ! 【新增】用于残差输出的局部变量
+        
         
         ! 确保此时的滤波器时间与观测时间对齐
         if (abs(this%current_epoch - et) > 1.0e-6_DP) then
@@ -266,6 +280,22 @@ contains
 
         ! write(*,*) 'Real y_meas: ', y_meas
         ! write(*,*) 'Predicted means_z (comp 1): ', measurement_da%cons()! 直接评估中心轨道的预测测量值，供后续分析使用
+        ! ==========================================================
+        ! 【核心新增】：计算更新前的残差 (Innovation) 用于输出报告
+        ! ==========================================================
+        pred_z_pre = measurement_da%cons()
+        
+        this%last_comp_val = pred_z_pre(1:2)
+        this%last_residual = 0.0_DP
+        ! 1. dA * cos(Dec) 单位：arcsec
+        this%last_residual(1) = (y_meas(1) - pred_z_pre(1)) * 3600.0_DP &
+        * cos(y_meas(2) * PI / 180.0_DP)
+        ! 2. dDec 单位：arcsec
+        this%last_residual(2) = (y_meas(2) - pred_z_pre(2)) * 3600.0_DP
+        ! 3. Total Angle Residual
+        this%last_residual(3) = sqrt(this%last_residual(1)**2 + this%last_residual(2)**2)
+        ! 4-6. 占位符 (未来可扩展 RTN 残差)
+        this%last_residual(4:6) = 0.0_DP
 
         ! 进一步进行测量更新，更新权重、均值和协方差
         ! 计算每个粒子的预测测量值
