@@ -5,6 +5,7 @@ module pod_dace_classes
     implicit none
     private
     
+    public :: da_registry_size, active_da_count
     public :: dace_initialize
     public :: da_var !! 直接暴露一个 da_var 函数，简化独立变量的创建
     public :: DA, AlgebraicVector,CompiledDA
@@ -15,15 +16,24 @@ module pod_dace_classes
     public :: matmul
     public :: dace_set_to, dace_push_to, dace_pop_to, dace_set_eps, dace_get_to
     ! 无临时变量版本的重载接口（避免内存泄露）
-    ! da_add/da_sub/da_mul/da_div: DA 加减乘除运算的 subroutine 版本
-    ! vec_add/vec_sub/vec_mul/vec_div: AlgebraicVector 加减乘除运算的 subroutine 版本
     public :: da_add, da_sub, da_mul, da_div
     public :: vec_add, vec_sub, vec_mul, vec_div
+    public :: da_sin_sub, da_cos_sub, da_atan2_sub, da_asin_sub
+    public :: vec_matmul
 
     ! =========================================================
     ! 1. C 接口绑定
     ! =========================================================
     interface
+        function c_fdace_get_da_registry_size() bind(C, name="fdace_get_da_registry_size") result(sz)
+            import :: c_int
+            integer(c_int) :: sz
+        end function c_fdace_get_da_registry_size
+
+        function c_fdace_get_active_da_count() bind(C, name="fdace_get_active_da_count") result(cnt)
+            import :: c_int
+            integer(c_int) :: cnt
+        end function c_fdace_get_active_da_count
         ! [新增] 引擎全局初始化
         subroutine c_daceInit(max_order, max_vars) bind(C, name="fdace_core_init")
             import :: c_int
@@ -471,14 +481,14 @@ module pod_dace_classes
     interface da_add
         module procedure da_add_da_sub
         module procedure da_add_real_sub
-        module procedure real_add_da_sub
+        ! module procedure real_add_da_sub
     end interface da_add
 
     ! da_sub: DA 减法（da-da, da-real, real-da, -da）
     interface da_sub
         module procedure da_sub_da_sub
         module procedure da_sub_real_sub
-        module procedure real_sub_da_sub
+        ! module procedure real_sub_da_sub
         module procedure unary_minus_da_sub
     end interface da_sub
 
@@ -486,37 +496,38 @@ module pod_dace_classes
     interface da_mul
         module procedure da_mul_da_sub
         module procedure da_mul_real_sub
-        module procedure real_mul_da_sub
+        ! module procedure real_mul_da_sub
     end interface da_mul
 
     ! da_div: DA 除法（da/da, da/real, real/da）
     interface da_div
         module procedure da_div_da_sub
         module procedure da_div_real_sub
-        module procedure real_div_da_sub
+        ! module procedure real_div_da_sub
     end interface da_div
 
     ! vec_add: AlgebraicVector 加法（vec+vec, vec+arr, arr+vec）
     interface vec_add
         module procedure vector_add_vector_sub
         module procedure vector_add_real_array_sub
-        module procedure real_array_add_vector_sub
+        ! module procedure real_array_add_vector_sub
     end interface vec_add
 
     ! vec_sub: AlgebraicVector 减法（vec-vec, vec-arr, arr-vec, -vec）
     interface vec_sub
         module procedure vector_sub_vector_sub
         module procedure vector_sub_real_array_sub
-        module procedure real_array_sub_vector_sub
+        ! module procedure real_array_sub_vector_sub
         module procedure unary_minus_vector_sub
     end interface vec_sub
 
     ! vec_mul: AlgebraicVector 乘法（real*vec, vec*real, DA*vec, vec*DA）
     interface vec_mul
         module procedure real_mul_vector_sub
-        module procedure vector_mul_real_sub
+        ! module procedure vector_mul_real_sub
         module procedure da_mul_vector_sub
-        module procedure vector_mul_da_sub
+        ! module procedure vector_mul_da_sub
+        module procedure vector_dot_vector_sub
     end interface vec_mul
 
     ! vec_div: AlgebraicVector 除法（vec/real, vec/DA）
@@ -525,7 +536,20 @@ module pod_dace_classes
         module procedure vector_div_da_sub
     end interface vec_div
 
+    interface vec_matmul
+        module procedure real3x3_matmul_vector_sub
+    end interface vec_matmul
+
 contains
+    function da_registry_size() result(sz)
+        integer :: sz
+        sz = c_fdace_get_da_registry_size()
+    end function da_registry_size
+
+    function active_da_count() result(cnt)
+        integer :: cnt
+        cnt = c_fdace_get_active_da_count()
+    end function active_da_count
     ! [新增] 全局初始化子程序
     subroutine dace_initialize(order, vars)
         integer, intent(in) :: order, vars
