@@ -19,7 +19,9 @@ module pod_dace_classes
     public :: da_add, da_sub, da_mul, da_div
     public :: vec_add, vec_sub, vec_mul, vec_div
     public :: da_sin_sub, da_cos_sub, da_atan2_sub, da_asin_sub
-    public :: vec_matmul, vec_add_scaled_inplace
+    public :: da_sqrt_sub, da_pow_int_sub, da_pow_real_sub
+    public :: vector_norm2_sub, vector_dot_vector_sub
+    public :: vec_matmul, vec_add_scaled_inplace, da_add_da_sub
 
     ! =========================================================
     ! 1. C 接口绑定
@@ -638,9 +640,16 @@ contains
     subroutine da_assign_da(lhs, rhs)
         class(DA), intent(inout) :: lhs
         class(DA), intent(in) :: rhs
-        if (lhs%handle == -1) call lhs%init()
+        if (lhs%handle == rhs%handle) return
+        ! 释放左手边原有资源
+        if (lhs%handle /= -1) then
+            call c_fdace_free(lhs%handle)
+            lhs%handle = -1
+        end if
+        ! 分配新句柄（如果需要）并复制
+        if (lhs%handle == -1) call c_fdace_allocate(lhs%handle)
         call c_fdace_copy(rhs%handle, lhs%handle)
-    end subroutine da_assign_da
+    end subroutine
 
     subroutine da_assign_real(lhs, val)
         class(DA), intent(inout) :: lhs
@@ -1329,7 +1338,7 @@ contains
     subroutine da_add_da_sub(da1, da2, res)
         class(DA), intent(in) :: da1, da2
         type(DA), intent(inout) :: res
-        call res%init()
+        if (res%handle == -1) call res%init()
         call c_fdace_add(da1%handle, da2%handle, res%handle)
     end subroutine da_add_da_sub
 
