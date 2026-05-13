@@ -14,6 +14,11 @@ module pod_dace_classes
     public :: sin, cos, exp, sqrt, atan2, asin
     public :: matmul
     public :: dace_set_to, dace_push_to, dace_pop_to, dace_set_eps, dace_get_to
+    ! 无临时变量版本的重载接口（避免内存泄露）
+    ! da_add/da_sub/da_mul/da_div: DA 加减乘除运算的 subroutine 版本
+    ! vec_add/vec_sub/vec_mul/vec_div: AlgebraicVector 加减乘除运算的 subroutine 版本
+    public :: da_add, da_sub, da_mul, da_div
+    public :: vec_add, vec_sub, vec_mul, vec_div
 
     ! =========================================================
     ! 1. C 接口绑定
@@ -451,6 +456,74 @@ module pod_dace_classes
     interface matmul
         module procedure real3x3_matmul_vector
     end interface
+
+    ! =========================================================
+    ! 无临时变量版本的重载接口（避免内存泄露）
+    ! da_add/da_sub/da_mul/da_div: DA 加减乘除运算的 subroutine 版本
+    ! vec_add: AlgebraicVector 运算的 subroutine 版本
+    !
+    ! 复刻 operator(+,-,*,/) 的重载逻辑，
+    ! 将 da/real 交换的同类运算放在同一泛型名下，
+    ! 调用时根据参数类型自动匹配。
+    ! =========================================================
+
+    ! da_add: DA 加法（da+da, da+real, real+da）
+    interface da_add
+        module procedure da_add_da_sub
+        module procedure da_add_real_sub
+        module procedure real_add_da_sub
+    end interface da_add
+
+    ! da_sub: DA 减法（da-da, da-real, real-da, -da）
+    interface da_sub
+        module procedure da_sub_da_sub
+        module procedure da_sub_real_sub
+        module procedure real_sub_da_sub
+        module procedure unary_minus_da_sub
+    end interface da_sub
+
+    ! da_mul: DA 乘法（da*da, da*real, real*da）
+    interface da_mul
+        module procedure da_mul_da_sub
+        module procedure da_mul_real_sub
+        module procedure real_mul_da_sub
+    end interface da_mul
+
+    ! da_div: DA 除法（da/da, da/real, real/da）
+    interface da_div
+        module procedure da_div_da_sub
+        module procedure da_div_real_sub
+        module procedure real_div_da_sub
+    end interface da_div
+
+    ! vec_add: AlgebraicVector 加法（vec+vec, vec+arr, arr+vec）
+    interface vec_add
+        module procedure vector_add_vector_sub
+        module procedure vector_add_real_array_sub
+        module procedure real_array_add_vector_sub
+    end interface vec_add
+
+    ! vec_sub: AlgebraicVector 减法（vec-vec, vec-arr, arr-vec, -vec）
+    interface vec_sub
+        module procedure vector_sub_vector_sub
+        module procedure vector_sub_real_array_sub
+        module procedure real_array_sub_vector_sub
+        module procedure unary_minus_vector_sub
+    end interface vec_sub
+
+    ! vec_mul: AlgebraicVector 乘法（real*vec, vec*real, DA*vec, vec*DA）
+    interface vec_mul
+        module procedure real_mul_vector_sub
+        module procedure vector_mul_real_sub
+        module procedure da_mul_vector_sub
+        module procedure vector_mul_da_sub
+    end interface vec_mul
+
+    ! vec_div: AlgebraicVector 除法（vec/real, vec/DA）
+    interface vec_div
+        module procedure vector_div_real_sub
+        module procedure vector_div_da_sub
+    end interface vec_div
 
 contains
     ! [新增] 全局初始化子程序
@@ -1204,5 +1277,461 @@ contains
             res%elements(i) = this%elements(i)%trunc()
         end do
     end function vector_trunc
+
+    ! =========================================================
+    ! 无临时变量版本 subroutine 实现（避免内存泄露）
+    ! 命名规则：原 function 名称 + _sub
+    ! =========================================================
+
+    ! --- DA 数学算符 subroutine 版本 ---
+    subroutine da_add_da_sub(da1, da2, res)
+        class(DA), intent(in) :: da1, da2
+        type(DA), intent(inout) :: res
+        call res%init()
+        call c_fdace_add(da1%handle, da2%handle, res%handle)
+    end subroutine da_add_da_sub
+
+    subroutine da_sub_da_sub(da1, da2, res)
+        class(DA), intent(in) :: da1, da2
+        type(DA), intent(inout) :: res
+        call res%init()
+        call c_fdace_sub(da1%handle, da2%handle, res%handle)
+    end subroutine da_sub_da_sub
+
+    subroutine da_mul_da_sub(da1, da2, res)
+        class(DA), intent(in) :: da1, da2
+        type(DA), intent(inout) :: res
+        call res%init()
+        call c_fdace_mul(da1%handle, da2%handle, res%handle)
+    end subroutine da_mul_da_sub
+
+    subroutine da_div_da_sub(da1, da2, res)
+        class(DA), intent(in) :: da1, da2
+        type(DA), intent(inout) :: res
+        call res%init()
+        call c_fdace_div(da1%handle, da2%handle, res%handle)
+    end subroutine da_div_da_sub
+
+    subroutine da_add_real_sub(da1, val, res)
+        class(DA), intent(in) :: da1
+        real(8), intent(in) :: val
+        type(DA), intent(inout) :: res
+        call res%init()
+        call c_fdace_add_double(da1%handle, val, res%handle)
+    end subroutine da_add_real_sub
+
+    subroutine real_add_da_sub(val, da1, res)
+        real(8), intent(in) :: val
+        class(DA), intent(in) :: da1
+        type(DA), intent(inout) :: res
+        call res%init()
+        call c_fdace_add_double(da1%handle, val, res%handle)
+    end subroutine real_add_da_sub
+
+    subroutine da_mul_real_sub(da1, val, res)
+        class(DA), intent(in) :: da1
+        real(8), intent(in) :: val
+        type(DA), intent(inout) :: res
+        call res%init()
+        call c_fdace_mul_double(da1%handle, val, res%handle)
+    end subroutine da_mul_real_sub
+
+    subroutine real_mul_da_sub(val, da1, res)
+        real(8), intent(in) :: val
+        class(DA), intent(in) :: da1
+        type(DA), intent(inout) :: res
+        call res%init()
+        call c_fdace_mul_double(da1%handle, val, res%handle)
+    end subroutine real_mul_da_sub
+
+    subroutine unary_minus_da_sub(da1, res)
+        class(DA), intent(in) :: da1
+        type(DA), intent(inout) :: res
+        call res%init()
+        call c_fdace_negate(da1%handle, res%handle)
+    end subroutine unary_minus_da_sub
+
+    subroutine da_sub_real_sub(da1, val, res)
+        class(DA), intent(in) :: da1
+        real(8), intent(in) :: val
+        type(DA), intent(inout) :: res
+        call res%init()
+        call c_fdace_sub_double(da1%handle, val, res%handle)
+    end subroutine da_sub_real_sub
+
+    subroutine real_sub_da_sub(val, da1, res)
+        real(8), intent(in) :: val
+        class(DA), intent(in) :: da1
+        type(DA), intent(inout) :: res
+        call res%init()
+        call c_fdace_double_sub(val, da1%handle, res%handle)
+    end subroutine real_sub_da_sub
+
+    subroutine real_div_da_sub(val, da2, res)
+        real(8), intent(in) :: val
+        class(DA), intent(in) :: da2
+        type(DA), intent(inout) :: res
+        call res%init()
+        call c_fdace_double_div(val, da2%handle, res%handle)
+    end subroutine real_div_da_sub
+
+    subroutine da_div_real_sub(da1, val, res)
+        class(DA), intent(in) :: da1
+        real(8), intent(in) :: val
+        type(DA), intent(inout) :: res
+        ! res = da1 * (1.0_DP / val)
+        call res%init()
+        call c_fdace_mul_double(da1%handle, 1.0_DP / val, res%handle)
+    end subroutine da_div_real_sub
+
+    subroutine da_pow_int_sub(base, p, res)
+        class(DA), intent(in) :: base
+        integer, intent(in) :: p
+        type(DA), intent(inout) :: res
+        call res%init()
+        call c_fdace_pow_int(base%handle, int(p, c_int), res%handle)
+    end subroutine da_pow_int_sub
+
+    subroutine da_pow_real_sub(base, p, res)
+        class(DA), intent(in) :: base
+        real(8), intent(in) :: p
+        type(DA), intent(inout) :: res
+        call res%init()
+        call c_fdace_pow_double(base%handle, real(p, c_double), res%handle)
+    end subroutine da_pow_real_sub
+
+    ! --- 科学函数 subroutine 版本 ---
+    subroutine da_sin_sub(da1, res)
+        class(DA), intent(in) :: da1
+        type(DA), intent(inout) :: res
+        call res%init()
+        call c_fdace_sin(da1%handle, res%handle)
+    end subroutine da_sin_sub
+
+    subroutine da_cos_sub(da1, res)
+        class(DA), intent(in) :: da1
+        type(DA), intent(inout) :: res
+        call res%init()
+        call c_fdace_cos(da1%handle, res%handle)
+    end subroutine da_cos_sub
+
+    subroutine da_exp_sub(da1, res)
+        class(DA), intent(in) :: da1
+        type(DA), intent(inout) :: res
+        call res%init()
+        call c_fdace_exp(da1%handle, res%handle)
+    end subroutine da_exp_sub
+
+    subroutine da_sqrt_sub(da1, res)
+        class(DA), intent(in) :: da1
+        type(DA), intent(inout) :: res
+        call res%init()
+        call c_fdace_sqrt(da1%handle, res%handle)
+    end subroutine da_sqrt_sub
+
+    subroutine da_asin_sub(da1, res)
+        class(DA), intent(in) :: da1
+        type(DA), intent(inout) :: res
+        call res%init()
+        call c_fdace_asin(da1%handle, res%handle)
+    end subroutine da_asin_sub
+
+    subroutine da_atan2_sub(y, x, res)
+        class(DA), intent(in) :: y, x
+        type(DA), intent(inout) :: res
+        call res%init()
+        call c_fdace_atan2(y%handle, x%handle, res%handle)
+    end subroutine da_atan2_sub
+
+    subroutine da_deriv_sub(this, var_idx, res)
+        class(DA), intent(in) :: this
+        integer, intent(in) :: var_idx
+        type(DA), intent(inout) :: res
+        call res%init()
+        call c_fdace_deriv(this%handle, int(var_idx, c_int), res%handle)
+    end subroutine da_deriv_sub
+
+    subroutine da_eval_var_sub(this, var_idx, val, res)
+        class(DA), intent(in) :: this
+        integer, intent(in) :: var_idx
+        real(8), intent(in) :: val
+        type(DA), intent(inout) :: res
+        call res%init()
+        call c_fdace_eval_var(this%handle, int(var_idx, c_int), val, res%handle)
+    end subroutine da_eval_var_sub
+
+    ! --- DA 截断 subroutine 版本 ---
+    subroutine da_trim_sub(this, min_ord, max_ord, res)
+        class(DA), intent(in) :: this
+        integer, intent(in) :: min_ord, max_ord
+        type(DA), intent(inout) :: res
+        call res%init()
+        call c_fdace_trim(this%handle, int(min_ord, c_int), int(max_ord, c_int), res%handle)
+    end subroutine da_trim_sub
+
+    subroutine da_trunc_sub(this, res)
+        class(DA), intent(in) :: this
+        type(DA), intent(inout) :: res
+        call res%init()
+        call c_fdace_trunc(this%handle, res%handle)
+    end subroutine da_trunc_sub
+
+    ! --- 向量点乘与范数 subroutine 版本 ---
+    subroutine vector_dot_vector_sub(v1, v2, res)
+        class(AlgebraicVector), intent(in) :: v1, v2
+        type(DA), intent(inout) :: res
+        integer(c_int), allocatable :: h1(:), h2(:)
+        
+        if (v1%size /= v2%size) stop "ERROR: Vector Dot Product Dimension Mismatch!"
+        call res%init()
+        
+        allocate(h1(v1%size), h2(v1%size))
+        h1 = v1%elements%handle
+        h2 = v2%elements%handle
+        
+        call c_fdace_vector_dot_vector(h1, h2, res%handle, v1%size)
+    end subroutine vector_dot_vector_sub
+
+    subroutine vector_norm2_sub(this, res)
+        class(AlgebraicVector), intent(in) :: this
+        type(DA), intent(inout) :: res
+        type(DA) :: dot_res
+        ! res = sqrt(this * this)
+        call vector_dot_vector_sub(this, this, dot_res)
+        call da_sqrt_sub(dot_res, res)
+        call dot_res%destroy()
+    end subroutine vector_norm2_sub
+
+    ! =========================================================
+    ! AlgebraicVector 运算 subroutine 版本
+    ! =========================================================
+    subroutine vector_add_vector_sub(v1, v2, res)
+        class(AlgebraicVector), intent(in) :: v1, v2
+        type(AlgebraicVector), intent(inout) :: res
+        integer(c_int), allocatable :: h1(:), h2(:), ho(:)
+        
+        if (v1%size /= v2%size) stop "ERROR: Vector Add Dimension Mismatch!"
+        call res%init(v1%size)
+        
+        allocate(h1(v1%size), h2(v1%size), ho(v1%size))
+        h1 = v1%elements%handle
+        h2 = v2%elements%handle
+        ho = res%elements%handle
+        
+        call c_fdace_vector_add(h1, h2, ho, v1%size)
+    end subroutine vector_add_vector_sub
+
+    subroutine vector_sub_vector_sub(v1, v2, res)
+        class(AlgebraicVector), intent(in) :: v1, v2
+        type(AlgebraicVector), intent(inout) :: res
+        integer(c_int), allocatable :: h1(:), h2(:), ho(:)
+        
+        if (v1%size /= v2%size) stop "ERROR: Vector Subtraction Dimension Mismatch!"
+        call res%init(v1%size)
+        
+        allocate(h1(v1%size), h2(v1%size), ho(v1%size))
+        h1 = v1%elements%handle
+        h2 = v2%elements%handle
+        ho = res%elements%handle
+        
+        call c_fdace_vector_sub(h1, h2, ho, v1%size)
+    end subroutine vector_sub_vector_sub
+
+    subroutine vector_add_real_array_sub(vec, arr, res)
+        class(AlgebraicVector), intent(in) :: vec
+        real(8), intent(in) :: arr(:)
+        type(AlgebraicVector), intent(inout) :: res
+        integer(c_int), allocatable :: h1(:), ho(:)
+        
+        if (vec%size /= size(arr)) stop "[致命错误] 向量加法维度不匹配 (DA 向量 - 实数数组)！"
+        call res%init(vec%size)
+        
+        allocate(h1(vec%size), ho(vec%size))
+        h1 = vec%elements%handle
+        ho = res%elements%handle
+        
+        call c_fdace_vector_add_real_array(h1, arr, ho, vec%size)
+    end subroutine vector_add_real_array_sub
+
+    subroutine real_array_add_vector_sub(arr, vec, res)
+        real(8), intent(in) :: arr(:)
+        class(AlgebraicVector), intent(in) :: vec
+        type(AlgebraicVector), intent(inout) :: res
+        integer(c_int), allocatable :: h2(:), ho(:)
+        
+        if (size(arr) /= vec%size) stop "[致命错误] 向量加法维度不匹配 (实数数组 - DA 向量)！"
+        call res%init(vec%size)
+        
+        allocate(h2(vec%size), ho(vec%size))
+        h2 = vec%elements%handle
+        ho = res%elements%handle
+        
+        call c_fdace_vector_add_real_array(h2, arr, ho, vec%size)
+    end subroutine real_array_add_vector_sub
+
+    subroutine vector_sub_real_array_sub(vec, arr, res)
+        class(AlgebraicVector), intent(in) :: vec
+        real(8), intent(in) :: arr(:)
+        type(AlgebraicVector), intent(inout) :: res
+        integer(c_int), allocatable :: h1(:), ho(:)
+        
+        if (vec%size /= size(arr)) stop "[致命错误] 向量减法维度不匹配 (DA 向量 - 实数数组)！"
+        call res%init(vec%size)
+        
+        allocate(h1(vec%size), ho(vec%size))
+        h1 = vec%elements%handle
+        ho = res%elements%handle
+        
+        call c_fdace_vector_sub_real_array(h1, arr, ho, vec%size)
+    end subroutine vector_sub_real_array_sub
+
+    subroutine real_array_sub_vector_sub(arr, vec, res)
+        real(8), intent(in) :: arr(:)
+        class(AlgebraicVector), intent(in) :: vec
+        type(AlgebraicVector), intent(inout) :: res
+        integer(c_int), allocatable :: h2(:), ho(:)
+        
+        if (size(arr) /= vec%size) stop "[致命错误] 向量减法维度不匹配 (实数数组 - DA 向量)！"
+        call res%init(vec%size)
+        
+        allocate(h2(vec%size), ho(vec%size))
+        h2 = vec%elements%handle
+        ho = res%elements%handle
+        
+        call c_fdace_real_array_sub_vector(arr, h2, ho, vec%size)
+    end subroutine real_array_sub_vector_sub
+
+    subroutine real_mul_vector_sub(val, vec, res)
+        real(8), intent(in) :: val
+        class(AlgebraicVector), intent(in) :: vec
+        type(AlgebraicVector), intent(inout) :: res
+        integer(c_int), allocatable :: h1(:), ho(:)
+        
+        call res%init(vec%size)
+        
+        allocate(h1(vec%size), ho(vec%size))
+        h1 = vec%elements%handle
+        ho = res%elements%handle
+        
+        call c_fdace_vector_mul_double(h1, val, ho, vec%size)
+    end subroutine real_mul_vector_sub
+
+    subroutine da_mul_vector_sub(val, vec, res)
+        class(DA), intent(in) :: val
+        class(AlgebraicVector), intent(in) :: vec
+        type(AlgebraicVector), intent(inout) :: res
+        integer(c_int), allocatable :: h_vec(:), ho(:)
+        
+        call res%init(vec%size)
+        
+        allocate(h_vec(vec%size), ho(vec%size))
+        h_vec = vec%elements%handle
+        ho = res%elements%handle
+        
+        call c_fdace_da_mul_vector(val%handle, h_vec, ho, vec%size)
+    end subroutine da_mul_vector_sub
+
+    subroutine vector_mul_real_sub(vec, val, res)
+        class(AlgebraicVector), intent(in) :: vec
+        real(8), intent(in) :: val
+        type(AlgebraicVector), intent(inout) :: res
+        call real_mul_vector_sub(val, vec, res)
+    end subroutine vector_mul_real_sub
+
+    subroutine vector_mul_da_sub(vec, val, res)
+        class(AlgebraicVector), intent(in) :: vec
+        class(DA), intent(in) :: val
+        type(AlgebraicVector), intent(inout) :: res
+        call da_mul_vector_sub(val, vec, res)
+    end subroutine vector_mul_da_sub
+
+    subroutine vector_div_real_sub(vec, val, res)
+        class(AlgebraicVector), intent(in) :: vec
+        real(8), intent(in) :: val
+        type(AlgebraicVector), intent(inout) :: res
+        call real_mul_vector_sub(1.0_DP / val, vec, res)
+    end subroutine vector_div_real_sub
+
+    subroutine vector_div_da_sub(vec, val, res)
+        class(AlgebraicVector), intent(in) :: vec
+        class(DA), intent(in) :: val
+        type(AlgebraicVector), intent(inout) :: res
+        integer(c_int), allocatable :: h_vec(:), ho(:)
+        
+        call res%init(vec%size)
+        
+        allocate(h_vec(vec%size), ho(vec%size))
+        h_vec = vec%elements%handle
+        ho = res%elements%handle
+        
+        call c_fdace_vector_div_da(h_vec, val%handle, ho, vec%size)
+    end subroutine vector_div_da_sub
+
+    subroutine unary_minus_vector_sub(v1, res)
+        class(AlgebraicVector), intent(in) :: v1
+        type(AlgebraicVector), intent(inout) :: res
+        integer(c_int), allocatable :: h_in(:), ho(:)
+        
+        call res%init(v1%size)
+        
+        allocate(h_in(v1%size), ho(v1%size))
+        h_in = v1%elements%handle
+        ho = res%elements%handle
+        
+        call c_fdace_vector_negate(h_in, ho, v1%size)
+    end subroutine unary_minus_vector_sub
+
+    subroutine vector_eval_var_sub(this, var_idx, val, res)
+        class(AlgebraicVector), intent(in) :: this
+        integer, intent(in) :: var_idx
+        real(8), intent(in) :: val
+        type(AlgebraicVector), intent(inout) :: res
+        integer :: i
+        
+        call res%init(this%size)
+        do i = 1, this%size
+            call da_eval_var_sub(this%elements(i), var_idx, val, res%elements(i))
+        end do
+    end subroutine vector_eval_var_sub
+
+    subroutine vector_trim_sub(this, min_ord, max_ord, res)
+        class(AlgebraicVector), intent(in) :: this
+        integer, intent(in) :: min_ord, max_ord
+        type(AlgebraicVector), intent(inout) :: res
+        integer :: i
+        
+        call res%init(this%size)
+        do i = 1, this%size
+            call da_trim_sub(this%elements(i), min_ord, max_ord, res%elements(i))
+        end do
+    end subroutine vector_trim_sub
+
+    subroutine vector_trunc_sub(this, res)
+        class(AlgebraicVector), intent(in) :: this
+        type(AlgebraicVector), intent(inout) :: res
+        integer :: i
+        
+        call res%init(this%size)
+        do i = 1, this%size
+            call da_trunc_sub(this%elements(i), res%elements(i))
+        end do
+    end subroutine vector_trunc_sub
+
+    subroutine real3x3_matmul_vector_sub(mat, vec, res)
+        real(8), intent(in) :: mat(3,3)
+        class(AlgebraicVector), intent(in) :: vec
+        type(AlgebraicVector), intent(inout) :: res
+        integer(c_int), allocatable :: h_vec(:), ho(:)
+        
+        if (vec%size /= 3) stop "[致命错误] 矩阵乘法要求 DA 向量维度必须为 3！"
+        
+        call res%init(3)
+        
+        allocate(h_vec(3), ho(3))
+        h_vec = vec%elements%handle
+        ho = res%elements%handle
+        
+        call c_fdace_real3x3_matmul_vector(mat, h_vec, ho)
+    end subroutine real3x3_matmul_vector_sub
 
 end module pod_dace_classes

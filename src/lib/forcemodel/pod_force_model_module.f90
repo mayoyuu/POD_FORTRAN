@@ -391,6 +391,62 @@ contains
         end if
         
     end subroutine compute_illumination_factor
+
+    ! ! ======================================================================
+    ! ! 计算一阶后牛顿效应 (Post-Newtonian Effect, PNE) 加速度
+    ! ! 包含中心天体(地球)以及第三体(月、太阳)的相对论修正
+    ! ! ======================================================================
+    ! subroutine compute_relativistic_correction(position, velocity, time, acceleration)
+    !     real(DP), dimension(3), intent(in) :: position, velocity
+    !     real(DP), intent(in) :: time
+    !     real(DP), dimension(3), intent(out) :: acceleration
+        
+    !     integer :: i
+    !     real(DP), dimension(3) :: body_pos, body_vel
+    !     real(DP), dimension(3) :: rel_pos, rel_vel
+    !     real(DP) :: r_mag, v_mag, r_dot_v, factor1, factor2, c2
+        
+    !     ! 光速常数 (单位: km/s)，极其关键的量纲基准
+    !     real(DP), parameter :: C_KM = 299792.458_DP 
+        
+    !     acceleration = 0.0_DP
+    !     c2 = C_KM**2
+        
+    !     ! 安全检查：确保多体网已初始化
+    !     if (.not. is_gravity_network_loaded) call init_gravity_network()
+        
+    !     do i = 1, MAX_BODIES
+    !         if (.not. use_planet(i)) cycle
+            
+    !         ! 业界标准：通常只计算地球(3)、月球(10)、太阳(11)的相对论效应
+    !         if (i /= 3 .and. i /= 10 .and. i /= 11) cycle
+            
+    !         if (i == 3) then
+    !             ! 地球 (中心天体)，卫星相对于地球的状态
+    !             rel_pos = position
+    !             rel_vel = velocity
+    !         else
+    !             ! 获取太阳/月球相对于地球的位置和速度
+    !             call get_body_state(trim(body_names(i)), time, 'EARTH', body_pos, body_vel)
+    !             ! 计算卫星相对于第三体的状态向量 (与你的参考代码中的 POS0, VEL0 对应)
+    !             rel_pos = position - body_pos
+    !             rel_vel = velocity - body_vel
+    !         end if
+            
+    !         r_mag = norm2(rel_pos)
+    !         v_mag = norm2(rel_vel)
+    !         r_dot_v = dot_product(rel_pos, rel_vel)
+            
+    !         ! 核心物理公式: 
+    !         ! a = (GM / (c^2 * r^3)) * [ (4*GM/r - v^2)*r_vec + 4*(r_vec \cdot v_vec)*v_vec ]
+    !         factor1 = 4.0_DP * gm_planets(i) / r_mag - v_mag**2
+    !         factor2 = 4.0_DP * r_dot_v
+            
+    !         acceleration = acceleration + (gm_planets(i) / (c2 * r_mag**3)) * &
+    !                        (factor1 * rel_pos + factor2 * rel_vel)
+    !     end do
+        
+    ! end subroutine compute_relativistic_correction
     
 
 end module pod_force_model_module
