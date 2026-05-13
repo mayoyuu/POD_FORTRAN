@@ -17,7 +17,7 @@ pipeline_res/
 
 # Compiled static libraries (Optional, but recommended to ignore)
 lib/*.a
-
+lib/*.so
 # IDE/OS specific files
 .DS_Store
 .vscode/

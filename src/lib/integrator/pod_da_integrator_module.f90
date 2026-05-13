@@ -46,7 +46,12 @@ contains
             derivatives_unit%elements(i) = velocity%elements(i) / config%VU
             derivatives_unit%elements(i+3) = acceleration%elements(i) / config%AccU
         end do
-        
+
+        ! [新增] 必须释放局部 DA 变量
+        call position%destroy()
+        call velocity%destroy()
+        call acceleration%destroy()
+            
     end subroutine da_compute_derivatives
     
     ! =========================================================
@@ -84,6 +89,9 @@ contains
         
         ! y(t + dt) = y(t) + dt*(k1 + 2*k2 + 2*k3 + k4)/6
         new_state = state + (dt / 6.0_DP) * (k1 + 2.0_DP * k2 + 2.0_DP * k3 + k4)
+
+        call k1%destroy(); call k2%destroy(); call k3%destroy(); call k4%destroy()
+        call temp_state%destroy()
         
     end subroutine da_rk4_integrate
 
@@ -127,7 +135,7 @@ contains
     ! 自适应步长控制主循环 (DA版 WRMS)
     ! =========================================================
     subroutine da_adaptive_step_integrate(state, t_start, t_end, integrator_method, &
-                                          times, states, n_steps, &
+                                          times, nominal_states, final_state, n_steps, &
                                           max_steps_in, rel_tol_in, abs_tol_in, dt_min_in, dt_max_in)
         ! 核心物理参数
         type(AlgebraicVector), intent(in) :: state
@@ -136,7 +144,9 @@ contains
         
         ! 输出参数
         real(DP), allocatable, dimension(:), intent(out) :: times
-        type(AlgebraicVector), allocatable, dimension(:), intent(out) :: states
+        real(DP), allocatable, dimension(:,:), intent(out) :: nominal_states 
+        ! 单独输出最后一步的全量 DA 状态
+        type(AlgebraicVector), intent(out) :: final_state
         integer, intent(out) :: n_steps
         
         ! 可选的控制参数
@@ -184,9 +194,9 @@ contains
         
         ! 2. 内存分配
         if (allocated(times)) deallocate(times)
-        if (allocated(states)) deallocate(states)
+        if (allocated(nominal_states)) deallocate(nominal_states)
         allocate(times(max_steps))
-        allocate(states(max_steps))
+        allocate(nominal_states(6, max_steps)) ! 仅存储 6 个双精度数/步
         
         call current_state%init(6)
         call next_state_4th%init(6); call next_state_5th%init(6)
@@ -196,8 +206,7 @@ contains
         current_state = state
         current_time = t_start
         times(1) = current_time
-        call states(1)%init(6)
-        states(1) = current_state
+        nominal_states(:, 1) = current_state%cons() ! 仅提取并存储常数项
         
         dt = min(dt_max, (t_end - t_start) / 100.0_DP)
         n_steps = 1
@@ -236,8 +245,9 @@ contains
                 n_steps = n_steps + 1
                 
                 times(n_steps) = current_time
-                call states(n_steps)%init(6)
-                states(n_steps) = current_state
+                nominal_states(:, n_steps) = current_state%cons() ! 存储常数项
+                ! call states(n_steps)%init(6)
+                ! states(n_steps) = current_state
                 
                 dt = safety_factor * dt * (1.0_DP / max(wrms_error, 1.0e-15_DP))**exp_power
                 dt = max(dt_min, min(dt_max, dt))
@@ -250,8 +260,9 @@ contains
                     n_steps = n_steps + 1
                     
                     times(n_steps) = current_time
-                    call states(n_steps)%init(6)
-                    states(n_steps) = current_state
+                    ! call states(n_steps)%init(6)
+                    ! states(n_steps) = current_state
+                    nominal_states(:, n_steps) = current_state%cons() ! 存储常数项
                 else
                     dt = safety_factor * dt * (1.0_DP / max(wrms_error, 1.0e-15_DP))**exp_power
                     dt = max(dt_min, dt)
@@ -263,24 +274,25 @@ contains
             end if
         end do
         
-        ! 调整数组大小
+      ! 4. 输出最终状态 (全量 DA)
+        call final_state%init(6)
+        final_state = current_state
+        
+        ! 5. 关键：清理所有临时 DA 变量防止内存泄漏
+        call current_state%destroy()
+        call next_state_4th%destroy(); call next_state_5th%destroy()
+        call next_state_7th%destroy(); call next_state_8th%destroy()
+        call error_estimate_vector%destroy()
+        
+        ! 调整输出数组大小
         if (n_steps < max_steps) then
             block
-                real(DP), allocatable, dimension(:) :: temp_times
-                type(AlgebraicVector), allocatable, dimension(:) :: temp_states
-                
-                allocate(temp_times(n_steps))
-                allocate(temp_states(n_steps))
-                
-                temp_times = times(1:n_steps)
-                ! DA数组需要手动转移/重新赋值以防止底层句柄丢失
-                do i = 1, n_steps
-                    call temp_states(i)%init(6)
-                    temp_states(i) = states(i)
-                end do
-                
-                call move_alloc(temp_times, times)
-                call move_alloc(temp_states, states)
+                real(DP), allocatable :: t_tmp(:), s_tmp(:,:)
+                allocate(t_tmp(n_steps)); allocate(s_tmp(6, n_steps))
+                t_tmp = times(1:n_steps)
+                s_tmp = nominal_states(:, 1:n_steps)
+                call move_alloc(t_tmp, times)
+                call move_alloc(s_tmp, nominal_states)
             end block
         end if
     end subroutine da_adaptive_step_integrate
@@ -367,6 +379,10 @@ contains
 
         ! 4. 输出代数差异向量，交给上层提取 cons()
         error_estimate_vector = state_5th - state_4th
+
+        call k1%destroy(); call k2%destroy(); call k3%destroy()
+        call k4%destroy(); call k5%destroy(); call k6%destroy(); call k7%destroy()
+        call temp_state%destroy()
         
     end subroutine da_rkf45_step
 
@@ -466,6 +482,10 @@ contains
         
         ! 输出代数差异向量
         error_estimate_vector = state_8th - state_7th
+
+        call f0%destroy(); call f1%destroy(); call f2%destroy(); call f3%destroy()
+        call f4%destroy(); call f5%destroy(); call f6%destroy(); call f7%destroy()
+        call f8%destroy(); call f9%destroy(); call f10%destroy(); call f11%destroy(); call f12%destroy()
         
     end subroutine da_rkf78_step
 

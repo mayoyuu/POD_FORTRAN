@@ -25,10 +25,11 @@ module pod_da_orbit_propagation
     ! =========================================================
     ! 传播结果类型 (DA版 - 承载高维代数多项式)
     ! =========================================================
-    type da_propagation_result
+  type da_propagation_result
         integer :: n_steps
-        real(DP), allocatable, dimension(:) :: times              ! 传播经历的时间 (秒)
-        type(AlgebraicVector), allocatable, dimension(:) :: states ! 轨道历经的 DA 状态 (自带物理量纲)
+        real(DP), allocatable, dimension(:) :: times           ! 传播经历的时间 (秒)
+        real(DP), allocatable, dimension(:,:) :: nominal_states ! 仅存储标称轨迹常数项 (6, n_steps)
+        type(AlgebraicVector) :: final_state                   ! 仅保留最后一步的全量 DA 状态
     end type da_propagation_result
     
 contains
@@ -56,7 +57,7 @@ contains
         call display_da_propagation_results(result)
 
         ! 额外展示：打印最终 DA 状态多项式（包含不确定性信息）
-        call print_da_vector(result%states(result%n_steps), "积分后的最终 DA 状态多项式")
+        call print_da_vector(result%final_state, "积分后的最终 DA 状态多项式")
         
         ! 5. 询问并保存结果
         save_to_file = confirm_action('是否将标称轨迹结果保存到 CSV 文件')
@@ -64,7 +65,7 @@ contains
             call save_da_propagation_results(result)
         end if
         
-        ! 6. 清理内存 (释放 DA 句柄和数组)
+        ! 6. 清理内存 
         call cleanup_da_propagation_result(result)
         
         call pause_execution()
@@ -161,19 +162,28 @@ contains
             t_end = t_end_nondim, &
             integrator_method = actual_method, &
             times = result%times, &
-            states = result%states, &
+            nominal_states = result%nominal_states, & ! 接收实数矩阵
+            final_state = result%final_state, &       ! 接收最后一个 DA
             n_steps = result%n_steps &
         )
         
         ! 6. 结果原地还原物理量纲
+        ! 还原时间
         result%times = result%times * config%TU
+        
+        ! 还原中间步标称轨迹 (矩阵运算)
         do i = 1, result%n_steps
-            do j = 1, 3
-                ! 调用底层的 DA * 实数 重载运算
-                result%states(i)%elements(j)   = result%states(i)%elements(j) * config%LU
-                result%states(i)%elements(j+3) = result%states(i)%elements(j+3) * config%VU
-            end do
+            result%nominal_states(1:3, i) = result%nominal_states(1:3, i) * config%LU
+            result%nominal_states(4:6, i) = result%nominal_states(4:6, i) * config%VU
         end do
+        
+        ! 还原最终 DA 状态
+        do i = 1, 3
+            result%final_state%elements(i)   = result%final_state%elements(i) * config%LU
+            result%final_state%elements(i+3) = result%final_state%elements(i+3) * config%VU
+        end do
+        
+        call nondim_state%destroy()
         
         write(*, *) 'DA 轨道传播计算圆满完成!'
         write(*, *) '-----------------------------------------'
@@ -187,44 +197,35 @@ contains
         write(*, *) ''
         write(*, *) 'DA 传播结果摘要:'
         write(*, *) '  自适应总步数: ', result%n_steps
-        write(*, *) '  传播物理时长: ', result%times(result%n_steps), ' 秒'
+        write(*, *) '  最终标称状态 (km, km/s):'
+        ! 【优化】直接传实数切片
+        call print_vector(result%nominal_states(:, result%n_steps), '    ')
         
-        write(*, *) '  最终标称状态 (常数项, km, km/s):'
-        ! cons() 会提取出 0 阶标称轨迹
-        call print_vector(result%states(result%n_steps)%cons(), '    ')
-        
-        write(*, *) '  -----------------------------------------'
-        write(*, *) '  ✨ 最终状态的 STM (状态转移矩阵) 左上角 3x3 ✨'
-        write(*, *) '  -----------------------------------------'
+        write(*, *) '  ✨ 最终时刻 STM (3x3) ✨'
         do i = 1, 3
             write(*, "(4X, 3(ES15.6, 2X))") &
-                result%states(result%n_steps)%elements(i)%get_deriv_value(1), &
-                result%states(result%n_steps)%elements(i)%get_deriv_value(2), &
-                result%states(result%n_steps)%elements(i)%get_deriv_value(3)
+                result%final_state%elements(i)%get_deriv_value(1), &
+                result%final_state%elements(i)%get_deriv_value(2), &
+                result%final_state%elements(i)%get_deriv_value(3)
         end do
     end subroutine display_da_propagation_results
     
     
-    subroutine save_da_propagation_results(result)
+ subroutine save_da_propagation_results(result)
         type(da_propagation_result), intent(in) :: result
         character(len=MAX_STRING_LEN) :: filename
         integer :: unit, i
-        real(DP), dimension(6) :: nominal_vec
         
-        filename = './output/da_orbit_propagation_nominal.csv'
+        filename = './output/da_orbit_nominal_trajectory.csv'
         open(newunit=unit, file=filename, status='replace', action='write')
         
         write(unit, '(A)') '# Time(s), X(km), Y(km), Z(km), VX(km/s), VY(km/s), VZ(km/s)'
         do i = 1, result%n_steps
-            ! 提取当前时刻的标称实数轨迹
-            nominal_vec = result%states(i)%cons()
-            write(unit, '(F16.6, 6(",",F20.12))') result%times(i), nominal_vec
+            ! 直接写入实数，不再涉及 DA 提取操作，速度极快
+            write(unit, '(F16.6, 6(",",F20.12))') result%times(i), result%nominal_states(:, i)
         end do
-        
         close(unit)
-        
-        write(*, *) '✅ DA 标称传播结果已成功保存到:'
-        write(*, *) '   -> ', trim(filename)
+        write(*, *) '✅ 标称轨迹已保存。'
     end subroutine save_da_propagation_results
 
     !> 傻瓜式 DA 向量打印工具
@@ -261,19 +262,12 @@ contains
     end subroutine print_da_vector
     
     
-    subroutine cleanup_da_propagation_result(result)
+   subroutine cleanup_da_propagation_result(result)
         type(da_propagation_result), intent(inout) :: result
-        integer :: i
-        
         if (allocated(result%times)) deallocate(result%times)
-        
-        if (allocated(result%states)) then
-            ! 显式销毁 DA 句柄防内存泄漏
-            do i = 1, size(result%states)
-                call result%states(i)%destroy()
-            end do
-            deallocate(result%states)
-        end if
+        if (allocated(result%nominal_states)) deallocate(result%nominal_states)
+        ! 关键：只需销毁这一个 DA 对象即可
+        call result%final_state%destroy() 
     end subroutine cleanup_da_propagation_result
 
 end module pod_da_orbit_propagation

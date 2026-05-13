@@ -9,6 +9,21 @@ module pod_obs_io_module
     private
     
     public :: load_single_observation
+    public :: obs_record, station_record
+    public :: preload_observations, preload_stations, find_station_by_id
+
+    !> 轻量级观测记录（仅含滤波所需字段）
+    type :: obs_record
+        real(DP) :: et          ! 观测历元（TDB 秒）
+        real(DP) :: ra, dec     ! 光学测量 [rad]
+        character(len=16) :: station_id  ! 测站标识符
+    end type obs_record
+
+    !> 测站字典条目：ID 与完整测站信息的捆绑
+    type :: station_record
+        character(len=16) :: id
+        type(observation_station) :: station
+    end type station_record
     
 contains
 
@@ -62,6 +77,148 @@ contains
         
     end subroutine load_single_observation
 
+     !> ---------------------------------------------------------------
+    !> 核心优化：一次性将 OBS 文件全部解析到内存
+    !> ---------------------------------------------------------------
+    subroutine preload_observations(obs_file, obs_list)
+        character(len=*), intent(in) :: obs_file
+        type(obs_record), allocatable, intent(out) :: obs_list(:)
+
+        integer :: u, ios, n, i
+        character(len=MAX_STRING_LEN) :: line
+        character(len=8) :: sys
+        integer :: year, month, day, hour, min
+        real(DP) :: sec, ra_deg, dec_deg
+        character(len=16) :: site_id
+        real(DP) :: dummy1, dummy2
+        character(len=40) :: utc_str
+
+        ! 1. 统计行数
+        open(newunit=u, file=obs_file, status='old', iostat=ios)
+        if (ios /= 0) stop "[ERROR] 无法打开 OBS 文件"
+        n = 0
+        do
+            read(u, '(A)', iostat=ios) line
+            if (ios < 0) exit  ! EOF
+            if (ios > 0) stop "[ERROR] 读取 OBS 文件出错"
+            n = n + 1
+        end do
+        rewind(u)
+
+        allocate(obs_list(n))
+
+        ! 2. 逐行解析，填充结构体数组
+        do i = 1, n
+            read(u, '(A)') line
+            read(line, *, iostat=ios) sys, year, month, day, hour, min, sec, &
+                                       ra_deg, dec_deg, site_id, dummy1, dummy2
+            if (ios /= 0) then
+                write(*,*) "[ERROR] 解析 OBS 行失败，行号：", i
+                stop
+            end if
+
+            ! 角度 -> 弧度
+            obs_list(i)%ra  = ra_deg * PI / 180.0_DP
+            obs_list(i)%dec = dec_deg * PI / 180.0_DP
+            obs_list(i)%station_id = trim(site_id)
+
+            ! 构造 UTC 字符串并转为 ET
+            write(utc_str, '(I4.4,"-",I2.2,"-",I2.2," ",I2.2,":",I2.2,":",F12.6)') &
+                  year, month, day, hour, min, sec
+            obs_list(i)%et = utc_to_et(trim(utc_str))
+        end do
+        close(u)
+
+    end subroutine preload_observations
+
+    !> ---------------------------------------------------------------
+    !> 一次性解析 site.json，构建测站 ID -> 站信息的快速查找表
+    !> ---------------------------------------------------------------
+    subroutine preload_stations(json_file, station_list)
+        character(len=*), intent(in) :: json_file
+        type(station_record), allocatable, intent(out) :: station_list(:)
+
+        integer :: u, ios, count, i
+        character(len=MAX_STRING_LEN) :: line
+        character(len=16) :: site_id
+        integer :: idx_id, idx_lbh, idx_end
+        character(len=100) :: coord_str
+        real(DP) :: lon_deg, lat_deg, alt_m
+
+        open(newunit=u, file=json_file, status='old', iostat=ios)
+        if (ios /= 0) stop "[ERROR] 无法打开 site.json"
+
+        count = 0
+        ! 先计数有效测站行（同时包含 "id" 和 "lbh"）
+        do
+            read(u, '(A)', iostat=ios) line
+            if (ios /= 0) exit
+            if (index(line, '"id"') > 0 .and. index(line, '"lbh"') > 0) count = count + 1
+        end do
+        rewind(u)
+
+        allocate(station_list(count))
+
+        i = 0
+        do
+            read(u, '(A)', iostat=ios) line
+            if (ios /= 0) exit
+
+            idx_id = index(line, '"id"')
+            idx_lbh = index(line, '"lbh"')
+            if (idx_id > 0 .and. idx_lbh > 0) then
+                i = i + 1
+
+                ! 提取 ID
+                idx_id = idx_id + 6
+                site_id = line(idx_id : idx_id + index(line(idx_id:), '"') - 2)
+                station_list(i)%id = trim(site_id)
+
+                ! 提取 lbh 数组内容
+                idx_lbh = idx_lbh + 7
+                idx_end = index(line(idx_lbh:), ']') + idx_lbh - 2
+                coord_str = line(idx_lbh:idx_end)
+                read(coord_str, *) lon_deg, lat_deg, alt_m
+
+                ! 构建测站对象
+                station_list(i)%station%name       = trim(site_id)
+                station_list(i)%station%station_type = 'OPTICAL'
+                station_list(i)%station%longitude  = lon_deg * PI / 180.0_DP
+                station_list(i)%station%latitude   = lat_deg * PI / 180.0_DP
+                station_list(i)%station%altitude   = alt_m / 1000.0_DP   ! m -> km
+
+                ! ECEF 坐标（km）
+                call lbh_to_ecef(station_list(i)%station%longitude, &
+                                 station_list(i)%station%latitude,  &
+                                 station_list(i)%station%altitude,  &
+                                 station_list(i)%station%ecef_position)
+            end if
+        end do
+        close(u)
+
+    end subroutine preload_stations
+
+    !> ---------------------------------------------------------------
+    !> 从预加载的测站列表中按 ID 查找（线性搜索，足够高效）
+    !> ---------------------------------------------------------------
+    function find_station_by_id(station_id, station_list) result(station)
+        character(len=*), intent(in) :: station_id
+        type(station_record), intent(in) :: station_list(:)
+        type(observation_station) :: station
+        integer :: j
+
+        do j = 1, size(station_list)
+            if (trim(station_list(j)%id) == trim(station_id)) then
+                station = station_list(j)%station
+                return
+            end if
+        end do
+
+        write(*,*) "[ERROR] 在预加载列表中未找到测站 ID: ", trim(station_id)
+        stop
+    end function find_station_by_id
+
+
     !> 轻量级手写 JSON 扫描器
     subroutine parse_site_json(json_file, target_id, station)
         character(len=*), intent(in) :: json_file, target_id
@@ -111,10 +268,11 @@ contains
         ! 转为弧度并存入 station 结构体
         station%longitude = lon_deg * PI / 180.0_DP
         station%latitude  = lat_deg * PI / 180.0_DP
-        station%altitude  = alt_m
+        station%altitude  = alt_m/1000.0_DP  ! 转换为 km
         
         ! 将经纬高 (LBH) 转换为地固系坐标 (ECEF XYZ)
         call lbh_to_ecef(station%longitude, station%latitude, station%altitude, station%ecef_position)
+
         
     end subroutine parse_site_json
 
@@ -125,7 +283,7 @@ contains
         real(DP) :: ae, e2, N
         
         ! WGS84 椭球参数
-        ae = 6378137.0_DP
+        ae = 6378137.0_DP/1000.0_DP  ! 地球赤道半径，单位 km
         e2 = 0.00669437999014_DP
         
         ! 计算曲率半径 N

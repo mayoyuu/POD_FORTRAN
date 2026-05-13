@@ -14,6 +14,7 @@ program test_da_orbit_propagation
     
     type(da_orbit_state) :: initial_state
     type(da_propagation_result) :: result
+    real(DP) :: propagation_time, epoch_end
     
     write(*,*) "=================================================="
     write(*,*) "      POD System - DA 轨道传播顶层集成测试       "
@@ -30,23 +31,38 @@ program test_da_orbit_propagation
     
     ! A. 准备初始状态 (标称值 km, km/s, UTC, 以及极度关键的 DA 阶数)
     write(*,*) ">>> 正在装载 DA 轨道初始状态..."
-    call str2et('2024-03-09T12:00:00', initial_state%epoch)
+    call str2et('2025-12-15T00:00:01.000000', initial_state%epoch)
+    call str2et('2026-01-01T17:22:00.999000 ', epoch_end)
+
+    ! DRO UTC 2025 12 15 00 00   1.000000  
+    ! -402779.291910,-181111.455576,-109249.167033,0.291707,-0.504100,-0.263272
+
+    ! DRO UTC 2026 01 28 17 22   0.999000   
+    ! 136191.971183  343565.836997  189807.408288      -0.706857       0.168891       0.065850
+
+
+    write(*,*) ">>> 初始状态历元: ", initial_state%epoch
+    write(*,*) ">>> 传播结束历元: ", epoch_end
     
-    initial_state%nominal_state = [100000.0_DP, 50000.0_DP, 20000.0_DP, &  ! 位置标称值 (km)
-                                        1.5_DP,      2.5_DP,      0.5_DP]  ! 速度标称值 (km/s)
+    initial_state%nominal_state = [-402779.291910_DP,-181111.455576_DP,-109249.167033_DP, &  ! 位置标称值 (km)
+                                        0.291707_DP,-0.504100_DP,-0.263272_DP]  ! 速度标称值 (km/s)
                                         
     ! ✨ 唯一比普通传播多出来的一行配置：告诉系统你想算到几阶泰勒展开！
-    ! 设为 1 阶通常用于提取 STM；设为 2~5 阶用于高阶不确定性/蒙特卡洛替代模型
     initial_state%da_order = 3
+    
+
+
+    propagation_time = epoch_end - initial_state%epoch
+
 
     ! B. 传播
     ! 参数说明: 
     ! - initial_state: 刚才设置的物理状态 + DA 阶数
-    ! - 86400.0_DP:    总共传播 1 天 (86400秒)
+    ! - propagation_time:    总共传播时间
     ! - 2:             选择 RKF78 (1代表RKF45，2代表RKF78)
     ! - result:        用于接收输出结果的结构体 (里面装的是 DA 向量)
     write(*,*) ">>> 开始微分代数 (DA) 轨道积分..."
-    call propagate_da_orbit(initial_state, 86400.0_DP, METHOD_RKF78, result)
+    call propagate_da_orbit(initial_state, propagation_time, METHOD_RKF78, result)
     
     ! =========================================================
     ! 3. 结果处理

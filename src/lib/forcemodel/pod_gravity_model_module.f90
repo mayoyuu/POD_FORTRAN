@@ -387,6 +387,17 @@ contains
             end do
         end do
         flm = flm * gmm
+
+        ! ... 循环结束后
+        do l = 1, gf%ncs
+            call cosmlg(l)%destroy()
+            call sinmlg(l)%destroy()
+        end do
+        ! 如果 plm 也是 DA 数组
+        do l = 1, size(plm, 1); do m = 1, size(plm, 2)
+            call plm(l,m)%destroy()
+        end do; end do
+        call k_v%destroy(); call g_v%destroy()
     end subroutine f_tesseral_da
     
     subroutine plx_da(n, zr, pl)

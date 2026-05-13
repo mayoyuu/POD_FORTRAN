@@ -8,7 +8,7 @@ module pod_emdac_runner_module
     use pod_measurement_base_module, only: observation_station
     use pod_basicmath_module, only: PI
     ! 假设引入了 JSON 读写模块
-    use pod_data_format_module, only: load_initial_opm, write_json_opm
+    use pod_data_format_module, only: load_initial_opm, write_json_opm, write_residual_line
 
     implicit none
     private
@@ -22,14 +22,14 @@ contains
     !> 核心集成接口：执行完整的 EMDAC 轨道定轨流程
     !> ======================================================================
     subroutine run_emdac_orbit_determination(obs_file, site_json_file, gmm_in_switch, &
-                                             initial_json_file, output_json_file, n_components,&
+                                             initial_json_file, output_file_name, n_components,&
                                              max_da_order,opt_particles, &
                                              opt_em_max_iter, opt_em_tol)
         
         character(len=*), intent(in) :: obs_file           ! 观测文件路径 (.obs)
         character(len=*), intent(in) :: site_json_file     ! 测站配置文件路径 (.json)
         character(len=*), intent(in) :: initial_json_file  ! 初始先验状态文件路径 (.opm/.json)
-        character(len=*), intent(in) :: output_json_file   ! 输出定轨结果文件路径 (.opm/.json)
+        character(len=*), intent(in) :: output_file_name   ! 输出定轨结果文件路径 (.opm/.json)
         logical, intent(in) :: gmm_in_switch               ! GMM 初始化开关
         integer,  intent(in) :: n_components       ! GMM 分量数量
         integer,  intent(in) :: max_da_order       ! DA 阶数
@@ -45,7 +45,8 @@ contains
         
         ! 状态与时间变量
         real(DP) :: initial_mean(6), final_mean(6)
-        real(DP) :: initial_cov(6,6), final_cov(6,6)
+        real(DP) :: initial_cov(6,6), final_cov(6,6), noise_Q(6,6)
+        real(DP), parameter :: sigma_a = 1.0e-11_DP   ! km/s²
         type(uq_gmm_state_type) :: initial_gmm
 
         real(DP) :: y_meas(2), noise_R(2,2)
@@ -56,6 +57,9 @@ contains
         ! 【新增】用于自适应阶数的内部变量，绝不污染外层接口
         integer :: current_order
         logical :: is_first_step
+
+        real(DP) :: step_res(6)    ! 存储最近一次测量更新的 6 列残差
+        real(DP) :: step_comp(2)   ! 存储最近一次计算出的预测观测值 (Lon, Lat)
         
         ! 1. 测量噪声协方差设置 (例如光学赤经赤纬，0.1角秒精度)
         noise_R = 0.0_DP
@@ -71,6 +75,10 @@ contains
             call load_initial_opm(initial_json_file, et_current, initial_mean, initial_cov)
             call my_filter%init(et_current, initial_mean,initial_cov, n_components, max_da_order)
         end if
+
+        write(*,*) '  [Runner] 滤波器初始化完成'
+        write(*,*) '    初始均值: ', initial_mean
+        write(*,*) '    初始历元: ', et_current
         
         ! 3. 滤波器装配与初始化
         if (present(opt_particles)) then
@@ -92,27 +100,44 @@ contains
             call load_single_observation(obs_file, site_json_file, obs_count, &
                                          et_obs, y_meas(1), y_meas(2), current_station, is_eof)
             if (is_eof) exit
+
+            write(*,*) 'Station ECEF:', current_station%ecef_position
+            write(*,*) 'Station geodetic:', current_station%latitude, current_station%longitude, current_station%altitude
             
+            call my_filter%get_current_epoch(et_current)
+            write(*,*) '  传播前时间为: ', et_current
+            call my_filter%get_current_state(final_mean)
+            write(*,*) '  传播前位置为: ',  final_mean
+
             ! 计算积分步长
             dt = et_obs - et_current
-            
+
+            ! 给出noise_Q
+            noise_Q = 0.0_DP
+            do i = 1, 3
+                noise_Q(i,i)       = (dt**4 / 4.0_DP) * sigma_a**2
+                noise_Q(i+3,i+3)   = dt**2 * sigma_a**2
+                ! noise_Q(i,i+3)     = (dt**3 / 2.0_DP) * sigma_a**2
+                ! noise_Q(i+3,i)     = noise_Q(i,i+3)       ! 对称
+            end do
             ! ==========================================================
             ! 智能 DA 阶数调整逻辑 (完全基于步长时间判定)
             ! ==========================================================
-            if (is_first_step) then
+           if (is_first_step) then
                 ! 1. 如果是第一步，且用户指定了 opt_da_order，无条件遵从用户输入
                 current_order = max_da_order
             else
                 ! 2. 后续步骤 (或用户没指定的第一步)，走基于步长 dt 的智能选择逻辑
-                if (abs(dt) > 86400.0_DP) then
-                    current_order = 3    ! 步长超过1天 -> 3阶
-                else if (abs(dt) < 3600.0_DP) then
-                    current_order = 1    ! 步长小于1小时 -> 1阶
-                else
-                    current_order = 2    ! 步长在1小时到1天之间 -> 2阶
+                if (abs(dt) > 3.0_DP * 86400.0_DP) then      ! 步长大于3天 -> 最大阶数
+                    current_order = max_da_order
+                else if (abs(dt) > 86400.0_DP) then          ! 步长在1天到3天之间 -> 3阶
+                    current_order = 3
+                else if (abs(dt) < 3600.0_DP) then           ! 步长小于1小时 -> 1阶
+                    current_order = 1
+                else                                         ! 步长在1小时到1天之间 -> 2阶
+                    current_order = 2
                 end if
             end if
-            
             ! 应用最新计算出的阶数
             call my_filter%set_da_order(current_order)
             is_first_step = .false. ! 第一步已走完，切断强制覆盖机制
@@ -121,11 +146,32 @@ contains
             write(*,'(A,I0,A,F10.2,A,I1)') '  [Runner] 处理观测 #', obs_count, &
                   ' dt:', dt, 's, DA阶数:', current_order
             
-            call my_filter%time_update(et_obs)
-            call my_filter%measurement_update(y_meas, noise_R, et_obs, current_station)
+            call my_filter%time_update(et_obs, noise_Q)
+            call my_filter%get_current_epoch(et_current)
+            write(*,*) '  传播后时间为: ', et_current
+            call my_filter%get_current_state(final_mean)
+            write(*,*) '  时间更新后结果为: ',  final_mean
 
-            et_current = et_obs
+            call my_filter%measurement_update(y_meas, noise_R, et_obs, current_station)
+            call my_filter%get_current_epoch(et_current)
+            write(*,*) '  测量更新后时间为: ', et_current
+            call my_filter%get_current_state(final_mean)
+            write(*,*) '  测量更新后结果为: ',  final_mean
+
+            call my_filter%get_last_residual(step_res, step_comp)
+    
+            ! 调用写入函数
+            ! obs_count == 1 时为 true，创建新文件；之后为 false，追加写入
+            call write_residual_line(output_file_name, et_obs, y_meas, step_comp, &
+                                    step_res, trim(current_station%name), (obs_count == 1))
+            
+             ! 观测更新放在时间更新之后，确保每一步都能看到 DA 传播的效果
+
             obs_count = obs_count + 1
+
+            !! 测试阶段只测第一步
+            ! if (obs_count > 2) exit
+
         end do
         
         write(*,*) '  [Runner] 滤波结束，有效观测数: ', obs_count - 1
@@ -135,7 +181,7 @@ contains
         call my_filter%get_current_state(final_mean)
         call my_filter%get_current_cov(final_cov)
         
-        call write_json_opm(output_json_file, final_mean, final_cov, my_filter%gmm_state, 0.0_DP, "CAT_TARGET", et_current)
+        call write_json_opm(output_file_name, final_mean, final_cov, my_filter%gmm_state, 0.0_DP, "DRO", et_current)
         
     end subroutine run_emdac_orbit_determination
 

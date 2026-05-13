@@ -56,7 +56,8 @@ contains
         
         type(AlgebraicVector) :: state_da_0, state_da_f
         real(DP), allocatable :: times(:)
-        type(AlgebraicVector), allocatable :: states(:)
+        ! type(AlgebraicVector), allocatable :: states(:)
+        real(DP), allocatable :: nominal_states(:,:)
         type(CompiledDA)      :: compiled_state
         integer :: n_steps, i, n_particles, dim
         real(DP) :: eval_inputs(6), eval_results(6)
@@ -93,13 +94,27 @@ contains
         if (this%verbose) write(*,*) '[DA Propagator] 开始中心轨迹 DA 积分传播...'
         select case (this%integrator_type)
             case (METHOD_RKF78)
-                call da_adaptive_step_integrate(state_da_0, t_start_nondim, t_end_nondim, &
-                                                METHOD_RKF78, times, states, n_steps)
-                state_da_f = states(n_steps)
+                call da_adaptive_step_integrate( &
+                        state = state_da_0, &
+                        t_start = t_start_nondim, &
+                        t_end = t_end_nondim, &
+                        integrator_method = METHOD_RKF78, &
+                        times = times, &
+                        nominal_states = nominal_states, & ! 接收实数矩阵
+                        final_state = state_da_f, &        ! 直接接收终点全量 DA
+                        n_steps = n_steps &
+                    )
             case (METHOD_RKF45)
-                call da_adaptive_step_integrate(state_da_0, t_start_nondim, t_end_nondim, &
-                                                METHOD_RKF45, times, states, n_steps)
-                state_da_f = states(n_steps)
+                call da_adaptive_step_integrate( &
+                        state = state_da_0, &
+                        t_start = t_start_nondim, &
+                        t_end = t_end_nondim, &
+                        integrator_method = METHOD_RKF45,&
+                        times = times, &
+                        nominal_states = nominal_states, & ! 接收实数矩阵
+                        final_state = state_da_f, &        ! 直接接收终点全量 DA
+                        n_steps = n_steps &
+                    )
             case default
                 write(*,*) '[ERROR] DA Propagator: 未知的积分器类型！'
                 return
@@ -116,7 +131,9 @@ contains
         compiled_state = state_da_f%compile()
 
         eval_inputs = 0.0_DP
-        this%propagated_ref_orbit = compiled_state%eval(eval_inputs) ! 【新增】缓存中心轨道的常数项，供后续分析使用
+        this%propagated_ref_orbit = state_da_f%cons() ! 【新增】缓存中心轨道的常数项，供后续分析使用
+        ! 这里的 eval_inputs 是相对于中心轨道的偏差向量，因此直接使用 input_state%samples(:, i) - input_state%mean(:) 就可以了，无
+        ! compiled_state%eval(eval_inputs) ! 【新增】缓存中心轨道的常数项，供后续分析使用
         
         !$omp parallel do default(none) &
         !$omp private(i, eval_inputs, eval_results) &
@@ -139,13 +156,7 @@ contains
         end if
 
         ! 2. 遍历并销毁积分器返回的轨迹数组中的每一个 DA 元素（极其关键！）
-        if (allocated(states)) then
-            do i = 1, size(states)
-                call states(i)%destroy()
-            end do
-            deallocate(states)
-        end if
-
+        if (allocated(nominal_states)) deallocate(nominal_states)
         ! 3. 释放时间数组
         if (allocated(times)) deallocate(times)
 

@@ -61,15 +61,15 @@ contains
         real(DP), intent(in)               :: et            ! SPICE 历元时间 (Ephemeris Time)
         type(observation_station), intent(in):: station     ! 测站信息
         character(len=*), intent(in)       :: measurement_type
-        real(DP), dimension(:), allocatable, intent(out) :: measurement
+        real(DP), dimension(:), intent(out) :: measurement
         
         select case (trim(measurement_type))
             case ('OPTICAL')
-                allocate(measurement(2)) ! RA, DEC
+                ! allocate(measurement(2)) ! RA, DEC
                 call compute_optical_measurement(state(1:3), et, station, measurement)
                 
             case ('RADAR')
-                allocate(measurement(3)) ! Range, Azimuth, Elevation
+                ! allocate(measurement(3)) ! Range, Azimuth, Elevation
                 call compute_radar_measurement(state(1:3), et, station, measurement)
                 
             case default

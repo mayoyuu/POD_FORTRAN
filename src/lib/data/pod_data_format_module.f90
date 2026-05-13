@@ -12,12 +12,12 @@ module pod_data_format_module
     private
     
     public :: load_initial_opm
-    public :: write_json_opm
+    public :: write_json_opm, write_residual_line
 
 contains
 
 
-   !> ======================================================================
+    !> ======================================================================
     !> 读取标准的 OPM JSON 格式并初始化状态
     !> ======================================================================
     subroutine load_initial_opm(json_file, et, state, cov, gmm_state, has_gmm)
@@ -27,9 +27,10 @@ contains
         real(DP), intent(out)        :: cov(6,6)
         type(uq_gmm_state_type), intent(out), optional :: gmm_state
         logical, intent(out), optional :: has_gmm
-
+ 
         integer :: u_json, ios, i, j, k
         integer :: comp_idx, n_components
+        integer :: depth, ci          ! [FIX] JSON 嵌套深度计数器及字符索引
         real(DP) :: tmp_val
         character(len=MAX_STRING_LEN) :: line
         character(len=64) :: epoch_str
@@ -42,6 +43,7 @@ contains
         et = 0.0_DP
         epoch_str = ""
         comp_idx = 0
+        depth = 0                     ! [FIX] 初始化嵌套深度为 0
         if (present(has_gmm)) has_gmm = .false.
         
         open(newunit=u_json, file=json_file, status='old', iostat=ios)
@@ -51,19 +53,34 @@ contains
             read(u_json, '(A)', iostat=ios) line
             if (ios < 0) exit ! 文件结束
             
-            ! 提取时间
-            call extract_json_string(line, '"EPOCH"', epoch_str, found)
-            
-            ! 提取状态向量与主协方差矩阵 (自动处理对称性)
-            do i = 1, 6
-                call extract_json_value(line, '"'//trim(s_keys(i))//'"', state(i), found)
-                do j = 1, i
-                    call extract_json_value(line, '"C'//trim(s_keys(i))//'_'//trim(s_keys(j))//'"', cov(i,j), found)
-                    if (found) cov(j,i) = cov(i,j) 
-                end do
+            ! [FIX] 逐字符扫描当前行，更新 JSON 嵌套深度
+            !       '{'  → 进入一层嵌套，depth +1
+            !       '}'  → 退出一层嵌套，depth -1
+            !       深度在解析之前更新，因此形如 '"FIT_EPOCH": {' 的行
+            !       扫描完后 depth 已从 1 变为 2，不会被误解析。
+            do ci = 1, len_trim(line)
+                if (line(ci:ci) == '{') depth = depth + 1
+                if (line(ci:ci) == '}') depth = depth - 1
             end do
             
-           ! 提取 GMM 状态
+            ! [FIX] 仅在最外层 JSON 对象（depth == 1）提取 EPOCH 与状态向量。
+            !       这保证了不会把 FIT_EPOCH / INI_EPOCH 等嵌套块内的同名字段
+            !       误读进来，与 X / Y / Z 等值的语义完全一致。
+            if (depth == 1) then
+                ! 提取时间
+                call extract_json_string(line, '"EPOCH"', epoch_str, found)
+                
+                ! 提取状态向量与主协方差矩阵 (自动处理对称性)
+                do i = 1, 6
+                    call extract_json_value(line, '"'//trim(s_keys(i))//'"', state(i), found)
+                    do j = 1, i
+                        call extract_json_value(line, '"C'//trim(s_keys(i))//'_'//trim(s_keys(j))//'"', cov(i,j), found)
+                        if (found) cov(j,i) = cov(i,j) 
+                    end do
+                end do
+            end if
+            
+           ! 提取 GMM 状态（GMM 解析自身维护 comp_idx，不受外层深度约束）
             if (present(gmm_state)) then
                 ! 1. 解析总分量数并初始化
                 call extract_json_value(line, '"GMM_N_COMPONENTS"', tmp_val, found)
@@ -113,6 +130,7 @@ contains
         
         close(u_json)
         
+        write(*,*) '提取的初始时间为：', trim(epoch_str)
         if (trim(epoch_str) /= "") call str2et(trim(epoch_str), et)
         
     end subroutine load_initial_opm
@@ -127,14 +145,18 @@ contains
         
         integer :: u, i, j, k
         character(len=64) :: epoch_str
+        character(len=256) :: full_filename  ! 用于构建完整路径
         
         ! 定义状态键名常量，用于自动生成状态名与协方差名
         character(len=5), parameter :: s_keys(6) = ["X    ", "Y    ", "Z    ", "X_DOT", "Y_DOT", "Z_DOT"]
         
         ! 将 TDB 秒转换回 UTC 字符串
         call et2utc(et_last, 'ISOC', 6, epoch_str) 
+
+        ! 自动拼接扩展名
+        full_filename = trim(filename) // ".opm.json"
         
-        open(newunit=u, file=filename, status='replace', action='write')
+        open(newunit=u, file=full_filename, status='replace', action='write')
         
         write(u, '(A)') '{'
         write(u, '(A,A,A)') '    "ASL_CAT_ID": "', trim(obj_id), '",'
@@ -202,6 +224,56 @@ contains
         close(u)
         
     end subroutine write_json_opm
+
+    !> ======================================================================
+    !> 写入单行残差数据 (支持占位符格式化输出)
+    !> ======================================================================
+    subroutine write_residual_line(filename, et, obs, comp, res, id, is_first)
+        character(len=*), intent(in) :: filename   ! 残差文件名 (.residual)
+        real(DP), intent(in)         :: et         ! 历元 (TDB秒)
+        real(DP), intent(in)         :: obs(2)     ! 观测值 [Lon, Lat] (deg)
+        real(DP), intent(in)         :: comp(2)    ! 计算值 [Lon, Lat] (deg)
+        real(DP), intent(in)         :: res(6)     ! 6列残差 (通常前3列有效)
+        character(len=*), intent(in) :: id         ! 目标/站ID
+        logical, intent(in)          :: is_first   ! 是否为首行（用于写表头或覆盖旧文件）
+
+        integer :: u, ios
+        character(len=64) :: utc_str
+        character(len=256) :: full_filename
+    
+        ! 自动拼接扩展名
+        full_filename = trim(filename) // ".residual"
+
+        ! 将时间转换为 UTC 格式
+        call et2utc(et, 'ISOC', 3, utc_str)
+
+        ! 第一次写入时使用 replace (覆盖)，后续使用 position='append' (追加)
+        if (is_first) then
+            open(newunit=u, file=full_filename, status='replace', action='write', iostat=ios)
+            ! 可以在这里写一个简单的表头说明
+            write(u, '(A)') "# UTC_Time                 ET_Seconds       Obs_Lon     Obs_Lat   ID    &
+             Comp_Lon    Comp_Lat     dA*cosD      dDec      Total      Res4      Res5      Res6"
+        else
+            open(newunit=u, file=full_filename, status='old', position='append', action='write', iostat=ios)
+        end if
+
+        if (ios /= 0) return ! 打开失败则静默退出
+
+        ! 格式化输出: 
+        ! 1. UTC时间与ET 
+        ! 2. 观测值 (2F12.6) 
+        ! 3. ID与占位 (A6, 2F6.1) 
+        ! 4. 计算值 (2F12.6) 
+        ! 5. 6列残差 (6F10.3)
+        write(u, '(A24, F16.4, 2F12.6, A8, 2F6.1, 2F12.6, 6F10.3)') &
+            utc_str, et, &              ! 时间信息
+            obs(1), obs(2), &           ! 观测
+            trim(id), 0.0, 0.0, &       ! 标识符与占位符
+            comp(1), comp(2), &         ! 计算值
+            res(1:6)                    ! 残差向量
+
+        close(u)
+    end subroutine write_residual_line
 
     !> ======================================================================
     !> 内部辅助工具：从 JSON 字符串行中提取实数值
@@ -287,6 +359,8 @@ contains
         return
 20      found = .false.
     end subroutine extract_json_array6
+
+
 
 
 end module pod_data_format_module

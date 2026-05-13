@@ -113,8 +113,8 @@ contains
         real(DP) :: t_start_nondim, t_end_nondim
         integer :: actual_method
         
-        write(*, *) '-----------------------------------------'
-        write(*, *) '正在准备底层物理环境与数值积分器...'
+        ! write(*, *) '-----------------------------------------'
+        ! write(*, *) '正在准备底层物理环境与数值积分器...'
         
         ! 1. 历元基准 (Context Injection)
         call set_propagation_epoch(initial_state%epoch)
@@ -132,7 +132,7 @@ contains
             actual_method = METHOD_RKF78
         end if
         
-        write(*, *) '积分器已启动，正在自适应计算中...'
+        ! write(*, *) '积分器已启动，正在自适应计算中...'
         
         ! 4. 调用纯数学积分器 (自动分配 result%times 和 result%states 的内存)
         call adaptive_step_integrate( &
@@ -151,8 +151,8 @@ contains
         result%states(:, 1:3) = result%states(:, 1:3) * config%LU
         result%states(:, 4:6) = result%states(:, 4:6) * config%VU
         
-        write(*, *) '轨道传播计算圆满完成!'
-        write(*, *) '-----------------------------------------'
+        ! write(*, *) '轨道传播计算圆满完成!'
+        ! write(*, *) '-----------------------------------------'
     end subroutine propagate_orbit
     
     

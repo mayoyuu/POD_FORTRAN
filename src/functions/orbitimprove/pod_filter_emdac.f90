@@ -13,6 +13,7 @@ module pod_filter_emdac_module
     use pod_uq_propagation, only: run_particle_propagation, METHOD_DA
     use pod_measurement_base_module, only: observation_station 
     use pod_measurement_da_module, only: compute_measurement_da
+    use pod_measurement_model_module, only: compute_measurement
     use pod_basicmath_module, only: inverse_and_determinant
     use pod_random_module, only: generate_multivariate_normal
     
@@ -39,6 +40,9 @@ module pod_filter_emdac_module
         type(uq_state_type) :: propagated_particles   ! 保存时间更新后的粒子
         real(DP), allocatable :: current_omega(:,:)   ! 保存 EM 聚类后的责任度矩阵
         real(DP), allocatable :: current_W(:)         ! 保存各核的总责任度
+
+        real(DP) :: last_residual(6)    ! 存储最近一次测量更新的 6 列残差
+        real(DP) :: last_comp_val(2)   ! 存储最近一次计算出的预测观测值 (Lon, Lat)
         
     contains
 
@@ -58,13 +62,16 @@ module pod_filter_emdac_module
         procedure :: get_current_state => filter_get_current_state
         procedure :: get_current_cov => filter_get_current_cov
         procedure :: get_current_gmm => filter_get_current_gmm
+        procedure :: get_last_residual => filter_get_last_residual
+
+        procedure :: get_random_addos_from_noise
     end type emdac_filter
 
 contains
 
     !> 初始化函数，一次性注入所有配置并确立初始历元
     !> 初始化函数，一次性注入所有配置并确立初始历元
-    subroutine filter_init(this, initial_epoch, initial_mean, initial_cov, n_comp,max_da_order,&
+    subroutine filter_init(this, initial_epoch, initial_mean, initial_cov, n_comp, max_da_order, &
                            initial_gmm, n_part, opt_em_tol, opt_em_max_iter)
         class(emdac_filter), intent(inout) :: this
         real(DP), intent(in) :: initial_epoch
@@ -149,36 +156,53 @@ contains
         gmm_out = this%gmm_state
     end subroutine filter_get_current_gmm
 
+    !> 获取单步残差的接口
+    subroutine filter_get_last_residual(this, res_out, comp_out)
+        class(emdac_filter), intent(in) :: this
+        real(DP), intent(out) :: res_out(6), comp_out(2)
+        res_out = this%last_residual
+        comp_out = this%last_comp_val
+    end subroutine filter_get_last_residual
 
     !> ======================================================================
     !> 2. 时间更新 (Time Update)
     !> 逻辑: k步GMM -> 按权重采样粒子 -> DA动力学传播 -> EM聚类 -> k+1步GMM
     !> ======================================================================
-    subroutine filter_time_update(this, et)
+    subroutine filter_time_update(this, et, noise_Q)
         class(emdac_filter), intent(inout) :: this
         real(DP), intent(in) :: et  ! 目标历元 (绝对时间)
-        type(uq_state_type) :: uq_particles
+        real(DP), dimension(:,:), intent(in), optional:: noise_Q    ! 过程噪声协方差 Q
         real(DP) :: t_end
-        integer :: dim
         
+        integer :: dim
+        real(DP), allocatable :: temp_mean(:)
+        type(uq_state_type) :: uq_particles
+        real(DP), allocatable :: noise_vec(:,:)
+
         dim = this%gmm_state%state_dim
+        allocate(temp_mean(dim))
+        allocate(noise_vec(dim, this%n_particles))
+        noise_vec = 0.0_DP
         call uq_particles%allocate_memory(dim, this%n_particles)
         
         ! 步骤 A: 桥接参数空间与粒子空间 —— 根据 GMM 权重生成散布粒子
         call this%sample_particles_from_gmm(uq_particles%samples)
 
-        t_end = et - this%current_epoch
-
         write(*,*) '[EMDAC] 正在进行时间更新...'
+        t_end = et - this%current_epoch
         ! 步骤 B: 调用 DA 传播器进行高度非线性的动力学积分
         call run_particle_propagation(uq_particles, this%state_mean, this%current_epoch, &
                                       0.0_DP, t_end, METHOD_DA,  this%propagated_particles, &
                                       da_order=this%da_order, &
-                                      reference_orbit_out=this%state_mean) 
+                                      reference_orbit_out=temp_mean) ! 传出传播后的均值，供后续 EM 聚类使用
+        
+        this%state_mean = temp_mean ! 更新滤波器的全局均值为传播后的均值，供后续测量更新使用，过程噪声均值为0,此处不增加噪声项
+        ! ! 增加过程噪声
+        if(present(noise_Q)) call this%get_random_addos_from_noise(noise_Q, this%n_particles,noise_vec)
+        this%propagated_particles%samples = this%propagated_particles%samples + noise_vec
         
         ! 步骤 C: 重新执行 K-means + EM 算法，提取传播后的 GMM 拓扑结构
         write(*,*) '[EMDAC] 执行高斯混合聚类...'
-        ! uq_particles%samples = this%propagated_particles%samples ! 直接使用传播后的粒子进行聚类
         call fit_gmm_to_particles(this%propagated_particles%samples, this%gmm_state, this%em_max_iter, this%em_tol, &
                                  this%current_omega, this%current_W)
 
@@ -203,18 +227,18 @@ contains
         type(observation_station), intent(in):: station   ! 测站信息
         
         type(AlgebraicVector) :: pos_j2000, measurement_da
-        type(DA) :: temp_da
+        ! type(DA) :: temp_da
         type(CompiledDA) :: compiled_meas
-        real(DP), allocatable :: eval_inputs_meas(:)
+        real(DP), allocatable :: eval_inputs_meas(:)! eval_results_meas(:)
         integer :: i, j, n_comp, dim, ny, info
-        real(DP), allocatable :: particles_z(:,:) ! 存储每个粒子的预测测量值 (ny, n_particles)
+        real(DP), allocatable :: particles_z(:,:)! particles_z_not_da(:, :) ! 存储每个粒子的预测测量值 (ny, n_particles)
         real(DP), allocatable :: means_z(:,:)   ! 存储每个核的预测测量均值 (ny, n_comp)
         real(DP), allocatable :: P_zz(:,:,:), P_xz(:,:,:), K_gain(:,:,:), P_zz_inv(:,:,:) ! 存储每个核的预测测量协方差、交叉协方差、卡尔曼增益和协方差逆
-        ! real(DP), allocatable :: innovation(:), log_likelihood(:)
         real(DP), allocatable :: log_likelihood(:) ! 存储每个核的对数似然概率 (n_comp)
         real(DP), allocatable :: innovation(:, :) ! 存储每个核的测量残差 (ny, n_comp)
         real(DP), allocatable :: det_Pzz(:),  mahalanobis_sq(:) ! 存储每个核的 P_zz 行列式和马氏距离平方 (n_comp)
         real(DP) :: sum_exp
+        real(DP) :: pred_z_pre(2)
         
         
         n_comp = this%gmm_state%n_components
@@ -224,10 +248,14 @@ contains
         ! 显式分配所有 allocatable 数组的内存！
         allocate(log_likelihood(n_comp), det_Pzz(n_comp), mahalanobis_sq(n_comp))
         allocate(particles_z(ny, this%n_particles))
-        allocate(means_z(ny, n_comp), innovation(ny, n_comp))
+        ! allocate(particles_z(ny, this%n_particles), particles_z_not_da(ny, this%n_particles)) ! 存储 DA 和非 DA 的预测测量值，供后续分析使用
+        allocate(means_z(ny, n_comp), innovation(ny, n_comp))   ! 存储 DA 和非 DA 的预测测量均值，供后续分析使用
         allocate(P_zz(ny, ny, n_comp), P_zz_inv(ny, ny, n_comp))
         allocate(P_xz(dim, ny, n_comp), K_gain(dim, ny, n_comp))
         allocate(eval_inputs_meas(dim))
+        ! allocate(eval_inputs_meas(dim), eval_results_meas(ny))
+        ! 【新增】用于残差输出的局部变量
+        
         
         ! 确保此时的滤波器时间与观测时间对齐
         if (abs(this%current_epoch - et) > 1.0e-6_DP) then
@@ -235,7 +263,8 @@ contains
         end if
 
         ! call dace_initialize(this%da_order, dim)
-        call dace_push_to(this%da_order)
+        ! call dace_push_to(this%da_order)
+        call dace_push_to(2) ! 【新增】测量更新阶段固定使用2阶 DA，基本上误差在1e-16
 
         call pos_j2000%init(dim)
         do i = 1, 3
@@ -249,6 +278,25 @@ contains
 
         compiled_meas = measurement_da%compile()
 
+        ! write(*,*) 'Real y_meas: ', y_meas
+        ! write(*,*) 'Predicted means_z (comp 1): ', measurement_da%cons()! 直接评估中心轨道的预测测量值，供后续分析使用
+        ! ==========================================================
+        ! 【核心新增】：计算更新前的残差 (Innovation) 用于输出报告
+        ! ==========================================================
+        pred_z_pre = measurement_da%cons()
+        
+        this%last_comp_val = pred_z_pre(1:2)
+        this%last_residual = 0.0_DP
+        ! 1. dA * cos(Dec) 单位：arcsec
+        this%last_residual(1) = (y_meas(1) - pred_z_pre(1)) * 3600.0_DP &
+        * cos(y_meas(2) * PI / 180.0_DP)
+        ! 2. dDec 单位：arcsec
+        this%last_residual(2) = (y_meas(2) - pred_z_pre(2)) * 3600.0_DP
+        ! 3. Total Angle Residual
+        this%last_residual(3) = sqrt(this%last_residual(1)**2 + this%last_residual(2)**2)
+        ! 4-6. 占位符 (未来可扩展 RTN 残差)
+        this%last_residual(4:6) = 0.0_DP
+
         ! 进一步进行测量更新，更新权重、均值和协方差
         ! 计算每个粒子的预测测量值
         do j = 1, this%n_particles
@@ -256,6 +304,14 @@ contains
             particles_z(:, j) = compiled_meas%eval(eval_inputs_meas)
         end do
 
+        ! ! 使用非 DA 的方式计算预测测量值，以便与DA比较，分析 DA 映射的非线性误差
+        ! do j = 1, 10 ! 只分析前10个粒子，避免输出过多信息
+        !     eval_inputs_meas(:) = this%propagated_particles%samples(:, j)
+        !     call compute_measurement(eval_inputs_meas, et, station, 'OPTICAL', eval_results_meas)
+        !     particles_z_not_da(:, j) = eval_results_meas
+        !     write(*,*) '粒子 ', j, ': DA 预测测量 = ', particles_z(:, j), ' 非 DA 预测测量 = ', particles_z_not_da(:, j)
+        !     write(*,*) '  预测测量差异 (DA - 非 DA) = ', particles_z(:, j) - particles_z_not_da(:, j)
+        ! end do
         call compiled_meas%destroy()
         
         write(*,*) '[EMDAC] 计算测量更新...'
@@ -418,5 +474,30 @@ contains
                         reshape(this%gmm_state%components(i)%mean - this%state_mean, (/1, dim/))))
         end do
     end subroutine update_global_cov
+
+    subroutine get_random_addos_from_noise(this, noise_Q, n_samples, addos_out)
+        class(emdac_filter), intent(in) :: this
+        real(DP), dimension(:,:), intent(in) :: noise_Q  
+        integer, intent(in) :: n_samples
+        real(DP), dimension(:,:), intent(out) :: addos_out
+
+        real(DP), allocatable :: zero_mean(:)
+        integer :: dim
+
+        dim = size(noise_Q, 1)
+        allocate(zero_mean(dim))
+        zero_mean = 0.0_DP
+        call generate_multivariate_normal(zero_mean, noise_Q, addos_out)
+        deallocate(zero_mean)
+    end subroutine get_random_addos_from_noise
+
+
+    ! subroutine filter_destroy(this)
+    !     class(emdac_filter), intent(inout) :: this
+    !     call this%gmm_state%destroy()
+    !     if (allocated(this%state_mean)) deallocate(this%state_mean)
+    !     if (allocated(this%state_cov)) deallocate(this%state_cov)
+    !     ! 释放其他可能的资源，例如过程噪声和测量噪声矩阵
+    ! end subroutine filter_destroy
 
 end module pod_filter_emdac_module
