@@ -19,12 +19,13 @@ module pod_dace_classes
     public :: da_add, da_sub, da_mul, da_div
     public :: vec_add, vec_sub, vec_mul, vec_div
     public :: da_sin_sub, da_cos_sub, da_atan2_sub, da_asin_sub
-    public :: vec_matmul
+    public :: vec_matmul, vec_add_scaled_inplace
 
     ! =========================================================
     ! 1. C 接口绑定
     ! =========================================================
     interface
+
         function c_fdace_get_da_registry_size() bind(C, name="fdace_get_da_registry_size") result(sz)
             import :: c_int
             integer(c_int) :: sz
@@ -312,6 +313,15 @@ module pod_dace_classes
             integer(c_int), intent(in) :: h_vec(*)
             integer(c_int), intent(out) :: ho(*)
         end subroutine c_fdace_real3x3_matmul_vector
+
+        ! --- [新增] 向量化乘加接口 ---
+        subroutine c_fdace_vector_add_scaled(h1, val, h2, ho, sz) bind(C, name="fdace_vector_add_scaled")
+            import :: c_int, c_double
+            integer(c_int), intent(in) :: h1(*), h2(*)  ! 句柄数组
+            real(c_double), value      :: val           ! 标量
+            integer(c_int), intent(inout) :: ho(*)      ! 结果句柄数组
+            integer(c_int), value      :: sz            ! 向量长度
+        end subroutine c_fdace_vector_add_scaled
     end interface
 
     ! 在模块顶部类型定义区补充
@@ -404,7 +414,9 @@ module pod_dace_classes
     type :: AlgebraicVector
         type(DA), allocatable :: elements(:)
         integer :: size = 0
+        integer(c_int), allocatable :: h_list(:)  ! 新增：连续的句柄数组
     contains
+        procedure :: sync_h => v_sync_handles ! 新增：同步函数
         procedure :: init => vector_init
         procedure :: destroy => vector_destroy
         procedure :: print => vector_print
@@ -838,6 +850,12 @@ contains
     ! =========================================================
     ! AlgebraicVector 实现
     ! =========================================================
+    subroutine v_sync_handles(this)
+        class(AlgebraicVector), intent(inout) :: this
+        if (.not. allocated(this%h_list)) allocate(this%h_list(this%size))
+        ! 这一步是内存连续的拷贝，编译器会将其优化为高效的循环
+        this%h_list = this%elements%handle 
+    end subroutine
     subroutine vector_init(this, n)
         class(AlgebraicVector), intent(inout) :: this
         integer, intent(in) :: n
@@ -1757,5 +1775,24 @@ contains
         
         call c_fdace_real3x3_matmul_vector(mat, h_vec, ho)
     end subroutine real3x3_matmul_vector_sub
+
+    subroutine vec_add_scaled_inplace(v1, scalar, v2, res)
+        type(AlgebraicVector), intent(inout) :: v1, v2
+        real(DP), intent(in) :: scalar
+        type(AlgebraicVector), intent(inout) :: res
+        
+        ! 1. 同步三个向量的句柄到它们各自的连续缓存中
+        call v1%sync_h()
+        call v2%sync_h()
+        if (res%size /= v1%size) call res%init(v1%size)
+        call res%sync_h()
+        
+        ! 2. 【关键修改】传给 C 的必须是 h_list，而不是 elements%handle
+        call c_fdace_vector_add_scaled(v1%h_list, real(scalar, 8), &
+                                    v2%h_list, res%h_list, v1%size)
+        
+        ! 3. 计算完成后，如果 res 的句柄在 C++ 侧没变，无需写回。
+        ! 如果逻辑上 res 的句柄被重新分配了，才需要 res%elements%handle = res%h_list
+    end subroutine
 
 end module pod_dace_classes

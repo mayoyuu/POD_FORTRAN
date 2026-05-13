@@ -319,4 +319,22 @@ extern "C" {
     int fdace_get_active_da_count() {
         return static_cast<int>(da_registry.size() - free_handles.size());
     }
+
+    // ==========================================
+    // 向量化乘加 (Vectorized Add-Scaled)
+    // 实现: ho = h1 + val * h2
+    // 安全性: 支持 ho 与 h1 或 h2 指向同一句柄 (Aliasing Safe)
+    // ==========================================
+    void fdace_vector_add_scaled(const int* h1, double val, const int* h2, int* ho, int size) {
+        for(int i = 0; i < size; ++i) {
+            // 在 C++ 层面，通过这种写法，编译器和 DACE 内部会处理好临时状态
+            // 即使 ho[i] == h1[i]，DACE 的 operator= 和 operator+ 也能保证正确性
+            da_registry[ho[i]] = da_registry[h1[i]] + val * da_registry[h2[i]];
+        }
+    }
+
+    // 单个 DA 的乘加接口 (可选，供基础运算使用)
+    void fdace_add_scaled(int h1, double val, int h2, int ho) {
+        da_registry[ho] = da_registry[h1] + val * da_registry[h2];
+    }
 }
