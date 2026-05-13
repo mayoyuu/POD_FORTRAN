@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # 告诉 CMake 你的 DACE 根目录在哪里
-set(DACE_ROOT "/homes/wxsong/dace")
+set(DACE_ROOT "/home/songyu/dace")
 
 # ==========================================
 # 核心：将所有 DACE 相关的头文件路径一网打尽

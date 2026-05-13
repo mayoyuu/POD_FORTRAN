@@ -308,4 +308,15 @@ extern "C" {
             }
         }
     }
+
+    
+    // 获取当前 DA 注册表中的总对象数（包括已分配但可能被覆盖的）
+    int fdace_get_da_registry_size() {
+        return static_cast<int>(da_registry.size());
+    }
+
+    // 可选：获取当前活跃（未释放）的 DA 对象数
+    int fdace_get_active_da_count() {
+        return static_cast<int>(da_registry.size() - free_handles.size());
+    }
 }
