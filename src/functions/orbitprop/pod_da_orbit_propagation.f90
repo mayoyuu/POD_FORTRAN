@@ -62,7 +62,7 @@ contains
         ! 5. 询问并保存结果
         save_to_file = confirm_action('是否将标称轨迹结果保存到 CSV 文件')
         if (save_to_file) then
-            call save_da_propagation_results(result)
+            call save_da_propagation_results(result, 'output/da_orbit_nominal_trajectory.csv')
         end if
         
         ! 6. 清理内存 
@@ -252,12 +252,11 @@ contains
     end subroutine extract_stm_from_result
     
     
- subroutine save_da_propagation_results(result)
+ subroutine save_da_propagation_results(result, filename)
         type(da_propagation_result), intent(in) :: result
-        character(len=MAX_STRING_LEN) :: filename
+        character(len=MAX_STRING_LEN), intent(in) :: filename
         integer :: unit, i
         
-        filename = './output/da_orbit_nominal_trajectory.csv'
         open(newunit=unit, file=filename, status='replace', action='write')
         
         write(unit, '(A)') '# Time(s), X(km), Y(km), Z(km), VX(km/s), VY(km/s), VZ(km/s)'
