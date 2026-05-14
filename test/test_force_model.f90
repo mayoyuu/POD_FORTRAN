@@ -31,7 +31,7 @@ program test_force_model
     write(*,*) "=================================================="
     
     ! 2. 核心配置：加载或覆盖配置
-    call load_config('dummy_test_config.txt')
+    call load_config('config/dummy_test_config.txt')
     
     ! --- 物理模型配置 ---
     config%use_earth_nspheric = .true.

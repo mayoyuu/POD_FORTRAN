@@ -31,7 +31,7 @@ program test_uq_api
     implicit none
 
     ! ---- 测试参数 ----
-    character(len=*), parameter :: CONFIG_FILE = 'dummy_test_config.txt'
+    character(len=*), parameter :: CONFIG_FILE = 'config/dummy_test_config.txt'
     character(len=*), parameter :: TEST_EPOCH  = '2024-03-09T12:00:00'
     integer,          parameter :: DA_ORDER    = 4 ! 为了匹配 MC 的非线性，可以用 3 阶
     integer,          parameter :: DA_NVARS    = 6

@@ -36,7 +36,7 @@ program example_ut_orbit_determination
     ! 1. 全局物理环境初始化（最先执行！）
     ! ===================================================================
     ! 该步骤会加载 SPICE 内核、初始化时间系统、配置力模型参数等。
-    config_file = 'dummy_test_config.txt'
+    config_file = 'config/dummy_test_config.txt'
     write(*, *) '>>> 正在初始化 POD 物理引擎与星历环境...'
     call pod_engine_init(trim(config_file))
     write(*, *) '>>> 物理引擎初始化完成！'

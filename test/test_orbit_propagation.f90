@@ -22,7 +22,7 @@ program test_orbit_propagation
     ! =========================================================
     ! 1. 系统底层初始化 
     ! =========================================================
-    call pod_engine_init('dummy_test_config.txt')
+    call pod_engine_init('config/dummy_test_config.txt')
     
     ! =========================================================
     ! 2. 用户调用层 (面向物理真实量)

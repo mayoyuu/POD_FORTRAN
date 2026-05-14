@@ -52,7 +52,7 @@ program test_da_orbit_propagation
     implicit none
 
     ! ---- 测试参数 ----
-    character(len=*), parameter :: CONFIG_FILE = 'dummy_test_config.txt'
+    character(len=*), parameter :: CONFIG_FILE = 'config/dummy_test_config.txt'
     character(len=*), parameter :: TEST_EPOCH  = '2025-12-15T00:00:01.000000'
     integer,          parameter :: DA_ORDER    = 3
     integer,          parameter :: DA_NVARS    = 6

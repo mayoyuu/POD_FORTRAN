@@ -30,7 +30,7 @@ program test_orbit_output
     ! 1. 系统与环境初始化
     ! ==========================================
     ! 初始化配置、SPICE 内核等 (如果你的配置文件名不同，请自行修改)
-    call pod_engine_init('dummy_test_config.txt') 
+    call pod_engine_init('config/dummy_test_config.txt') 
     
     ! 解析时间阈值和最终时间
     call str2et(FILTER_TIME_STR, et_filter)

@@ -18,7 +18,7 @@ program pod_ut_test
     ! ===================================================================
     ! 0. 全局物理环境初始化 (最先执行！)
     ! ===================================================================
-    config_file = 'dummy_test_config.txt'
+    config_file = 'config/dummy_test_config.txt'
     write(*,*) '>>> 正在初始化 CAT POD 物理引擎与星历环境...'
     call pod_engine_init(trim(config_file))
     write(*,*) '>>> 物理引擎初始化完成！'

@@ -277,7 +277,7 @@ contains
         config%use_third_body = .true.
         config%use_srp = .true.
         config%use_drag = .false.
-        config%use_relativity = .false.
+        config%use_relativity = .true.
         config%earth_degree = 10
         config%moon_degree = 10
         config%use_planet = .false.
