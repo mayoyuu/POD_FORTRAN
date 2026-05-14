@@ -106,7 +106,7 @@ program test_pod_gravity
     if (earth_grav%dr_da%size /= 3) call earth_grav%dr_da%init(3)
     do i = 1, 3
         ! 用常数 DA 赋值：常数 = earth_grav%dr(i)，导数 = 0
-        earth_grav%dr_da%elements(i) = earth_grav%dr(i)
+        earth_grav%dr_da%elements(i) = earth_grav%dr(i) + da_var(i)
     end do
 
     write(*,*) '  地固系位置 (km): ', earth_grav%dr

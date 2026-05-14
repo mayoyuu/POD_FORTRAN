@@ -55,7 +55,7 @@ contains
         
         ! 4. 显示结果 (标称状态 + STM 提取)
         call display_da_propagation_results(result)
-
+        
         ! 额外展示：打印最终 DA 状态多项式（包含不确定性信息）
         call print_da_vector(result%final_state, "积分后的最终 DA 状态多项式")
         
@@ -125,6 +125,9 @@ contains
         real(DP) :: t_start_nondim, t_end_nondim
         integer :: actual_method, i, j
         
+        ! 预分配的 DA 独立变量（避免在循环中反复创建临时 DA 对象）
+        type(DA), dimension(6) :: da_vars
+        
         write(*, *) '-----------------------------------------'
         write(*, *) '正在准备底层物理环境与 DA 数值积分器...'
         
@@ -134,19 +137,28 @@ contains
         ! 2. 历元基准注入
         call set_propagation_epoch(initial_state%epoch)
         
-        ! 3. 初始状态: DA 变量注入与无量纲化
+        ! 3. 预创建 6 个 DA 独立变量
+        do i = 1, 6
+            da_vars(i) = da_var(i)
+        end do
+        
+        ! 4. 初始状态: DA 变量注入与无量纲化
         call nondim_state%init(6)
         do i = 1, 3
-            ! 物理值 + da_var 注入独立微小偏差，随后除以尺度归一化
-            nondim_state%elements(i)   = (initial_state%nominal_state(i) + da_var(i)) / config%LU
-
-            nondim_state%elements(i+3) = (initial_state%nominal_state(i+3) + da_var(i+3)) / config%VU
+            ! 使用显式子程序赋值避免运算符重载的临时对象
+            ! nondim_state%elements(i) = (initial_state%nominal_state(i) + da_vars(i)) / config%LU
+            call da_add(da_vars(i), initial_state%nominal_state(i), nondim_state%elements(i))
+            call da_div(nondim_state%elements(i), config%LU, nondim_state%elements(i))
+            
+            ! nondim_state%elements(i+3) = (initial_state%nominal_state(i+3) + da_vars(i+3)) / config%VU
+            call da_add(da_vars(i+3), initial_state%nominal_state(i+3), nondim_state%elements(i+3))
+            call da_div(nondim_state%elements(i+3), config%VU, nondim_state%elements(i+3))
         end do
         
         t_start_nondim = 0.0_DP
         t_end_nondim   = final_time / config%TU
         
-        ! 4. 映射积分器选项
+        ! 5. 映射积分器选项
         if (integrator_choice == 1) then
             actual_method = METHOD_RKF45
         else
@@ -155,7 +167,7 @@ contains
         
         write(*, *) 'DA 积分器已启动，正在自适应计算中 (过程可能较长)...'
         
-        ! 5. 调用 DA 积分器
+        ! 6. 调用 DA 积分器
         call da_adaptive_step_integrate( &
             state = nondim_state, &
             t_start = t_start_nondim, &
@@ -167,7 +179,7 @@ contains
             n_steps = result%n_steps &
         )
         
-        ! 6. 结果原地还原物理量纲
+        ! 7. 结果原地还原物理量纲
         ! 还原时间
         result%times = result%times * config%TU
         
@@ -177,10 +189,15 @@ contains
             result%nominal_states(4:6, i) = result%nominal_states(4:6, i) * config%VU
         end do
         
-        ! 还原最终 DA 状态
+        ! 还原最终 DA 状态（使用显式子程序避免运算符重载临时对象）
         do i = 1, 3
-            result%final_state%elements(i)   = result%final_state%elements(i) * config%LU
-            result%final_state%elements(i+3) = result%final_state%elements(i+3) * config%VU
+            call da_mul(result%final_state%elements(i), config%LU, result%final_state%elements(i))
+            call da_mul(result%final_state%elements(i+3), config%VU, result%final_state%elements(i+3))
+        end do
+        
+        ! 8. 清理预分配的 DA 独立变量
+        do i = 1, 6
+            call da_vars(i)%destroy()
         end do
         
         call nondim_state%destroy()
@@ -192,7 +209,8 @@ contains
     
     subroutine display_da_propagation_results(result)
         type(da_propagation_result), intent(in) :: result
-        integer :: i
+        real(DP), dimension(6,6) :: stm
+        integer :: i, j
         
         write(*, *) ''
         write(*, *) 'DA 传播结果摘要:'
@@ -201,14 +219,37 @@ contains
         ! 【优化】直接传实数切片
         call print_vector(result%nominal_states(:, result%n_steps), '    ')
         
-        write(*, *) '  ✨ 最终时刻 STM (3x3) ✨'
-        do i = 1, 3
-            write(*, "(4X, 3(ES15.6, 2X))") &
-                result%final_state%elements(i)%get_deriv_value(1), &
-                result%final_state%elements(i)%get_deriv_value(2), &
-                result%final_state%elements(i)%get_deriv_value(3)
+        ! 提取完整 6×6 STM
+        call extract_stm_from_result(result, stm)
+        
+        write(*, *) '  ✨ 最终时刻 STM (6x6) ✨'
+        do i = 1, 6
+            write(*, "(4X, 6(ES15.6, 2X))") (stm(i, j), j = 1, 6)
         end do
     end subroutine display_da_propagation_results
+    
+    
+    !> 从传播结果中提取完整 6×6 STM 到 real(DP) 数组
+    !> 通过提取 final_state 中每个 DA 元素对 6 个独立变量的 1 阶偏导数实现
+    subroutine extract_stm_from_result(result, stm)
+        type(da_propagation_result), intent(in) :: result
+        real(DP), intent(out) :: stm(6,6)
+        integer :: i, j
+        
+        ! 安全检查
+        if (result%final_state%size < 6) then
+            stm = 0.0_DP
+            write(*, *) '[警告] final_state 大小不足 6，无法提取完整 STM！'
+            return
+        end if
+        
+        ! 提取每个 DA 元素对每个独立变量的 1 阶偏导数
+        do i = 1, 6
+            do j = 1, 6
+                stm(i, j) = result%final_state%elements(i)%get_deriv_value(j)
+            end do
+        end do
+    end subroutine extract_stm_from_result
     
     
  subroutine save_da_propagation_results(result)

@@ -18,10 +18,12 @@ module pod_dace_classes
     ! 无临时变量版本的重载接口（避免内存泄露）
     public :: da_add, da_sub, da_mul, da_div
     public :: vec_add, vec_sub, vec_mul, vec_div
+    public :: real_mul_vector_sub, real_div_da_sub
     public :: da_sin_sub, da_cos_sub, da_atan2_sub, da_asin_sub
     public :: da_sqrt_sub, da_pow_int_sub, da_pow_real_sub
     public :: vector_norm2_sub, vector_dot_vector_sub
     public :: vec_matmul, vec_add_scaled_inplace, da_add_da_sub
+
 
     ! =========================================================
     ! 1. C 接口绑定

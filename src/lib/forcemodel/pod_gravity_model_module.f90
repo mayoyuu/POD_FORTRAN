@@ -340,7 +340,6 @@ contains
             plm(l,l) = sqrt((l2+1.0_DP)/l2) * eta * plm(l-1,l-1)
         end do
     end subroutine PlmX
-
     ! =========================================================
     ! DA 版本：带谐项加速度计算（显式运算，无临时变量泄露）
     ! =========================================================
@@ -367,8 +366,9 @@ contains
         ! fl = 0.0_DP
         call vec_mul(0.0_DP, fl, fl)
 
-        ! dr_da_tmp = gf%dr_da  (复制)
-        call vec_add(gf%dr_da, 0.0_DP*fl, pool%dr_da_tmp)
+        pool%dr_da_tmp = gf%dr_da !(复制)
+        ! call vec_add(gf%dr_da, 0.0_DP*fl, pool%dr_da_tmp)
+        ! call real_mul_vector_sub(1.0_DP, gf%dr_da, pool%dr_da_tmp)
 
         ! r = norm2(dr_da_tmp)  (使用 subroutine 版本避免临时句柄泄漏)
         call vector_norm2_sub(pool%dr_da_tmp, pool%r)
@@ -441,12 +441,14 @@ contains
             call vec_mul(cl0(l), pool%tmp_vec4, pool%tmp_vec5)
             ! fl = fl - tmp_vec5
             call vec_sub(fl, pool%tmp_vec5, pool%tmp_vec6)
-            call vec_add(pool%tmp_vec6, 0.0_DP*fl, fl)
+            ! call vec_add(pool%tmp_vec6, 0.0_DP*fl, fl)
+            fl = pool%tmp_vec6
         end do
         
         ! fl = fl * gmm
         call vec_mul(gmm, fl, pool%tmp_vec1)
-        call vec_add(pool%tmp_vec1, 0.0_DP*fl, fl)
+        ! call vec_add(pool%tmp_vec1, 0.0_DP*fl, fl)
+        fl = pool%tmp_vec1
         
         ! 清理 pl 数组
         do l = 1, gf%ncs
@@ -491,7 +493,8 @@ contains
         end if
 
         ! dr_da_tmp = gf%dr_da
-        call vec_add(gf%dr_da, 0.0_DP*flm, pool%dr_da_tmp)
+        ! call vec_add(gf%dr_da, 0.0_DP*flm, pool%dr_da_tmp)
+        pool%dr_da_tmp = gf%dr_da
         
         ! r = norm2(dr_da_tmp)  (使用 subroutine 版本避免临时句柄泄漏)
         call vector_norm2_sub(pool%dr_da_tmp, pool%r)
@@ -655,13 +658,15 @@ contains
                 call vec_add(pool%tmp_vec4, pool%tmp_vec5, pool%tmp_vec6)
                 ! flm = flm - tmp_vec6
                 call vec_sub(flm, pool%tmp_vec6, pool%tmp_vec7)
-                call vec_add(pool%tmp_vec7, 0.0_DP*flm, flm)
+                ! call vec_add(pool%tmp_vec7, 0.0_DP*flm, flm)
+                flm = pool%tmp_vec7
             end do
         end do
         
         ! flm = flm * gmm
         call vec_mul(gmm, flm, pool%tmp_vec1)
-        call vec_add(pool%tmp_vec1, 0.0_DP*flm, flm)
+        ! call vec_add(pool%tmp_vec1, 0.0_DP*flm, flm)
+        flm =  pool%tmp_vec1
 
         ! 清理 cosmlg, sinmlg 数组
         do l = 1, gf%ncs

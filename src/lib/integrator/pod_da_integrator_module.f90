@@ -12,7 +12,50 @@ module pod_da_integrator_module
     integer, parameter, public :: METHOD_RKF45 = 1
     integer, parameter, public :: METHOD_RKF78 = 2
     
+    ! =========================================================
+    ! 临时变量池：集中管理 AlgebraicVector 运算所需的临时变量，
+    ! 避免在循环中反复使用运算符重载导致内存泄露。
+    ! =========================================================
+    type :: IntegratorTempPool
+        type(AlgebraicVector) :: t1, t2, t3, t4, t5, t6, t7, t8, t9
+    contains
+        procedure :: init => pool_init
+        procedure :: destroy => pool_destroy
+    end type IntegratorTempPool
+    
 contains
+
+    ! =========================================================
+    ! 临时变量池初始化
+    ! =========================================================
+    subroutine pool_init(this)
+        class(IntegratorTempPool), intent(inout) :: this
+        call this%t1%init(6)
+        call this%t2%init(6)
+        call this%t3%init(6)
+        call this%t4%init(6)
+        call this%t5%init(6)
+        call this%t6%init(6)
+        call this%t7%init(6)
+        call this%t8%init(6)
+        call this%t9%init(6)
+    end subroutine pool_init
+
+    ! =========================================================
+    ! 临时变量池销毁
+    ! =========================================================
+    subroutine pool_destroy(this)
+        class(IntegratorTempPool), intent(inout) :: this
+        call this%t1%destroy()
+        call this%t2%destroy()
+        call this%t3%destroy()
+        call this%t4%destroy()
+        call this%t5%destroy()
+        call this%t6%destroy()
+        call this%t7%destroy()
+        call this%t8%destroy()
+        call this%t9%destroy()
+    end subroutine pool_destroy
 
     ! =========================================================
     ! 接口极致纯粹，积分器完全不知道 epoch0 的存在 (DA版)
@@ -63,11 +106,13 @@ contains
         type(AlgebraicVector), intent(inout) :: new_state
         
         type(AlgebraicVector) :: k1, k2, k3, k4, temp_state
+        type(IntegratorTempPool) :: pool
         real(DP) :: half_dt
         
         ! 局部 DA 向量初始化
         call k1%init(6); call k2%init(6); call k3%init(6); call k4%init(6)
         call temp_state%init(6)
+        call pool%init()
         if (new_state%size /= 6) call new_state%init(6)
         
         half_dt = 0.5_DP * dt
@@ -76,22 +121,36 @@ contains
         call da_compute_derivatives(state, time, k1)
         
         ! k2 = f(t + dt/2, y + dt*k1/2)
-        temp_state = state + half_dt * k1
+        ! temp_state = state + half_dt * k1
+        call real_mul_vector_sub(half_dt, k1, pool%t1)
+        call vec_add(state, pool%t1, temp_state)
         call da_compute_derivatives(temp_state, time + half_dt, k2)
         
         ! k3 = f(t + dt/2, y + dt*k2/2)
-        temp_state = state + half_dt * k2
+        ! temp_state = state + half_dt * k2
+        call real_mul_vector_sub(half_dt, k2, pool%t1)
+        call vec_add(state, pool%t1, temp_state)
         call da_compute_derivatives(temp_state, time + half_dt, k3)
         
         ! k4 = f(t + dt, y + dt*k3)
-        temp_state = state + dt * k3
+        ! temp_state = state + dt * k3
+        call real_mul_vector_sub(dt, k3, pool%t1)
+        call vec_add(state, pool%t1, temp_state)
         call da_compute_derivatives(temp_state, time + dt, k4)
         
         ! y(t + dt) = y(t) + dt*(k1 + 2*k2 + 2*k3 + k4)/6
-        new_state = state + (dt / 6.0_DP) * (k1 + 2.0_DP * k2 + 2.0_DP * k3 + k4)
+        ! new_state = state + (dt / 6.0_DP) * (k1 + 2.0_DP * k2 + 2.0_DP * k3 + k4)
+        call real_mul_vector_sub(2.0_DP, k2, pool%t1)       ! t1 = 2*k2
+        call real_mul_vector_sub(2.0_DP, k3, pool%t2)       ! t2 = 2*k3
+        call vec_add(k1, pool%t1, pool%t3)                  ! t3 = k1 + 2*k2
+        call vec_add(pool%t3, pool%t2, pool%t4)             ! t4 = k1+2*k2+2*k3
+        call vec_add(pool%t4, k4, pool%t5)                  ! t5 = k1+2*k2+2*k3+k4
+        call real_mul_vector_sub(dt / 6.0_DP, pool%t5, pool%t1)  ! t1 = (dt/6)*sum
+        call vec_add(state, pool%t1, new_state)             ! new_state = state + (dt/6)*sum
 
         call k1%destroy(); call k2%destroy(); call k3%destroy(); call k4%destroy()
         call temp_state%destroy()
+        call pool%destroy()
         
     end subroutine da_rk4_integrate
 
@@ -146,7 +205,7 @@ contains
         real(DP), allocatable, dimension(:), intent(out) :: times
         real(DP), allocatable, dimension(:,:), intent(out) :: nominal_states 
         ! 单独输出最后一步的全量 DA 状态
-        type(AlgebraicVector), intent(out) :: final_state
+        type(AlgebraicVector), intent(inout) :: final_state
         integer, intent(out) :: n_steps
         
         ! 可选的控制参数
@@ -275,14 +334,22 @@ contains
         end do
         
       ! 4. 输出最终状态 (全量 DA)
-        call final_state%init(6)
+        ! 在子程序内部，建议先检查并安全初始化
+        if (final_state%size /= 6) then
+            call final_state%destroy() ! 如果大小不对，先手动销毁旧的
+            call final_state%init(6)    ! 重新分配 6 个新句柄
+        end if
         final_state = current_state
         
         ! 5. 关键：清理所有临时 DA 变量防止内存泄漏
+        !         type(AlgebraicVector) :: current_state
+        ! type(AlgebraicVector) :: next_state_4th, next_state_5th, next_state_7th, next_state_8th
+        ! type(AlgebraicVector) :: next_state_high, error_estimate_vector
         call current_state%destroy()
         call next_state_4th%destroy(); call next_state_5th%destroy()
         call next_state_7th%destroy(); call next_state_8th%destroy()
         call error_estimate_vector%destroy()
+        if (next_state_high%size == 6) call next_state_high%destroy()
         
         ! 调整输出数组大小
         if (n_steps < max_steps) then
@@ -308,6 +375,7 @@ contains
         
         type(AlgebraicVector) :: k1, k2, k3, k4, k5, k6, k7
         type(AlgebraicVector) :: temp_state
+        type(IntegratorTempPool) :: pool
         
         ! DOPRI5 系数
         real(DP), parameter :: a2 = 1.0_DP / 5.0_DP
@@ -347,42 +415,97 @@ contains
         call k1%init(6); call k2%init(6); call k3%init(6)
         call k4%init(6); call k5%init(6); call k6%init(6); call k7%init(6)
         call temp_state%init(6)
+        call pool%init()
         if (state_4th%size /= 6) call state_4th%init(6)
         if (state_5th%size /= 6) call state_5th%init(6)
         if (error_estimate_vector%size /= 6) call error_estimate_vector%init(6)
         
         call da_compute_derivatives(state, time, k1)
         
-        temp_state = state + (dt * b21) * k1
+        ! temp_state = state + (dt * b21) * k1
+        call real_mul_vector_sub(dt * b21, k1, pool%t1)
+        call vec_add(state, pool%t1, temp_state)
         call da_compute_derivatives(temp_state, time + dt * b21, k2)
         
-        temp_state = state + dt * (b31 * k1 + b32 * k2)
+        ! temp_state = state + dt * (b31 * k1 + b32 * k2)
+        call real_mul_vector_sub(dt * b31, k1, pool%t1)
+        call real_mul_vector_sub(dt * b32, k2, pool%t2)
+        call vec_add(pool%t1, pool%t2, pool%t3)
+        call vec_add(state, pool%t3, temp_state)
         call da_compute_derivatives(temp_state, time + dt * (b31 + b32), k3)
         
-        temp_state = state + dt * (b41 * k1 + b42 * k2 + b43 * k3)
+        ! temp_state = state + dt * (b41 * k1 + b42 * k2 + b43 * k3)
+        call real_mul_vector_sub(dt * b41, k1, pool%t1)
+        call real_mul_vector_sub(dt * b42, k2, pool%t2)
+        call real_mul_vector_sub(dt * b43, k3, pool%t3)
+        call vec_add(pool%t1, pool%t2, pool%t4)
+        call vec_add(pool%t4, pool%t3, pool%t5)
+        call vec_add(state, pool%t5, temp_state)
         call da_compute_derivatives(temp_state, time + dt * (b41 + b42 + b43), k4)
         
-        temp_state = state + dt * (b51 * k1 + b52 * k2 + b53 * k3 + b54 * k4)
+        ! temp_state = state + dt * (b51 * k1 + b52 * k2 + b53 * k3 + b54 * k4)
+        call real_mul_vector_sub(dt * b51, k1, pool%t1)
+        call real_mul_vector_sub(dt * b52, k2, pool%t2)
+        call real_mul_vector_sub(dt * b53, k3, pool%t3)
+        call real_mul_vector_sub(dt * b54, k4, pool%t4)
+        call vec_add(pool%t1, pool%t2, pool%t5)
+        call vec_add(pool%t5, pool%t3, pool%t6)
+        call vec_add(pool%t6, pool%t4, pool%t7)
+        call vec_add(state, pool%t7, temp_state)
         call da_compute_derivatives(temp_state, time + dt * (b51 + b52 + b53 + b54), k5)
         
-        temp_state = state + dt * (b61 * k1 + b62 * k2 + b63 * k3 + b64 * k4 + b65 * k5)
+        ! temp_state = state + dt * (b61 * k1 + b62 * k2 + b63 * k3 + b64 * k4 + b65 * k5)
+        call real_mul_vector_sub(dt * b61, k1, pool%t1)
+        call real_mul_vector_sub(dt * b62, k2, pool%t2)
+        call real_mul_vector_sub(dt * b63, k3, pool%t3)
+        call real_mul_vector_sub(dt * b64, k4, pool%t4)
+        call real_mul_vector_sub(dt * b65, k5, pool%t5)
+        call vec_add(pool%t1, pool%t2, pool%t6)
+        call vec_add(pool%t6, pool%t3, pool%t7)
+        call vec_add(pool%t7, pool%t4, pool%t1)
+        call vec_add(pool%t1, pool%t5, pool%t2)
+        call vec_add(state, pool%t2, temp_state)
         call da_compute_derivatives(temp_state, time + dt * (b61 + b62 + b63 + b64 + b65), k6)
 
         ! 1. 5阶主解
-        state_5th = state + dt * (c1 * k1 + c3 * k3 + c4 * k4 + c5 * k5 + c6 * k6)
+        ! state_5th = state + dt * (c1 * k1 + c3 * k3 + c4 * k4 + c5 * k5 + c6 * k6)
+        call real_mul_vector_sub(dt * c1, k1, pool%t1)
+        call real_mul_vector_sub(dt * c3, k3, pool%t2)
+        call real_mul_vector_sub(dt * c4, k4, pool%t3)
+        call real_mul_vector_sub(dt * c5, k5, pool%t4)
+        call real_mul_vector_sub(dt * c6, k6, pool%t5)
+        call vec_add(pool%t1, pool%t2, pool%t6)
+        call vec_add(pool%t6, pool%t3, pool%t7)
+        call vec_add(pool%t7, pool%t4, pool%t1)
+        call vec_add(pool%t1, pool%t5, pool%t2)
+        call vec_add(state, pool%t2, state_5th)
         
         ! 2. 补齐 k7 
         call da_compute_derivatives(state_5th, time + dt, k7)
 
         ! 3. 4阶解
-        state_4th = state + dt * (d1 * k1 + d3 * k3 + d4 * k4 + d5 * k5 + d6 * k6 + d7 * k7)
+        ! state_4th = state + dt * (d1 * k1 + d3 * k3 + d4 * k4 + d5 * k5 + d6 * k6 + d7 * k7)
+        call real_mul_vector_sub(dt * d1, k1, pool%t1)
+        call real_mul_vector_sub(dt * d3, k3, pool%t2)
+        call real_mul_vector_sub(dt * d4, k4, pool%t3)
+        call real_mul_vector_sub(dt * d5, k5, pool%t4)
+        call real_mul_vector_sub(dt * d6, k6, pool%t5)
+        call real_mul_vector_sub(dt * d7, k7, pool%t6)
+        call vec_add(pool%t1, pool%t2, pool%t7)
+        call vec_add(pool%t7, pool%t3, pool%t1)
+        call vec_add(pool%t1, pool%t4, pool%t2)
+        call vec_add(pool%t2, pool%t5, pool%t3)
+        call vec_add(pool%t3, pool%t6, pool%t4)
+        call vec_add(state, pool%t4, state_4th)
 
         ! 4. 输出代数差异向量，交给上层提取 cons()
-        error_estimate_vector = state_5th - state_4th
+        ! error_estimate_vector = state_5th - state_4th
+        call vec_sub(state_5th, state_4th, error_estimate_vector)
 
         call k1%destroy(); call k2%destroy(); call k3%destroy()
         call k4%destroy(); call k5%destroy(); call k6%destroy(); call k7%destroy()
         call temp_state%destroy()
+        call pool%destroy()
         
     end subroutine da_rkf45_step
 
@@ -396,6 +519,7 @@ contains
         type(AlgebraicVector), intent(inout) :: error_estimate_vector
         
         type(AlgebraicVector) :: f0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12
+        type(IntegratorTempPool) :: pool
         
         ! --- RKF78 系数 ---
         real(DP), parameter :: a1 = 2.0_DP/27.0_DP,   a2 = 1.0_DP/9.0_DP,   a3 = 1.0_DP/6.0_DP
@@ -445,6 +569,7 @@ contains
         call f0%init(6); call f1%init(6); call f2%init(6); call f3%init(6); call f4%init(6)
         call f5%init(6); call f6%init(6); call f7%init(6); call f8%init(6); call f9%init(6)
         call f10%init(6); call f11%init(6); call f12%init(6)
+        call pool%init()
         
         if (state_7th%size /= 6) call state_7th%init(6)
         if (state_8th%size /= 6) call state_8th%init(6)
@@ -458,34 +583,176 @@ contains
         end if
 
         call da_compute_derivatives(state, time, f0)
-        call da_compute_derivatives(state + dt*(f0*b10), time + dt*a1, f1)
-        call da_compute_derivatives(state + dt*(f0*b20 + f1*b21), time + dt*a2, f2)
-        call da_compute_derivatives(state + dt*(f0*b30 + f2*b32), time + dt*a3, f3)
-        call da_compute_derivatives(state + dt*(f0*b40 + f2*b42 + f3*b43), time + dt*a4, f4)
-        call da_compute_derivatives(state + dt*(f0*b50 + f3*b53 + f4*b54), time + dt*a5, f5)
-        call da_compute_derivatives(state + dt*(f0*b60 + f3*b63 + f4*b64 + f5*b65), time + dt*a6, f6)
-        call da_compute_derivatives(state + dt*(f0*b70 + f4*b74 + f5*b75 + f6*b76), time + dt*a7, f7)
-        call da_compute_derivatives(state + dt*(f0*b80 + f3*b83 + f4*b84 + f5*b85 + f6*b86 + f7*b87), time + dt*a8, f8)
-        call da_compute_derivatives(state + dt*(f0*b90 + f3*b93 + f4*b94 + f5*b95 + f6*b96 + f7*b97 + f8*b98), time + dt*a9, f9)
-        call da_compute_derivatives(state + dt*(f0*b100 + f3*b103 + f4*b104 + f5*b105 + f6*b106 + f7*b107 + f8*b108 + f9*b109),&
-                                     time + dt, f10)
-        call da_compute_derivatives(state + dt*(f0*b110 + f5*b115 + f6*b116 + f7*b117 + f8*b118 + f9*b119),&
-                                     time, f11)
-        call da_compute_derivatives(state + dt*(f0*b120 + f3*b123 + f4*b124 + f5*b125 + f6*b126 + f7*b127 + f8*b128 + f9*b129 + &
-                                    f11), time + dt, f12)
+        ! f1: state + dt*(f0*b10)
+        call real_mul_vector_sub(dt*b10, f0, pool%t1)
+        call vec_add(state, pool%t1, pool%t2)
+        call da_compute_derivatives(pool%t2, time + dt*a1, f1)
+        ! f2: state + dt*(f0*b20 + f1*b21)
+        call real_mul_vector_sub(dt*b20, f0, pool%t1)
+        call real_mul_vector_sub(dt*b21, f1, pool%t2)
+        call vec_add(pool%t1, pool%t2, pool%t3)
+        call vec_add(state, pool%t3, pool%t4)
+        call da_compute_derivatives(pool%t4, time + dt*a2, f2)
+        ! f3: state + dt*(f0*b30 + f2*b32)
+        call real_mul_vector_sub(dt*b30, f0, pool%t1)
+        call real_mul_vector_sub(dt*b32, f2, pool%t2)
+        call vec_add(pool%t1, pool%t2, pool%t3)
+        call vec_add(state, pool%t3, pool%t4)
+        call da_compute_derivatives(pool%t4, time + dt*a3, f3)
+        ! f4: state + dt*(f0*b40 + f2*b42 + f3*b43)
+        call real_mul_vector_sub(dt*b40, f0, pool%t1)
+        call real_mul_vector_sub(dt*b42, f2, pool%t2)
+        call real_mul_vector_sub(dt*b43, f3, pool%t3)
+        call vec_add(pool%t1, pool%t2, pool%t4)
+        call vec_add(pool%t4, pool%t3, pool%t5)
+        call vec_add(state, pool%t5, pool%t6)
+        call da_compute_derivatives(pool%t6, time + dt*a4, f4)
+        ! f5: state + dt*(f0*b50 + f3*b53 + f4*b54)
+        call real_mul_vector_sub(dt*b50, f0, pool%t1)
+        call real_mul_vector_sub(dt*b53, f3, pool%t2)
+        call real_mul_vector_sub(dt*b54, f4, pool%t3)
+        call vec_add(pool%t1, pool%t2, pool%t4)
+        call vec_add(pool%t4, pool%t3, pool%t5)
+        call vec_add(state, pool%t5, pool%t6)
+        call da_compute_derivatives(pool%t6, time + dt*a5, f5)
+        ! f6: state + dt*(f0*b60 + f3*b63 + f4*b64 + f5*b65)
+        call real_mul_vector_sub(dt*b60, f0, pool%t1)
+        call real_mul_vector_sub(dt*b63, f3, pool%t2)
+        call real_mul_vector_sub(dt*b64, f4, pool%t3)
+        call real_mul_vector_sub(dt*b65, f5, pool%t4)
+        call vec_add(pool%t1, pool%t2, pool%t5)
+        call vec_add(pool%t5, pool%t3, pool%t6)
+        call vec_add(pool%t6, pool%t4, pool%t7)
+        call vec_add(state, pool%t7, pool%t1)
+        call da_compute_derivatives(pool%t1, time + dt*a6, f6)
+        ! f7: state + dt*(f0*b70 + f4*b74 + f5*b75 + f6*b76)
+        call real_mul_vector_sub(dt*b70, f0, pool%t1)
+        call real_mul_vector_sub(dt*b74, f4, pool%t2)
+        call real_mul_vector_sub(dt*b75, f5, pool%t3)
+        call real_mul_vector_sub(dt*b76, f6, pool%t4)
+        call vec_add(pool%t1, pool%t2, pool%t5)
+        call vec_add(pool%t5, pool%t3, pool%t6)
+        call vec_add(pool%t6, pool%t4, pool%t7)
+        call vec_add(state, pool%t7, pool%t1)
+        call da_compute_derivatives(pool%t1, time + dt*a7, f7)
+        ! f8: state + dt*(f0*b80 + f3*b83 + f4*b84 + f5*b85 + f6*b86 + f7*b87)
+        call real_mul_vector_sub(dt*b80, f0, pool%t1)
+        call real_mul_vector_sub(dt*b83, f3, pool%t2)
+        call real_mul_vector_sub(dt*b84, f4, pool%t3)
+        call real_mul_vector_sub(dt*b85, f5, pool%t4)
+        call real_mul_vector_sub(dt*b86, f6, pool%t5)
+        call real_mul_vector_sub(dt*b87, f7, pool%t6)
+        call vec_add(pool%t1, pool%t2, pool%t7)
+        call vec_add(pool%t7, pool%t3, pool%t1)
+        call vec_add(pool%t1, pool%t4, pool%t2)
+        call vec_add(pool%t2, pool%t5, pool%t3)
+        call vec_add(pool%t3, pool%t6, pool%t4)
+        call vec_add(state, pool%t4, pool%t5)
+        call da_compute_derivatives(pool%t5, time + dt*a8, f8)
+        ! f9: state + dt*(f0*b90 + f3*b93 + f4*b94 + f5*b95 + f6*b96 + f7*b97 + f8*b98)
+        call real_mul_vector_sub(dt*b90, f0, pool%t1)
+        call real_mul_vector_sub(dt*b93, f3, pool%t2)
+        call real_mul_vector_sub(dt*b94, f4, pool%t3)
+        call real_mul_vector_sub(dt*b95, f5, pool%t4)
+        call real_mul_vector_sub(dt*b96, f6, pool%t5)
+        call real_mul_vector_sub(dt*b97, f7, pool%t6)
+        call real_mul_vector_sub(dt*b98, f8, pool%t7)
+        call vec_add(pool%t1, pool%t2, pool%t8)
+        call vec_add(pool%t8, pool%t3, pool%t1)
+        call vec_add(pool%t1, pool%t4, pool%t2)
+        call vec_add(pool%t2, pool%t5, pool%t1)
+        call vec_add(pool%t1, pool%t6, pool%t2)
+        call vec_add(pool%t2, pool%t7, pool%t1)
+        call vec_add(pool%t1, state, pool%t7)
+        call da_compute_derivatives(pool%t7, time + dt*a9, f9)
+        ! f10: state + dt*(f0*b100 + f3*b103 + f4*b104 + f5*b105 + f6*b106 + f7*b107 + f8*b108 + f9*b109)
+        call real_mul_vector_sub(dt*b100, f0, pool%t1)
+        call real_mul_vector_sub(dt*b103, f3, pool%t2)
+        call real_mul_vector_sub(dt*b104, f4, pool%t3)
+        call real_mul_vector_sub(dt*b105, f5, pool%t4)
+        call real_mul_vector_sub(dt*b106, f6, pool%t5)
+        call real_mul_vector_sub(dt*b107, f7, pool%t6)
+        call real_mul_vector_sub(dt*b108, f8, pool%t7)
+        call real_mul_vector_sub(dt*b109, f9, pool%t8)
+        call vec_add(pool%t1, pool%t2, pool%t9)
+        call vec_add(pool%t9, pool%t3, pool%t1)
+        call vec_add(pool%t1, pool%t4, pool%t2)
+        call vec_add(pool%t2, pool%t5, pool%t1)
+        call vec_add(pool%t1, pool%t6, pool%t2)
+        call vec_add(pool%t2, pool%t7, pool%t1)
+        call vec_add(pool%t1, pool%t8, pool%t2)
+        call vec_add(state, pool%t2, pool%t1)
+        call da_compute_derivatives(pool%t1, time + dt, f10)
+        ! f11: state + dt*(f0*b110 + f5*b115 + f6*b116 + f7*b117 + f8*b118 + f9*b119)
+        call real_mul_vector_sub(dt*b110, f0, pool%t1)
+        call real_mul_vector_sub(dt*b115, f5, pool%t2)
+        call real_mul_vector_sub(dt*b116, f6, pool%t3)
+        call real_mul_vector_sub(dt*b117, f7, pool%t4)
+        call real_mul_vector_sub(dt*b118, f8, pool%t5)
+        call real_mul_vector_sub(dt*b119, f9, pool%t6)
+        call vec_add(pool%t1, pool%t2, pool%t7)
+        call vec_add(pool%t7, pool%t3, pool%t1)
+        call vec_add(pool%t1, pool%t4, pool%t2)
+        call vec_add(pool%t2, pool%t5, pool%t3)
+        call vec_add(pool%t3, pool%t6, pool%t4)
+        call vec_add(state, pool%t4, pool%t5)
+        call da_compute_derivatives(pool%t5, time, f11)
+        ! f12: state + dt*(f0*b120 + f3*b123 + f4*b124 + f5*b125 + f6*b126 + f7*b127 + f8*b128 + f9*b129 + f11)
+        call real_mul_vector_sub(dt*b120, f0, pool%t1)
+        call real_mul_vector_sub(dt*b123, f3, pool%t2)
+        call real_mul_vector_sub(dt*b124, f4, pool%t3)
+        call real_mul_vector_sub(dt*b125, f5, pool%t4)
+        call real_mul_vector_sub(dt*b126, f6, pool%t5)
+        call real_mul_vector_sub(dt*b127, f7, pool%t6)
+        call real_mul_vector_sub(dt*b128, f8, pool%t7)
+        call real_mul_vector_sub(dt*b129, f9, pool%t8)
+        call vec_add(pool%t1, pool%t2, pool%t9)
+        call vec_add(pool%t9, pool%t3, pool%t1)
+        call vec_add(pool%t1, pool%t4, pool%t2)
+        call vec_add(pool%t2, pool%t5, pool%t1)
+        call vec_add(pool%t1, pool%t6, pool%t2)
+        call vec_add(pool%t2, pool%t7, pool%t1)
+        call vec_add(pool%t1, pool%t8, pool%t2)
+        call real_mul_vector_sub(dt, f11, pool%t1)  ! <-- 1. 算出 dt * f11
+        call vec_add(pool%t1, pool%t2, pool%t8)     ! <-- 2. 安全累加
+
+        call vec_add(state, pool%t8, pool%t1)
+        call da_compute_derivatives(pool%t1, time + dt, f12)
 
         ! 8阶主解
-        state_8th = state + dt*(f5*c5 + f6*c6 + f7*c7 + f8*c8 + f9*c9 + f11*c11 + f12*c12)
+        ! state_8th = state + dt*(f5*c5 + f6*c6 + f7*c7 + f8*c8 + f9*c9 + f11*c11 + f12*c12)
+        call real_mul_vector_sub(dt*c5, f5, pool%t1)
+        call real_mul_vector_sub(dt*c6, f6, pool%t2)
+        call real_mul_vector_sub(dt*c7, f7, pool%t3)
+        call real_mul_vector_sub(dt*c8, f8, pool%t4)
+        call real_mul_vector_sub(dt*c9, f9, pool%t5)
+        call real_mul_vector_sub(dt*c11, f11, pool%t6)
+        call real_mul_vector_sub(dt*c12, f12, pool%t7)
+        call vec_add(pool%t1, pool%t2, pool%t8)
+        call vec_add(pool%t8, pool%t3, pool%t2)
+        call vec_add(pool%t2, pool%t4, pool%t3)
+        call vec_add(pool%t3, pool%t5, pool%t4)
+        call vec_add(pool%t4, pool%t6, pool%t5)
+        call vec_add(pool%t5, pool%t7, pool%t6)
+        call vec_add(state, pool%t6, state_8th)
         
         ! 7阶解
-        state_7th = state_8th - (err_factor * (f0 + f10 - f11 - f12) * dt)
+        ! state_7th = state_8th - (err_factor * (f0 + f10 - f11 - f12) * dt)
+        call vec_add(f0, f10, pool%t1)                     ! t1 = f0 + f10
+        call vec_sub(pool%t1, f11, pool%t2)                ! t2 = f0+f10 - f11
+        call vec_sub(pool%t2, f12, pool%t3)                ! t3 = f0+f10-f11-f12
+        call real_mul_vector_sub(dt * err_factor, pool%t3, pool%t4)  ! t4 = dt*err_factor*(f0+f10-f11-f12)
+        call vec_sub(state_8th, pool%t4, state_7th)        ! state_7th = state_8th - t4
         
         ! 输出代数差异向量
-        error_estimate_vector = state_8th - state_7th
+        ! error_estimate_vector = state_8th - state_7th
+        call vec_sub(state_8th, state_7th, error_estimate_vector)
 
         call f0%destroy(); call f1%destroy(); call f2%destroy(); call f3%destroy()
         call f4%destroy(); call f5%destroy(); call f6%destroy(); call f7%destroy()
-        call f8%destroy(); call f9%destroy(); call f10%destroy(); call f11%destroy(); call f12%destroy()
+        call f8%destroy(); call f9%destroy(); call f10%destroy(); call f11%destroy(); 
+        call f12%destroy()
+        call pool%destroy()
         
     end subroutine da_rkf78_step
 
