@@ -9,8 +9,9 @@ module pod_obs_io_module
     private
     
     public :: load_single_observation
-    public :: obs_record, station_record
+    public :: obs_record, station_record, ref_orbit_record
     public :: preload_observations, preload_stations, find_station_by_id
+    public :: preload_reference_orbits
 
     !> 轻量级观测记录（仅含滤波所需字段）
     type :: obs_record
@@ -24,7 +25,13 @@ module pod_obs_io_module
         character(len=16) :: id
         type(observation_station) :: station
     end type station_record
-    
+
+    !> 参考轨道记录（与 obs_record 对称）
+    type :: ref_orbit_record
+        real(DP) :: et              ! 历元 (TDB 秒)
+        real(DP) :: state(6)        ! [X, Y, Z, Vx, Vy, Vz] (km, km/s)
+    end type ref_orbit_record
+
 contains
 
     !> 读取给定索引的一行观测，并查找对应的 JSON 测站信息
@@ -294,5 +301,60 @@ contains
         ecef_position(2) = (N + alt_m) * cos(lat_rad) * sin(lon_rad)
         ecef_position(3) = (N * (1.0_DP - e2) + alt_m) * sin(lat_rad)
     end subroutine lbh_to_ecef
+
+    !> ---------------------------------------------------------------
+    !> 一次性将 ORBITS_REF 文件全部解析到内存
+    !> 格式: Idx Name Sys YYYY MM DD HH MM SS.SSSSSS X Y Z Vx Vy Vz
+    !> ---------------------------------------------------------------
+    subroutine preload_reference_orbits(ref_file, ref_list)
+        character(len=*), intent(in) :: ref_file
+        type(ref_orbit_record), allocatable, intent(out) :: ref_list(:)
+
+        integer :: u, ios, n, i, idx
+        character(len=MAX_STRING_LEN) :: line
+        character(len=24) :: obj_name, time_sys
+        integer :: year, month, day, hour, min
+        real(DP) :: sec, X, Y, Z, Vx, Vy, Vz
+        character(len=40) :: utc_str
+
+        ! 1. 统计行数
+        open(newunit=u, file=ref_file, status='old', iostat=ios)
+        if (ios /= 0) stop "[ERROR] 无法打开 REF 文件: " // trim(ref_file)
+        n = 0
+        do
+            read(u, '(A)', iostat=ios) line
+            if (ios < 0) exit
+            if (ios > 0) stop "[ERROR] 读取 REF 文件出错"
+            n = n + 1
+        end do
+        rewind(u)
+
+        allocate(ref_list(n))
+
+        ! 2. 逐行解析
+        do i = 1, n
+            read(u, '(A)') line
+            read(line, *, iostat=ios) idx, obj_name, time_sys, &
+                                       year, month, day, hour, min, sec, &
+                                       X, Y, Z, Vx, Vy, Vz
+            if (ios /= 0) then
+                write(*,*) "[ERROR] 解析 REF 行失败，行号：", i
+                stop
+            end if
+
+            ref_list(i)%state(1) = X
+            ref_list(i)%state(2) = Y
+            ref_list(i)%state(3) = Z
+            ref_list(i)%state(4) = Vx
+            ref_list(i)%state(5) = Vy
+            ref_list(i)%state(6) = Vz
+
+            write(utc_str, '(I4.4,"-",I2.2,"-",I2.2," ",I2.2,":",I2.2,":",F12.6)') &
+                  year, month, day, hour, min, sec
+            ref_list(i)%et = utc_to_et(trim(utc_str))
+        end do
+        close(u)
+
+    end subroutine preload_reference_orbits
 
 end module pod_obs_io_module
