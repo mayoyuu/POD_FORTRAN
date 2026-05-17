@@ -12,7 +12,7 @@ module pod_data_format_module
     private
     
     public :: load_initial_opm
-    public :: write_json_opm, write_residual_line
+    public :: write_json_opm, write_residual_line, write_error_line
 
 contains
 
@@ -274,6 +274,44 @@ contains
 
         close(u)
     end subroutine write_residual_line
+
+    !> ======================================================================
+    !> 写入单行轨道误差数据 (对称于 write_residual_line)
+    !> ======================================================================
+    subroutine write_error_line(filename, et, pos_err, vel_err, &
+                                 pos_rms, vel_rms, mahalanobis_d, is_first)
+        character(len=*), intent(in) :: filename
+        real(DP), intent(in)         :: et
+        real(DP), intent(in)         :: pos_err(3), vel_err(3)
+        real(DP), intent(in)         :: pos_rms, vel_rms, mahalanobis_d
+        logical, intent(in)          :: is_first
+
+        integer :: u, ios
+        character(len=64) :: utc_str
+        character(len=256) :: full_filename
+
+        full_filename = trim(filename) // ".err"
+
+        call et2utc(et, 'ISOC', 3, utc_str)
+
+        if (is_first) then
+            open(newunit=u, file=full_filename, status='replace', action='write', iostat=ios)
+            write(u, '(A)') "# UTC_Time                 ET_Seconds     dX(km)       dY(km)       dZ(km)     &
+             dVx(km/s)     dVy(km/s)     dVz(km/s)    Pos_RMS(km)  Vel_RMS(km/s)  Mahal_D"
+        else
+            open(newunit=u, file=full_filename, status='old', position='append', action='write', iostat=ios)
+        end if
+
+        if (ios /= 0) return
+
+        write(u, '(A24, F16.4, 3F14.6, 3F14.8, 2F14.6, F14.6)') &
+            utc_str, et, &
+            pos_err(1), pos_err(2), pos_err(3), &
+            vel_err(1), vel_err(2), vel_err(3), &
+            pos_rms, vel_rms, mahalanobis_d
+
+        close(u)
+    end subroutine write_error_line
 
     !> ======================================================================
     !> 内部辅助工具：从 JSON 字符串行中提取实数值
