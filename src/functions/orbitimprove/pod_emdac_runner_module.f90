@@ -4,11 +4,14 @@ module pod_emdac_runner_module
     use pod_global, only: DP, MAX_STRING_LEN
     use pod_uq_gmm_state_module, only: uq_gmm_state_type
     use pod_filter_emdac_module, only: emdac_filter
-    use pod_obs_io_module, only: load_single_observation
+    use pod_obs_io_module, only: obs_record, preload_observations, &
+                                  station_record, preload_stations, find_station_by_id, &
+                                  ref_orbit_record, preload_reference_orbits
     use pod_measurement_base_module, only: observation_station
     use pod_basicmath_module, only: PI
-    ! 假设引入了 JSON 读写模块
-    use pod_data_format_module, only: load_initial_opm, write_json_opm, write_residual_line
+    use pod_data_format_module, only: load_initial_opm, write_json_opm, &
+                                       write_residual_line, write_error_line
+    use pod_error_analysis_module, only: compute_orbit_error
 
     implicit none
     private
@@ -21,18 +24,22 @@ contains
     !> ======================================================================
     !> 核心集成接口：执行完整的 EMDAC 轨道定轨流程
     !> ======================================================================
-    subroutine run_emdac_orbit_determination(obs_file, site_json_file, gmm_in_switch, &
-                                             initial_json_file, output_file_name, n_components,&
-                                             max_da_order,opt_particles, &
-                                             opt_em_max_iter, opt_em_tol)
+    subroutine run_emdac_orbit_determination(obs_file, site_json_file, ref_orbit_file, &
+                                             initial_json_file, output_opm_file, &
+                                             output_residual_file, output_error_file, &
+                                             gmm_in_switch, n_components, max_da_order, &
+                                             opt_particles, opt_em_max_iter, opt_em_tol)
         
-        character(len=*), intent(in) :: obs_file           ! 观测文件路径 (.obs)
-        character(len=*), intent(in) :: site_json_file     ! 测站配置文件路径 (.json)
-        character(len=*), intent(in) :: initial_json_file  ! 初始先验状态文件路径 (.opm/.json)
-        character(len=*), intent(in) :: output_file_name   ! 输出定轨结果文件路径 (.opm/.json)
-        logical, intent(in) :: gmm_in_switch               ! GMM 初始化开关
-        integer,  intent(in) :: n_components       ! GMM 分量数量
-        integer,  intent(in) :: max_da_order       ! DA 阶数
+        character(len=*), intent(in) :: obs_file             ! 观测数据文件 (.obs)
+        character(len=*), intent(in) :: site_json_file       ! 测站配置文件 (.json)
+        character(len=*), intent(in) :: ref_orbit_file       ! 参考轨道文件 (.ref)
+        character(len=*), intent(in) :: initial_json_file    ! 初始先验状态文件 (.json)
+        character(len=*), intent(in) :: output_opm_file      ! 输出定轨结果文件
+        character(len=*), intent(in) :: output_residual_file ! 输出残差文件
+        character(len=*), intent(in) :: output_error_file    ! 输出误差文件 (.err)
+        logical, intent(in) :: gmm_in_switch
+        integer,  intent(in) :: n_components
+        integer,  intent(in) :: max_da_order
     
         logical :: has_gmm_loaded
         integer,  intent(in), optional :: opt_particles      ! 粒子总数
@@ -42,6 +49,9 @@ contains
         ! 局部变量：核心对象
         type(emdac_filter) :: my_filter
         type(observation_station) :: current_station
+        type(obs_record), allocatable :: obs_list(:)
+        type(station_record), allocatable :: station_list(:)
+        type(ref_orbit_record), allocatable :: ref_list(:)
         
         ! 状态与时间变量
         real(DP) :: initial_mean(6), final_mean(6)
@@ -51,7 +61,6 @@ contains
 
         real(DP) :: y_meas(2), noise_R(2,2)
         real(DP) :: et_current, et_obs, dt
-        logical :: is_eof
         integer :: obs_count, i
         
         ! 【新增】用于自适应阶数的内部变量，绝不污染外层接口
@@ -60,6 +69,8 @@ contains
 
         real(DP) :: step_res(6)    ! 存储最近一次测量更新的 6 列残差
         real(DP) :: step_comp(2)   ! 存储最近一次计算出的预测观测值 (Lon, Lat)
+        real(DP) :: pos_err(3), vel_err(3)
+        real(DP) :: pos_rms, vel_rms, mahalanobis_d
         
         ! 1. 测量噪声协方差设置 (例如光学赤经赤纬，0.1角秒精度)
         noise_R = 0.0_DP
@@ -94,12 +105,20 @@ contains
         ! 初始化阶数控制逻辑标志
         is_first_step = .true.
         
-        ! 4. 核心数据同化流 (Time Update + Measurement Update)
-        obs_count = 1
-        do
-            call load_single_observation(obs_file, site_json_file, obs_count, &
-                                         et_obs, y_meas(1), y_meas(2), current_station, is_eof)
-            if (is_eof) exit
+        ! 4. 预加载全部观测、测站与参考轨道
+        call preload_observations(obs_file, obs_list)
+        call preload_stations(site_json_file, station_list)
+        call preload_reference_orbits(ref_orbit_file, ref_list)
+
+        write(*,*) '  [Runner] 预加载完成：观测 ', size(obs_list), &
+                   ' 条，测站 ', size(station_list), ' 个，参考轨道 ', size(ref_list), ' 条'
+
+        ! 5. 核心数据同化流 (Time Update + Measurement Update)
+        do obs_count = 1, size(obs_list)
+            et_obs = obs_list(obs_count)%et
+            y_meas(1) = obs_list(obs_count)%ra
+            y_meas(2) = obs_list(obs_count)%dec
+            current_station = find_station_by_id(obs_list(obs_count)%station_id, station_list)
 
             write(*,*) 'Station ECEF:', current_station%ecef_position
             write(*,*) 'Station geodetic:', current_station%latitude, current_station%longitude, current_station%altitude
@@ -151,6 +170,13 @@ contains
             write(*,*) '  传播后时间为: ', et_current
             call my_filter%get_current_state(final_mean)
             write(*,*) '  时间更新后结果为: ',  final_mean
+            call my_filter%get_current_cov(final_cov)
+
+            call compute_orbit_error(final_mean, final_cov, ref_list(obs_count)%state, &
+                                      pos_err, vel_err, pos_rms, vel_rms, mahalanobis_d)
+
+            call write_error_line(output_error_file, et_obs, pos_err, vel_err, &
+                                   pos_rms, vel_rms, mahalanobis_d, (obs_count == 1))
 
             call my_filter%measurement_update(y_meas, noise_R, et_obs, current_station)
             call my_filter%get_current_epoch(et_current)
@@ -162,15 +188,8 @@ contains
     
             ! 调用写入函数
             ! obs_count == 1 时为 true，创建新文件；之后为 false，追加写入
-            call write_residual_line(output_file_name, et_obs, y_meas, step_comp, &
+            call write_residual_line(output_residual_file, et_obs, y_meas, step_comp, &
                                     step_res, trim(current_station%name), (obs_count == 1))
-            
-             ! 观测更新放在时间更新之后，确保每一步都能看到 DA 传播的效果
-
-            obs_count = obs_count + 1
-
-            !! 测试阶段只测第一步
-            ! if (obs_count > 2) exit
 
         end do
         
@@ -181,7 +200,7 @@ contains
         call my_filter%get_current_state(final_mean)
         call my_filter%get_current_cov(final_cov)
         
-        call write_json_opm(output_file_name, final_mean, final_cov, my_filter%gmm_state, 0.0_DP, "DRO", et_current)
+        call write_json_opm(output_opm_file, final_mean, final_cov, my_filter%gmm_state, 0.0_DP, "DRO", et_current)
         
     end subroutine run_emdac_orbit_determination
 
