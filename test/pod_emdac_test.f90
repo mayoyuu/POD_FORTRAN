@@ -11,6 +11,7 @@ program pod_emdac_test
     ! 命令行与配置参数
     character(len=MAX_STRING_LEN) :: config_file
     character(len=MAX_STRING_LEN) :: obs_file, initial_json_file, output_file_name, site_json_file
+    character(len=MAX_STRING_LEN) :: ref_orbit_file, output_residual_file, output_error_file
     character(len=32) :: arg_str
     integer :: i, num_args
     
@@ -34,7 +35,10 @@ program pod_emdac_test
     obs_file          = 'input/DROB_20251210_20260111_cor.obs'
     site_json_file    = 'config/site.json'
     initial_json_file = 'input/DROb_20251210_9.opm'
-    output_file_name  = 'output/DROb_202601_1_emdac_result_with_process_noise'
+    output_file_name     = 'output/DROb_202601_1_emdac_result_with_process_noise'
+    ref_orbit_file       = 'ORBITS_REF/DRO/DRO_single_R91_1h.ref'
+    output_residual_file = 'output/DROb_202601_1_emdac_residual'
+    output_error_file    = 'output/DROb_202601_1_emdac_error'
     
     ! 2. 灵活解析命令行可选参数
     num_args = command_argument_count()
@@ -58,8 +62,16 @@ program pod_emdac_test
                 call get_command_argument(i+1, arg_str); read(arg_str, *) n_components
                 i = i + 1
             case ('-gmm', '--use_gmm')
-                ! 增加一个无参开关，碰到这个参数就开启 GMM 初始化
                 gmm_in_switch = .true.
+            case ('-ref', '--ref_orbit')
+                call get_command_argument(i+1, arg_str); ref_orbit_file = trim(arg_str)
+                i = i + 1
+            case ('-res', '--residual')
+                call get_command_argument(i+1, arg_str); output_residual_file = trim(arg_str)
+                i = i + 1
+            case ('-err', '--error')
+                call get_command_argument(i+1, arg_str); output_error_file = trim(arg_str)
+                i = i + 1
         end select
         i = i + 1
     end do
@@ -76,21 +88,26 @@ program pod_emdac_test
     write(*,*) 'GMM 初始化   : ', gmm_in_switch
     write(*,*) '--------------------------------------------------'
     write(*,*) '观测数据输入 : ', trim(obs_file)
+    write(*,*) '参考轨道输入 : ', trim(ref_orbit_file)
     write(*,*) '定轨结果输出 : ', trim(output_file_name)
+    write(*,*) '残差输出     : ', trim(output_residual_file)
+    write(*,*) '误差输出     : ', trim(output_error_file)
     write(*,*) '--------------------------------------------------'
     
-    ! 直接调用核心 API 进行“黑盒”执行，采用极其安全的【全关键字传参】模式
     call run_emdac_orbit_determination( &
-        obs_file          = obs_file, &
-        site_json_file    = site_json_file, &
-        gmm_in_switch     = gmm_in_switch, &
-        initial_json_file = initial_json_file, &
-        output_file_name  = output_file_name, &
-        opt_particles     = opt_particles, &
-        max_da_order      = opt_da_order, &
-        opt_em_max_iter   = opt_em_max_iter, &
-        opt_em_tol        = opt_em_tol, &
-        n_components      = n_components ) ! 注意：DA 阶数参数也传入了 Runner，供内部自适应使用   )
+        obs_file             = obs_file, &
+        site_json_file       = site_json_file, &
+        ref_orbit_file       = ref_orbit_file, &
+        initial_json_file    = initial_json_file, &
+        output_opm_file      = output_file_name, &
+        output_residual_file = output_residual_file, &
+        output_error_file    = output_error_file, &
+        gmm_in_switch        = gmm_in_switch, &
+        opt_particles        = opt_particles, &
+        max_da_order         = opt_da_order, &
+        opt_em_max_iter      = opt_em_max_iter, &
+        opt_em_tol           = opt_em_tol, &
+        n_components         = n_components)
                                        
     write(*,*) '✅ 测试任务圆满完成！'
     write(*,*) '=================================================='
