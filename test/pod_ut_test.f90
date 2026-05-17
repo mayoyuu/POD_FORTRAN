@@ -11,6 +11,7 @@ program pod_ut_test
     ! 命令行与配置参数
     character(len=MAX_STRING_LEN) :: config_file
     character(len=MAX_STRING_LEN) :: obs_file, initial_json_file, output_file_name, site_json_file
+    character(len=MAX_STRING_LEN) :: ref_orbit_file, output_residual_file, output_error_file
     character(len=32) :: arg_str
     integer :: i, num_args
 
@@ -27,21 +28,30 @@ program pod_ut_test
     obs_file          = 'input/DROB_20251210_20260111_cor.obs'
     site_json_file    = 'config/site.json'
     initial_json_file = 'input/DROb_20251210_9.opm'
-    output_file_name  = 'output/DROb_202601_ut_result'
+    output_file_name     = 'output/DROb_202601_ut_result'
+    ref_orbit_file       = 'ORBITS_REF/DRO/DRO_single_R91_1h.ref'
+    output_residual_file = 'output/DROb_202601_ut_residual'
+    output_error_file    = 'output/DROb_202601_ut_error'
     
     ! 3. 打印配置并启动集成 API
     write(*,*) '=================================================='
     write(*,*) '        CAT POD ut-N 轨道改进测试终端          '
     write(*,*) '=================================================='
     write(*,*) '观测数据输入 : ', trim(obs_file)
+    write(*,*) '参考轨道输入 : ', trim(ref_orbit_file)
     write(*,*) '定轨结果输出 : ', trim(output_file_name)
+    write(*,*) '残差输出     : ', trim(output_residual_file)
+    write(*,*) '误差输出     : ', trim(output_error_file)
     write(*,*) '--------------------------------------------------'
-    
+
     call run_ut_orbit_determination( &
-        obs_file          = obs_file, &
-        site_json_file    = site_json_file, &
-        initial_json_file = initial_json_file, &
-        output_file_name  = output_file_name) 
+        obs_file             = obs_file, &
+        site_json_file       = site_json_file, &
+        ref_orbit_file       = ref_orbit_file, &
+        initial_json_file    = initial_json_file, &
+        output_opm_file      = output_file_name, &
+        output_residual_file = output_residual_file, &
+        output_error_file    = output_error_file) 
                                        
     write(*,*) '✅ 测试任务圆满完成！'
     write(*,*) '=================================================='
