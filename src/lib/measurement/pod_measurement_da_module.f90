@@ -144,7 +144,7 @@ contains
         real(DP), dimension(3)   :: obs_j2000
         
         ! 1. 获取转换矩阵并计算测站在 J2000 下的双精度常数位置
-        call get_frame_transform('ITRF93', 'J2000', et, rot_itrf_to_j2000)
+        call get_frame_transform('IAU_EARTH', 'J2000', et, rot_itrf_to_j2000)
         obs_j2000 = matmul(rot_itrf_to_j2000, station%ecef_position)
         ! call vec_matmul(rot_itrf_to_j2000, station%ecef_position, obs_j2000)
         
@@ -189,7 +189,7 @@ contains
         real(DP)                 :: lat_rad, lon_rad, sin_lat, cos_lat, sin_lon, cos_lon
         
         ! 1. 转换目标位置到地固系: pos_itrf = matmul(rot_j2000_to_itrf, pos_j2000)
-        call get_frame_transform('J2000', 'ITRF93', et, rot_j2000_to_itrf)
+        call get_frame_transform('J2000', 'IAU_EARTH', et, rot_j2000_to_itrf)
         call vec_matmul(rot_j2000_to_itrf, pool%pos_j2000, pool%pos_itrf)
         
         ! 2. 相对位置: rel_itrf = pos_itrf - station%ecef_position

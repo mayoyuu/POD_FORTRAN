@@ -32,13 +32,13 @@ program pod_emdac_test
     write(*,*) '>>> 物理引擎初始化完成！'
     
     ! 1. 默认文件路径
-    obs_file          = 'input/DROB_20251210_20260111_cor.obs'
+    obs_file          = 'OBS/DRO/DRO_single_R91_1h.obs'
     site_json_file    = 'config/site.json'
-    initial_json_file = 'input/DROb_20251210_9.opm'
-    output_file_name     = 'output/DROb_202601_1_emdac_result_with_process_noise'
+    initial_json_file = 'OPM/DRO/DRO_init.opm.json'
     ref_orbit_file       = 'ORBITS_REF/DRO/DRO_single_R91_1h.ref'
-    output_residual_file = 'output/DROb_202601_1_emdac_residual'
-    output_error_file    = 'output/DROb_202601_1_emdac_error'
+    output_file_name     = 'OPM/DRO/DRO_single_R91_1h_emdac'
+    output_residual_file = 'OPM/DRO/DRO_single_R91_1h_emdac'
+    output_error_file    = 'OPM/DRO/DRO_single_R91_1h_emdac'
     
     ! 2. 灵活解析命令行可选参数
     num_args = command_argument_count()

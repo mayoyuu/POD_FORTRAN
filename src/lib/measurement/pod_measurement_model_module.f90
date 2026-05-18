@@ -91,7 +91,7 @@ contains
         real(DP) :: ra, dec
         
         ! 1. 获取动态坐标转换矩阵：ITRF93 (地固系) -> J2000 (惯性系)
-        call get_frame_transform('ITRF93', 'J2000', et, rot_itrf_to_j2000)
+        call get_frame_transform('IAU_EARTH', 'J2000', et, rot_itrf_to_j2000)
         
         ! 2. 将测站坐标从地固系旋转到当前的 J2000 惯性系
         obs_j2000 = matmul(rot_itrf_to_j2000, station%ecef_position)
@@ -127,7 +127,7 @@ contains
         real(DP) :: sin_lat, cos_lat, sin_lon, cos_lon
         
         ! 1. 获取 J2000 到 ITRF 的转换矩阵
-        call get_frame_transform('J2000', 'ITRF93', et, rot_j2000_to_itrf)
+        call get_frame_transform('J2000', 'IAU_EARTH', et, rot_j2000_to_itrf)
         
         ! 2. 将目标位置转换到地固系 (ITRF)
         pos_itrf = matmul(rot_j2000_to_itrf, pos_j2000)

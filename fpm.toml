@@ -16,4 +16,8 @@ link = ["spicelib", "m", "dace_wrapper", "dace_s", "stdc++","openblas"]
 [install]
 library = false
 
+[[executable]]
+name = "run_pod_emdac"
+source-dir = "app"
+main = "run_pod_emdac.f90"
 

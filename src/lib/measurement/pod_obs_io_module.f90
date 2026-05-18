@@ -43,8 +43,9 @@ contains
         logical, intent(out)         :: is_eof
         
         integer :: u_obs, ios, i
-        character(len=MAX_STRING_LEN) :: line, sys, site_id
+        character(len=MAX_STRING_LEN) :: line, sys, time_sys, site_id
         character(len=40) :: utc_str
+        character(len=20) :: sec_str
         integer :: year, month, day, hour, min
         real(DP) :: sec, ra_deg, dec_deg, dummy1, dummy2
         
@@ -65,17 +66,19 @@ contains
         close(u_obs)
         
         ! 2. 解析 OBS 格式: UTC YYYY MM DD HH MM SS.SSS RA DEC SITE 0.0 0.0
-        read(line, *, iostat=ios) sys, year, month, day, hour, min, sec, &
+        read(line, *, iostat=ios) sys, time_sys, year, month, day, hour, min, sec, &
                                   ra_deg, dec_deg, site_id, dummy1, dummy2
         if (ios /= 0) stop "[ERROR] 解析 OBS 行失败"
         
         ! 转换角度为弧度
         ra_rad  = ra_deg * PI / 180.0_DP
         dec_rad = dec_deg * PI / 180.0_DP
-        
-        write(utc_str, '(I4.4,"-",I2.2,"-",I2.2," ",I2.2,":",I2.2,":",F12.6)') &
-              year, month, day, hour, min, sec
-        
+
+        call normalize_utc_seconds(year, month, day, hour, min, sec)
+        write(sec_str, '(F12.6)') sec
+        write(utc_str, '(I4.4,"-",I2.2,"-",I2.2," ",I2.2,":",I2.2,":",A)') &
+            year, month, day, hour, min, trim(adjustl(sec_str))
+
         ! 调用 pod_time_module 转换历元 (UTC -> TDB)
         et = utc_to_et(trim(utc_str))
         
@@ -93,12 +96,13 @@ contains
 
         integer :: u, ios, n, i
         character(len=MAX_STRING_LEN) :: line
-        character(len=8) :: sys
+        character(len=8) :: sys, time_sys
         integer :: year, month, day, hour, min
         real(DP) :: sec, ra_deg, dec_deg
         character(len=16) :: site_id
         real(DP) :: dummy1, dummy2
         character(len=40) :: utc_str
+        character(len=20) :: sec_str
 
         ! 1. 统计行数
         open(newunit=u, file=obs_file, status='old', iostat=ios)
@@ -117,7 +121,7 @@ contains
         ! 2. 逐行解析，填充结构体数组
         do i = 1, n
             read(u, '(A)') line
-            read(line, *, iostat=ios) sys, year, month, day, hour, min, sec, &
+            read(line, *, iostat=ios) sys, time_sys, year, month, day, hour, min, sec, &
                                        ra_deg, dec_deg, site_id, dummy1, dummy2
             if (ios /= 0) then
                 write(*,*) "[ERROR] 解析 OBS 行失败，行号：", i
@@ -130,8 +134,10 @@ contains
             obs_list(i)%station_id = trim(site_id)
 
             ! 构造 UTC 字符串并转为 ET
-            write(utc_str, '(I4.4,"-",I2.2,"-",I2.2," ",I2.2,":",I2.2,":",F12.6)') &
-                  year, month, day, hour, min, sec
+            call normalize_utc_seconds(year, month, day, hour, min, sec)
+            write(sec_str, '(F12.6)') sec
+            write(utc_str, '(I4.4,"-",I2.2,"-",I2.2," ",I2.2,":",I2.2,":",A)') &
+                year, month, day, hour, min, trim(adjustl(sec_str))
             obs_list(i)%et = utc_to_et(trim(utc_str))
         end do
         close(u)
@@ -304,18 +310,19 @@ contains
 
     !> ---------------------------------------------------------------
     !> 一次性将 ORBITS_REF 文件全部解析到内存
-    !> 格式: Idx Name Sys YYYY MM DD HH MM SS.SSSSSS X Y Z Vx Vy Vz
+    !> 格式: Name Sys YYYY MM DD HH MM SS.SSSSSS X Y Z Vx Vy Vz
     !> ---------------------------------------------------------------
     subroutine preload_reference_orbits(ref_file, ref_list)
         character(len=*), intent(in) :: ref_file
         type(ref_orbit_record), allocatable, intent(out) :: ref_list(:)
 
-        integer :: u, ios, n, i, idx
+        integer :: u, ios, n, i
         character(len=MAX_STRING_LEN) :: line
         character(len=24) :: obj_name, time_sys
         integer :: year, month, day, hour, min
         real(DP) :: sec, X, Y, Z, Vx, Vy, Vz
         character(len=40) :: utc_str
+        character(len=20) :: sec_str
 
         ! 1. 统计行数
         open(newunit=u, file=ref_file, status='old', iostat=ios)
@@ -334,7 +341,7 @@ contains
         ! 2. 逐行解析
         do i = 1, n
             read(u, '(A)') line
-            read(line, *, iostat=ios) idx, obj_name, time_sys, &
+            read(line, *, iostat=ios) obj_name, time_sys, &
                                        year, month, day, hour, min, sec, &
                                        X, Y, Z, Vx, Vy, Vz
             if (ios /= 0) then
@@ -349,12 +356,36 @@ contains
             ref_list(i)%state(5) = Vy
             ref_list(i)%state(6) = Vz
 
-            write(utc_str, '(I4.4,"-",I2.2,"-",I2.2," ",I2.2,":",I2.2,":",F12.6)') &
-                  year, month, day, hour, min, sec
+            ! 替换为新代码：
+            call normalize_utc_seconds(year, month, day, hour, min, sec)
+            write(sec_str, '(F12.6)') sec
+            write(utc_str, '(I4.4,"-",I2.2,"-",I2.2," ",I2.2,":",I2.2,":",A)') &
+                year, month, day, hour, min, trim(adjustl(sec_str))
             ref_list(i)%et = utc_to_et(trim(utc_str))
+
         end do
         close(u)
 
     end subroutine preload_reference_orbits
+
+   !> 秒数接近 60 时进位归一化，避免 SPICE STR2ET 报错
+    subroutine normalize_utc_seconds(year, month, day, hour, min, sec)
+        integer, intent(inout)  :: year, month, day, hour, min
+        real(DP), intent(inout) :: sec
+
+        ! 检查是否大于或等于 59.9999995，防止写入字符串时四舍五入变为 60.0
+        if (sec >= 59.9999995_DP) then
+            sec = 0.0_DP
+            min = min + 1
+            if (min >= 60) then
+                min = min - 60
+                hour = hour + 1
+                if (hour >= 24) then
+                    hour = hour - 24
+                    day = day + 1
+                end if
+            end if
+        end if
+    end subroutine normalize_utc_seconds
 
 end module pod_obs_io_module

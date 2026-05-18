@@ -151,7 +151,7 @@ contains
                     current_order = max_da_order
                 else if (abs(dt) > 86400.0_DP) then          ! 步长在1天到3天之间 -> 3阶
                     current_order = 3
-                else if (abs(dt) < 3600.0_DP) then           ! 步长小于1小时 -> 1阶
+                else if (abs(dt) < 1.5*3600.0_DP) then           ! 步长小于1.5小时 -> 1阶
                     current_order = 1
                 else                                         ! 步长在1小时到1天之间 -> 2阶
                     current_order = 2

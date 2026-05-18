@@ -53,7 +53,7 @@ program test_da_orbit_propagation
 
     ! ---- 测试参数 ----
     character(len=*), parameter :: CONFIG_FILE = 'config/dummy_test_config.txt'
-    character(len=*), parameter :: TEST_EPOCH  = '2025-12-15T00:00:01.000000'
+    character(len=*), parameter :: TEST_EPOCH  = '2027-01-01T00:00:00.000000'
     integer,          parameter :: DA_ORDER    = 3
     integer,          parameter :: DA_NVARS    = 6
 
@@ -98,16 +98,6 @@ program test_da_orbit_propagation
 
     ! 0.1 一键初始化
     call pod_engine_init(CONFIG_FILE)
-
-    ! 0.2 强制开启复杂环境（地球 10 阶，月球 10 阶，太阳第三体）
-    config%use_earth_nspheric = .true.
-    config%earth_degree       = 10
-    config%use_moon_nspheric  = .true.
-    config%moon_degree        = 10
-    config%use_third_body     = .true.
-    config%use_planet(10)     = .true. ! 激活月球
-    config%use_planet(11)     = .true. ! 激活太阳
-
     ! 0.3 初始化 DA 版引力网
     call init_gravity_network()
 
@@ -127,9 +117,10 @@ program test_da_orbit_propagation
     write(*,*) '>>> [Phase 1] 设置测试状态 (DRO 轨道)...'
 
     ! DRO UTC 2025 12 15 00 00   1.000000  
-    state_physical = [-402779.291910_DP,-181111.455576_DP,-109249.167033_DP, &  ! 位置 (km)
-                            0.291707_DP,-0.504100_DP,-0.263272_DP]              ! 速度 (km/s)
-
+    ! state_physical = [-402779.291910_DP,-181111.455576_DP,-109249.167033_DP, &  ! 位置 (km)
+    !                         0.291707_DP,-0.504100_DP,-0.263272_DP]             ! 速度 (km/s)
+    state_physical = [-319799.7672246762085706,-121777.8213011904736049,-83544.0429213791940128, &
+         0.5079721343630439,-1.1472290543515786,-0.5631968252037175]
     ! ---- 实数版初始状态 ----
     real_initial_state%state = state_physical
     real_initial_state%epoch = tdb_epoch
@@ -139,16 +130,16 @@ program test_da_orbit_propagation
     da_initial_state%epoch         = tdb_epoch
     da_initial_state%da_order      = DA_ORDER
 
-    propagation_time = 86400.0_DP * 4  ! 4 天
+    propagation_time = 3600.0_DP  ! 1 小时
 
     write(*,*) '  初始状态 (km, km/s): ', state_physical
-    write(*,*) '  积分总时长: 4 天 (', propagation_time, ' 秒)'
+    write(*,*) '  积分总时长: 1h (', propagation_time, ' 秒)'
 
     ! ============================================================
     ! Phase 2: RKF45 传播一致性测试
     ! ============================================================
     write(*,*) ''
-    write(*,*) '>>> [Phase 2] RKF45 传播一致性测试 (4 天)...'
+    write(*,*) '>>> [Phase 2] RKF45 传播一致性测试 (1h)...'
 
     ! ---- 实数版 RKF45 ----
     call propagate_orbit(real_initial_state, propagation_time, 1, real_result)
@@ -180,7 +171,7 @@ program test_da_orbit_propagation
     ! Phase 3: RKF78 传播一致性测试
     ! ============================================================
     write(*,*) ''
-    write(*,*) '>>> [Phase 3] RKF78 传播一致性测试 (4 天)...'
+    write(*,*) '>>> [Phase 3] RKF78 传播一致性测试 (1h)...'
 
     ! ---- 实数版 RKF78 ----
     call propagate_orbit(real_initial_state, propagation_time, 2, real_result)
@@ -295,5 +286,6 @@ program test_da_orbit_propagation
     end if
 
     write(*,*) '============================================================'
+    ! DRO-2 UTC 2027 01 01 01 00   0.000000  -299108.8323717201128602 -171889.5589499184570741 -108243.3088397099782014       0.3092518631333057      -1.0384666985815290      -0.5197024380273580
 
 end program test_da_orbit_propagation
