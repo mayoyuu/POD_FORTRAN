@@ -27,11 +27,11 @@ contains
                                           output_residual_file, output_error_file)
         character(len=*), intent(in) :: obs_file
         character(len=*), intent(in) :: site_json_file
-        character(len=*), intent(in) :: ref_orbit_file
         character(len=*), intent(in) :: initial_json_file
         character(len=*), intent(in) :: output_opm_file
         character(len=*), intent(in) :: output_residual_file
-        character(len=*), intent(in) :: output_error_file
+        character(len=*), intent(in), optional :: ref_orbit_file
+        character(len=*), intent(in), optional :: output_error_file
 
         ! 核心对象
         type(ut_filter)       :: my_filter
@@ -72,10 +72,17 @@ contains
         ! ---- 4. 预加载全部观测、测站与参考轨道 ----
         call preload_observations(obs_file, obs_list)
         call preload_stations(site_json_file, station_list)
-        call preload_reference_orbits(ref_orbit_file, ref_list)
+        if (present(ref_orbit_file)) then
+            call preload_reference_orbits(ref_orbit_file, ref_list)
+        end if
 
-        write(*,*) '  [UT Runner] 预加载完成：观测 ', size(obs_list), &
-                   ' 条，测站 ', size(station_list), ' 个，参考轨道 ', size(ref_list), ' 条'
+        if (present(ref_orbit_file)) then
+            write(*,*) '  [UT Runner] 预加载完成：观测 ', size(obs_list), &
+                       ' 条，测站 ', size(station_list), ' 个，参考轨道 ', size(ref_list), ' 条'
+        else
+            write(*,*) '  [UT Runner] 预加载完成：观测 ', size(obs_list), &
+                       ' 条，测站 ', size(station_list), ' 个'
+        end if
 
         ! ---- 5. 主循环：逐观测进行时间更新 + 测量更新 ----
         do obs_count = 1, size(obs_list)
@@ -104,11 +111,15 @@ contains
             call my_filter%get_current_state(final_mean)
             call my_filter%get_current_cov(final_cov)
 
-            call compute_orbit_error(final_mean, final_cov, ref_list(obs_count)%state, &
-                                      pos_err, vel_err, pos_rms, vel_rms, mahalanobis_d)
+            if (present(ref_orbit_file)) then
+                call compute_orbit_error(final_mean, final_cov, ref_list(obs_count)%state, &
+                                          pos_err, vel_err, pos_rms, vel_rms, mahalanobis_d)
 
-            call write_error_line(output_error_file, et_obs, pos_err, vel_err, &
-                                   pos_rms, vel_rms, mahalanobis_d, (obs_count == 1))
+                if (present(output_error_file)) then
+                    call write_error_line(output_error_file, et_obs, pos_err, vel_err, &
+                                           pos_rms, vel_rms, mahalanobis_d, (obs_count == 1))
+                end if
+            end if
 
             call my_filter%measurement_update(y_meas, noise_R, et_obs, current_station)
             call my_filter%get_current_epoch(et_current)

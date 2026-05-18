@@ -21,3 +21,8 @@ name = "run_pod_emdac"
 source-dir = "app"
 main = "run_pod_emdac.f90"
 
+[[executable]]
+name = "run_pod_ut"
+source-dir = "app"
+main = "run_pod_ut.f90"
+
