@@ -82,6 +82,10 @@ module pod_gravity_model_module
         type(DA) :: sqrt_res
         type(DA) :: tmp_da1, tmp_da2, tmp_da3, tmp_da4, tmp_da5
         type(DA) :: tmp_da6, tmp_da7, tmp_da8
+        ! 专用缓存变量，避免循环内重复计算
+        type(DA) :: r2_da        ! sqrt(dr(1)^2 + dr(2)^2) 仅算一次
+        type(DA) :: rm_over_r    ! rm / r 仅算一次
+        type(DA) :: rl3_factor   ! (rm/r)^l / r^3 每 l 缓存一次
         ! --- AlgebraicVector 临时变量 ---
         type(AlgebraicVector) :: h, k_v, g_v, w1, w2, dr_da_tmp
         type(AlgebraicVector) :: tmp_vec1, tmp_vec2, tmp_vec3, tmp_vec4
@@ -108,6 +112,7 @@ contains
         call this%tmp_da1%init();  call this%tmp_da2%init();  call this%tmp_da3%init()
         call this%tmp_da4%init();  call this%tmp_da5%init();  call this%tmp_da6%init()
         call this%tmp_da7%init();  call this%tmp_da8%init()
+        call this%r2_da%init(); call this%rm_over_r%init(); call this%rl3_factor%init()
         call this%h%init(n); call this%k_v%init(n); call this%g_v%init(n)
         call this%w1%init(n); call this%w2%init(n); call this%dr_da_tmp%init(n)
         call this%tmp_vec1%init(n); call this%tmp_vec2%init(n)
@@ -130,6 +135,7 @@ contains
         call this%tmp_da1%destroy();  call this%tmp_da2%destroy();  call this%tmp_da3%destroy()
         call this%tmp_da4%destroy();  call this%tmp_da5%destroy();  call this%tmp_da6%destroy()
         call this%tmp_da7%destroy();  call this%tmp_da8%destroy()
+        call this%r2_da%destroy(); call this%rm_over_r%destroy(); call this%rl3_factor%destroy()
         call this%h%destroy(); call this%k_v%destroy(); call this%g_v%destroy()
         call this%w1%destroy(); call this%w2%destroy(); call this%dr_da_tmp%destroy()
         call this%tmp_vec1%destroy(); call this%tmp_vec2%destroy()
@@ -277,7 +283,7 @@ contains
                 cosmlg(l) = 2.0_DP*coslg*cosmlg(l-1) - cosmlg(l-2)
                 sinmlg(l) = 2.0_DP*coslg*sinmlg(l-1) - sinmlg(l-2)
             end if
-            
+
             do m = 1, l
                 w11 = sqrt((l+m+1.0_DP)*(l-m))
                 w21 = m*zr/eta
@@ -503,19 +509,17 @@ contains
         call da_mul(pool%dr_da_tmp%elements(1), pool%dr_da_tmp%elements(1), pool%tmp_da1)
         call da_mul(pool%dr_da_tmp%elements(2), pool%dr_da_tmp%elements(2), pool%tmp_da2)
         call da_add(pool%tmp_da1, pool%tmp_da2, pool%tmp_da3)
-        ! sqrt 使用 subroutine 版本避免临时句柄泄漏
-        call da_sqrt_sub(pool%tmp_da3, pool%sqrt_res)
-        ! 用 pool%w11_da 暂存 r2
-        call da_add(pool%sqrt_res, 0.0_DP, pool%w11_da)
-        
+       ! sqrt 使用 subroutine 版本避免临时句柄泄漏
+        call da_sqrt_sub(pool%tmp_da3, pool%r2_da)
+
         ! zr = dr_da_tmp(3) / r
         call da_div(pool%dr_da_tmp%elements(3), pool%r, pool%zr)
-        
+
         ! coslg = dr_da_tmp(1) / r2
-        call da_div(pool%dr_da_tmp%elements(1), pool%w11_da, pool%coslg)
-        
+        call da_div(pool%dr_da_tmp%elements(1), pool%r2_da, pool%coslg)
+
         ! sinlg = dr_da_tmp(2) / r2
-        call da_div(pool%dr_da_tmp%elements(2), pool%w11_da, pool%sinlg)
+        call da_div(pool%dr_da_tmp%elements(2), pool%r2_da, pool%sinlg)
 
         ! cosmlg(1) = coslg; sinmlg(1) = sinlg
         call cosmlg(1)%init(); call sinmlg(1)%init()
@@ -541,14 +545,15 @@ contains
         call da_add(pool%coslg, 0.0_DP, pool%g_v%elements(2))
         call da_mul(pool%g_v%elements(3), 0.0_DP, pool%g_v%elements(3))
         
-        ! eta = sqrt(1.0_DP - zr**2)  (使用 subroutine 版本避免临时句柄泄漏)
-        call da_mul(pool%zr, pool%zr, pool%tmp_da1)
-        call da_mul(pool%tmp_da1, -1.0_DP, pool%tmp_da2)
-        call da_add(pool%tmp_da2, 1.0_DP, pool%tmp_da3)
+        ! eta = sqrt(1.0_DP - zr**2)
+        pool%tmp_da3 = 1.0_DP - pool%zr * pool%zr
         call da_sqrt_sub(pool%tmp_da3, pool%eta)
 
         if (pool%eta%cons() < 1e-7_DP) stop
-    
+
+        ! 预计算 rm/r（仅一次）
+        pool%rm_over_r = rm / pool%r
+
         do l = 2, gf%ncs
             call cosmlg(l)%init()
             call sinmlg(l)%init()
@@ -573,81 +578,32 @@ contains
                 call da_mul(pool%tmp_da1, 2.0_DP, pool%tmp_da2)
                 call da_sub(pool%tmp_da2, sinmlg(l-2), sinmlg(l))
             end if
-            
+
+            ! 缓存 rl3_factor = (rm/r)^l / r^3 (每 l 一次)
+            call da_pow_int_sub(pool%rm_over_r, l, pool%tmp_da1)
+            pool%rl3_factor = pool%tmp_da1 / (pool%r * pool%r * pool%r)
+
             do m = 1, l
-                ! w11 = sqrt((l+m+1.0_DP)*(l-m))  (实数标量，不需要 DA)
-                ! w21 = real(m, DP)*zr/eta
-                call da_mul(pool%zr, real(m, DP), pool%tmp_da1)
-                call da_div(pool%tmp_da1, pool%eta, pool%w21_da)
+                pool%w21_da = real(m, DP) * pool%zr / pool%eta
+                pool%dplm = (sqrt(real((l+m+1)*(l-m), DP)) * plm(l,m+1) - pool%w21_da * plm(l,m)) / pool%eta
                 
-                ! dplm = (w11*plm(l,m+1) - w21*plm(l,m))/eta
-                ! 其中 w11 = sqrt((l+m+1)*(l-m)) 是实数
-                call da_mul(plm(l,m+1), sqrt(real((l+m+1)*(l-m), DP)), pool%tmp_da1)
-                call da_mul(pool%w21_da, plm(l,m), pool%tmp_da2)
-                call da_sub(pool%tmp_da1, pool%tmp_da2, pool%tmp_da3)
-                call da_div(pool%tmp_da3, pool%eta, pool%dplm)
-                
-                ! w1 = (rm/r)**l/r**3 * (((l+1.0_DP)*plm(l,m)+zr*dplm)*dr_da_tmp - r*dplm*k_v)
-                ! 先计算 (rm/r)**l
-                ! 注意: da_div 不支持 real/DA，先将 rm 转为 DA
-                call da_mul(pool%tmp_da1, 0.0_DP, pool%tmp_da1)
-                call da_add(pool%tmp_da1, rm, pool%tmp_da1)
-                call da_div(pool%tmp_da1, pool%r, pool%tmp_da1)
-                ! 使用 da_pow_int_sub 避免临时句柄泄漏
-                call da_pow_int_sub(pool%tmp_da1, l, pool%tmp_da2)
-                ! 保存 (rm/r)**l 到 ratio_tmp，供后续 w2 计算使用
-                call da_add(pool%tmp_da2, 0.0_DP, pool%ratio_tmp)
-                ! 再除以 r**3
-                call da_mul(pool%r, pool%r, pool%tmp_da3)
-                call da_mul(pool%tmp_da3, pool%r, pool%tmp_da3)
-                call da_div(pool%tmp_da2, pool%tmp_da3, pool%tmp_da4)
-                ! 计算 ((l+1)*plm(l,m) + zr*dplm)
-                call da_mul(plm(l,m), real(l+1, DP), pool%tmp_da5)
-                call da_mul(pool%zr, pool%dplm, pool%tmp_da6)
-                call da_add(pool%tmp_da5, pool%tmp_da6, pool%tmp_da7)
-                ! 乘以 dr_da_tmp
-                call vec_mul(pool%tmp_da7, pool%dr_da_tmp, pool%tmp_vec1)
-                ! 计算 r*dplm*k_v
-                call da_mul(pool%r, pool%dplm, pool%tmp_da8)
-                call vec_mul(pool%tmp_da8, pool%k_v, pool%tmp_vec2)
-                ! 相减
+                ! w1 = rl3_factor * (((l+1)*plm(l,m)+zr*dplm)*dr_da_tmp - r*dplm*k_v)
+                pool%tmp_da3 = real(l+1, DP) * plm(l,m) + pool%zr * pool%dplm
+                call vec_mul(pool%tmp_da3, pool%dr_da_tmp, pool%tmp_vec1)
+                pool%tmp_da4 = pool%r * pool%dplm
+                call vec_mul(pool%tmp_da4, pool%k_v, pool%tmp_vec2)
                 call vec_sub(pool%tmp_vec1, pool%tmp_vec2, pool%tmp_vec3)
-                ! 乘以 (rm/r)**l/r**3
-                call vec_mul(pool%tmp_da4, pool%tmp_vec3, pool%w1)
-                
-                ! w11 = clm(l,m)*cosmlg(m) + slm(l,m)*sinmlg(m)  (实数标量)
-                ! 注意: w11 是实数，这里用 pool%w11_da 存储 DA 结果
-                call da_mul(cosmlg(m), clm(l,m), pool%tmp_da1)
-                call da_mul(sinmlg(m), slm(l,m), pool%tmp_da2)
-                call da_add(pool%tmp_da1, pool%tmp_da2, pool%w11_da)
-                
-                ! w2 = real(m, DP)/r2/r*(rm/r)**l * plm(l,m)*g_v
-                ! 计算 m/r2/r
-                call da_mul(pool%w11_da, 0.0_DP, pool%tmp_da1)  ! 复用 w11_da 作为 r2
-                call da_add(pool%w11_da, 0.0_DP, pool%tmp_da1)  ! 暂存 r2
-                ! 实际上 r2 是 pool%w11_da 但被覆盖了，需要重新计算
-        ! 重新计算 r2 = sqrt(dr_da_tmp(1)**2 + dr_da_tmp(2)**2)
-        call da_mul(pool%dr_da_tmp%elements(1), pool%dr_da_tmp%elements(1), pool%tmp_da1)
-        call da_mul(pool%dr_da_tmp%elements(2), pool%dr_da_tmp%elements(2), pool%tmp_da3)
-        call da_add(pool%tmp_da1, pool%tmp_da3, pool%tmp_da4)
-        call da_sqrt_sub(pool%tmp_da4, pool%tmp_da5)
-        ! 现在 tmp_da5 = r2
-        call da_mul(pool%tmp_da5, pool%r, pool%tmp_da6)
-        ! da_div 不支持 real/DA，先将 real(m) 转为 DA
-        call da_mul(pool%tmp_da7, 0.0_DP, pool%tmp_da7)
-        call da_add(pool%tmp_da7, real(m, DP), pool%tmp_da7)
-        call da_div(pool%tmp_da7, pool%tmp_da6, pool%tmp_da7)
-        ! 乘以 (rm/r)**l (保存在 pool%ratio_tmp 中)
-        call da_mul(pool%tmp_da7, pool%ratio_tmp, pool%tmp_da8)
-        ! 乘以 plm(l,m)
-        call da_mul(pool%tmp_da8, plm(l,m), pool%tmp_da1)
-        ! 乘以 g_v
-        call vec_mul(pool%tmp_da1, pool%g_v, pool%w2)
-                
-                ! w21 = clm(l,m)*sinmlg(m) - slm(l,m)*cosmlg(m)  (实数标量)
-                call da_mul(sinmlg(m), clm(l,m), pool%tmp_da1)
-                call da_mul(cosmlg(m), slm(l,m), pool%tmp_da2)
-                call da_sub(pool%tmp_da1, pool%tmp_da2, pool%w21_da)
+                call vec_mul(pool%rl3_factor, pool%tmp_vec3, pool%w1)
+
+                ! w11 = clm(l,m)*cosmlg(m) + slm(l,m)*sinmlg(m)
+                pool%w11_da = clm(l,m) * cosmlg(m) + slm(l,m) * sinmlg(m)
+
+                ! w2 = m * rl3_factor * r^2 / r2 * plm(l,m) * g_v
+                pool%tmp_da5 = real(m, DP) * pool%rl3_factor * pool%r * pool%r / pool%r2_da * plm(l,m)
+                call vec_mul(pool%tmp_da5, pool%g_v, pool%w2)
+
+                ! w21 = clm(l,m)*sinmlg(m) - slm(l,m)*cosmlg(m)
+                pool%w21_da = clm(l,m) * sinmlg(m) - slm(l,m) * cosmlg(m)
                 
                 ! flm = flm - (w1*w11 + w2*w21)
                 ! w1*w11 (向量乘实数)
