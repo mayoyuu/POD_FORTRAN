@@ -1,13 +1,13 @@
 !> @file run_pod_emdac.f90
 !> @brief CAT POD 系统 EMDAC-N 轨道改进命令行应用入口 (支持批量调度)
 ! nohup fpm run run_pod_emdac -- \
-!   -obs OBS/DRO/DRO_single_R91_1h.obs \
-!   -init OPM/DRO/DRO_init.opm.json \
-!   -ref ORBITS_REF/DRO/DRO_single_R91_1h.ref \
-!   -out OPM/DRO/DRO_single_R91_1h_emdac \
-!   -res OPM/DRO/DRO_single_R91_1h_emdac \
-!   -err OPM/DRO/DRO_single_R91_1h_emdac \
-!   -p 100000 -o 4 -gmm > emdac_single.log 2>&1 &
+!   -obs OBS/L1Halo/L1Halo_single_R91_1h_mag20.obs \
+!   -init OPM/L1Halo/L1Halo_init.opm.json \
+!   -ref ORBITS_REF/L1Halo/L1Halo_single_R91_1h_mag20.ref \
+!   -out OPM/L1Halo/L1Halo_single_R91_1h_mag20_emdac \
+!   -res OPM/L1Halo/L1Halo_single_R91_1h_mag20_emdac \
+!   -err OPM/L1Halo/L1Halo_single_R91_1h_mag20_emdac \
+! !   -p 100000 -o 4 -gmm > emdac_single.log 2>&1 &
 program run_pod_emdac
     use pod_global, only: DP, MAX_STRING_LEN
     use pod_engine_module, only: pod_engine_init

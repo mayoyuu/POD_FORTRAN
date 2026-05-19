@@ -285,14 +285,17 @@ contains
         ! 【核心新增】：计算更新前的残差 (Innovation) 用于输出报告
         ! ==========================================================
         pred_z_pre = measurement_da%cons()
+
+        write(*,*) '预测值为:', pred_z_pre
+        write(*,*) '真实观测值为：',y_meas
         
         this%last_comp_val = pred_z_pre(1:2)
         this%last_residual = 0.0_DP
         ! 1. dA * cos(Dec) 单位：arcsec
         this%last_residual(1) = (y_meas(1) - pred_z_pre(1)) * 3600.0_DP &
-        * cos(y_meas(2) * PI / 180.0_DP)
+        * cos(y_meas(2)) * 180/ PI
         ! 2. dDec 单位：arcsec
-        this%last_residual(2) = (y_meas(2) - pred_z_pre(2)) * 3600.0_DP
+        this%last_residual(2) = (y_meas(2) - pred_z_pre(2)) * 3600.0_DP * 180/PI
         ! 3. Total Angle Residual
         this%last_residual(3) = sqrt(this%last_residual(1)**2 + this%last_residual(2)**2)
         ! 4-6. 占位符 (未来可扩展 RTN 残差)
