@@ -4,6 +4,9 @@
 !   -obs OBS/DRO/DRO_single_R91_1h.obs \
 !   -init OPM/DRO/DRO_init.opm.json \
 !   -ref ORBITS_REF/DRO/DRO_single_R91_1h.ref \
+!   -out OPM/DRO/DRO_single_R91_1h_emdac \
+!   -res OPM/DRO/DRO_single_R91_1h_emdac \
+!   -err OPM/DRO/DRO_single_R91_1h_emdac \
 !   -p 100000 -o 4 -gmm > emdac_single.log 2>&1 &
 program run_pod_emdac
     use pod_global, only: DP, MAX_STRING_LEN

@@ -207,7 +207,8 @@ contains
                                  this%current_omega, this%current_W)
 
         ! 时间更新
-        this%current_epoch = et                         
+        this%current_epoch = et  
+        call this%update_global_cov()                       
         
         ! 释放临时粒子对象内存，保留 this%propagated_particles 供后续测量更新使用
         call uq_particles%deallocate_memory()

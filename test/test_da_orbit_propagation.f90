@@ -52,9 +52,21 @@ program test_da_orbit_propagation
     implicit none
 
     ! ---- 测试参数 ----
-    character(len=*), parameter :: CONFIG_FILE = 'config/dummy_test_config.txt'
-    character(len=*), parameter :: TEST_EPOCH  = '2027-01-01T00:00:00.000000'
-    integer,          parameter :: DA_ORDER    = 3
+!     提取的初始时间为：2027-01-21T06:11:59.999977
+!  [DACE Engine] Initializing... Max Order =            4 , Variables =            6
+!  [DACE Engine] Initialization Complete.
+!  [EMDAC] 滤波器初始化完成！
+!    初始历元:    853783989.18446887     
+!    粒子总数:        10000
+!    DA 阶数 :            4
+!    EM 最大迭代次数:           50
+!    EM 收敛容差:    1.0000000000000000E-004
+!    [Runner] 滤波器初始化完成
+!      初始均值:   -69889.749654867599        277796.99561967980        139800.51132475381       -1.4401975258386401      -0.26685405638245341      -0.23429573954939670     
+!      初始历元:    853783989.18446887   
+    character(len=*), parameter :: CONFIG_FILE = 'config/config.txt'
+    character(len=*), parameter :: TEST_EPOCH  = '2027-01-21T06:11:59.999977'
+    integer,          parameter :: DA_ORDER    = 4
     integer,          parameter :: DA_NVARS    = 6
 
     ! ---- 物理状态（J2000 惯性系，有量纲） ----
@@ -119,8 +131,8 @@ program test_da_orbit_propagation
     ! DRO UTC 2025 12 15 00 00   1.000000  
     ! state_physical = [-402779.291910_DP,-181111.455576_DP,-109249.167033_DP, &  ! 位置 (km)
     !                         0.291707_DP,-0.504100_DP,-0.263272_DP]             ! 速度 (km/s)
-    state_physical = [-319799.7672246762085706,-121777.8213011904736049,-83544.0429213791940128, &
-         0.5079721343630439,-1.1472290543515786,-0.5631968252037175]
+    state_physical = [-69889.749654867599_DP,277796.99561967980_DP,139800.51132475381_DP, &  ! 位置 (km)
+    -1.4401975258386401_DP,-0.26685405638245341_DP,-0.23429573954939670_DP]
     ! ---- 实数版初始状态 ----
     real_initial_state%state = state_physical
     real_initial_state%epoch = tdb_epoch
@@ -130,16 +142,16 @@ program test_da_orbit_propagation
     da_initial_state%epoch         = tdb_epoch
     da_initial_state%da_order      = DA_ORDER
 
-    propagation_time = 3600.0_DP  ! 1 小时
+    propagation_time = 3600.0_DP*24*20  ! 4 天
 
     write(*,*) '  初始状态 (km, km/s): ', state_physical
-    write(*,*) '  积分总时长: 1h (', propagation_time, ' 秒)'
+    write(*,*) '  积分总时长: 20 天 (', propagation_time, ' 秒)'
 
     ! ============================================================
     ! Phase 2: RKF45 传播一致性测试
     ! ============================================================
     write(*,*) ''
-    write(*,*) '>>> [Phase 2] RKF45 传播一致性测试 (1h)...'
+    write(*,*) '>>> [Phase 2] RKF45 传播一致性测试 (20d)...'
 
     ! ---- 实数版 RKF45 ----
     call propagate_orbit(real_initial_state, propagation_time, 1, real_result)
