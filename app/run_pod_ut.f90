@@ -1,10 +1,13 @@
 !> @file run_pod_ut.f90
 !> @brief CAT POD 系统 UT 轨道改进命令行应用入口 (支持批量调度)
 ! nohup fpm run run_pod_ut -- \
-!   -obs OBS/DRO/DRO_single_R91_1h.obs \
-!   -init OPM/DRO/DRO_init.opm.json \
-!   -ref ORBITS_REF/DRO/DRO_single_R91_1h.ref \
-!   > ut_single.log 2>&1 &
+!   -obs OBS/L1Halo/L1Halo_single_R91_1h_mag20_par.obs \
+!   -init OPM/L1Halo/L1Halo_init.opm.json \
+!   -ref ORBITS_REF/L1Halo/L1Halo_single_R91_1h_mag20_par.ref \
+!   -out OPM/L1Halo/L1Halo_single_R91_1h_mag20_par_ut \
+!   -res OPM/L1Halo/L1Halo_single_R91_1h_mag20_par_ut \
+!   -err OPM/L1Halo/L1Halo_single_R91_1h_mag20_par_ut \
+! !   -p 100000 -o 4 -gmm > ut_single.log 2>&1 &
 program run_pod_ut
     use pod_global, only: DP, MAX_STRING_LEN
     use pod_engine_module, only: pod_engine_init

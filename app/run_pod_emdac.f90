@@ -1,12 +1,12 @@
 !> @file run_pod_emdac.f90
 !> @brief CAT POD 系统 EMDAC-N 轨道改进命令行应用入口 (支持批量调度)
 ! nohup fpm run run_pod_emdac -- \
-!   -obs OBS/L1Halo/L1Halo_single_R91_1h_mag20.obs \
+!   -obs OBS/L1Halo/L1Halo_single_R91_1h_mag20_par.obs \
 !   -init OPM/L1Halo/L1Halo_init.opm.json \
-!   -ref ORBITS_REF/L1Halo/L1Halo_single_R91_1h_mag20.ref \
-!   -out OPM/L1Halo/L1Halo_single_R91_1h_mag20_emdac \
-!   -res OPM/L1Halo/L1Halo_single_R91_1h_mag20_emdac \
-!   -err OPM/L1Halo/L1Halo_single_R91_1h_mag20_emdac \
+!   -ref ORBITS_REF/L1Halo/L1Halo_single_R91_1h_mag20_par.ref \
+!   -out OPM/L1Halo/L1Halo_single_R91_1h_mag20_par_emdac_o6 \
+!   -res OPM/L1Halo/L1Halo_single_R91_1h_mag20_par_emdac_o6 \
+!   -err OPM/L1Halo/L1Halo_single_R91_1h_mag20_par_emdac_o6 \
 ! !   -p 100000 -o 4 -gmm > emdac_single.log 2>&1 &
 program run_pod_emdac
     use pod_global, only: DP, MAX_STRING_LEN
@@ -25,7 +25,7 @@ program run_pod_emdac
     
     ! 算法控制参数 (赋予默认业务值)
     integer :: opt_particles = 100000
-    integer :: opt_da_order = 4
+    integer :: opt_da_order = 6
     integer :: opt_em_max_iter = 50
     real(DP) :: opt_em_tol = 1.0e-4_DP
     integer :: n_components = 3

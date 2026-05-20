@@ -285,9 +285,6 @@ contains
         ! 【核心新增】：计算更新前的残差 (Innovation) 用于输出报告
         ! ==========================================================
         pred_z_pre = measurement_da%cons()
-
-        write(*,*) '预测值为:', pred_z_pre
-        write(*,*) '真实观测值为：',y_meas
         
         this%last_comp_val = pred_z_pre(1:2)
         this%last_residual = 0.0_DP
