@@ -4,9 +4,9 @@
 !   -obs OBS/L1Halo/L1Halo_single_R91_1h_mag20_par.obs \
 !   -init OPM/L1Halo/L1Halo_init.opm.json \
 !   -ref ORBITS_REF/L1Halo/L1Halo_single_R91_1h_mag20_par.ref \
-!   -out OPM/L1Halo/L1Halo_single_R91_1h_mag20_par_emdac_o6 \
-!   -res OPM/L1Halo/L1Halo_single_R91_1h_mag20_par_emdac_o6 \
-!   -err OPM/L1Halo/L1Halo_single_R91_1h_mag20_par_emdac_o6 \
+!   -out OPM/L1Halo/L1Halo_single_R91_1h_mag20_par_emdac_n1 \
+!   -res OPM/L1Halo/L1Halo_single_R91_1h_mag20_par_emdac_n1 \
+!   -err OPM/L1Halo/L1Halo_single_R91_1h_mag20_par_emdac_n1 \
 ! !   -p 100000 -o 4 -gmm > emdac_single.log 2>&1 &
 program run_pod_emdac
     use pod_global, only: DP, MAX_STRING_LEN
@@ -25,10 +25,10 @@ program run_pod_emdac
     
     ! 算法控制参数 (赋予默认业务值)
     integer :: opt_particles = 100000
-    integer :: opt_da_order = 6
+    integer :: opt_da_order = 5
     integer :: opt_em_max_iter = 50
     real(DP) :: opt_em_tol = 1.0e-4_DP
-    integer :: n_components = 3
+    integer :: n_components = 1
     logical :: gmm_in_switch = .false.
 
     ! ===================================================================
