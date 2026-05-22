@@ -26,3 +26,8 @@ name = "run_pod_ut"
 source-dir = "app"
 main = "run_pod_ut.f90"
 
+[[executable]]
+name = "run_CRTBP_uprop"
+source-dir = "app"
+main = "run_CRTBP_uprop.f90"
+
