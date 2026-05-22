@@ -71,7 +71,11 @@ program make_crtbp_config
     if (.not. ok) stop 'Error: missing "initial_state"'
 
     call json_get_matrix(content, 'initial_covariance', cov, 6, 6, ok)
-    if (.not. ok) stop 'Error: missing "initial_covariance"'
+    if (.not. ok) then
+        print *, 'DEBUG: key pos = ', find_key_pos(content, 'initial_covariance')
+        print *, 'DEBUG: content length = ', len(content)
+        stop 'Error: missing "initial_covariance"'
+    end if
 
     call json_get_real(content, 'propagation_time', t_end, ok)
     if (.not. ok) stop 'Error: missing "propagation_time"'

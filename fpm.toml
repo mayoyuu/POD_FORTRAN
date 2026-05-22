@@ -31,3 +31,8 @@ name = "run_CRTBP_uprop"
 source-dir = "app"
 main = "run_CRTBP_uprop.f90"
 
+[[executable]]
+name = "make_crtbp_config"
+source-dir = "app"
+main = "make_crtbp_config.f90"
+
