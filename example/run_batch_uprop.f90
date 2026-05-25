@@ -86,9 +86,9 @@ program run_batch_uprop
         cov(1,1) = 3.0_DP
         cov(2,2) = 3.0_DP
         cov(3,3) = 3.0_DP
-        cov(4,4) = 3.33e-5_DP
-        cov(5,5) = 3.33e-5_DP
-        cov(6,6) = 3.33e-5_DP
+        cov(4,4) = 3.33e-5_DP*1e-6_DP
+        cov(5,5) = 3.33e-5_DP*1e-6_DP
+        cov(6,6) = 3.33e-5_DP*1e-6_DP
 
         call nondim_cov(cov, LU, TU)
 

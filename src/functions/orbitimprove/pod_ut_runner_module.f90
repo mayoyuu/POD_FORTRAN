@@ -106,7 +106,8 @@ contains
                     '  观测时刻 et_obs = ', et_obs, ' 秒', &
                     '  时间步长 dt =', dt, ' 秒'
 
-            call my_filter%time_update(et_obs, noise_Q)
+            ! call my_filter%time_update(et_obs, noise_Q)
+            call my_filter%time_update(et_obs)
             call my_filter%get_current_epoch(et_current)
             call my_filter%get_current_state(final_mean)
             call my_filter%get_current_cov(final_cov)
