@@ -4,7 +4,7 @@ module pod_crtbp_module
     implicit none
     private
 
-    real(DP), public :: crtbp_mu = 0.01_DP
+    real(DP), public :: crtbp_mu = 0.012153614091892_DP
     public :: set_crtbp_mu
     public :: crtbp_derivatives_real
     public :: crtbp_derivatives_da
