@@ -61,9 +61,9 @@ use_third_body = true
 use_srp = true
 use_drag = false
 use_relativity = true
-active_planets = 3,10,11
-earth_degree = 10
-moon_degree = 10
+active_planets = 1,2,3,4,5,6,7,8,9,10,11
+earth_degree = 30
+moon_degree = 30
 
 
 # 测量模型参数

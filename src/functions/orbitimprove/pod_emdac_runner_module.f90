@@ -172,8 +172,8 @@ contains
             write(*,'(A,I0,A,F10.2,A,I1)') '  [Runner] 处理观测 #', obs_count, &
                   ' dt:', dt, 's, DA阶数:', current_order
             
-            ! call my_filter%time_update(et_obs, noise_Q)
-            call my_filter%time_update(et_obs)
+            call my_filter%time_update(et_obs, noise_Q)
+            ! call my_filter%time_update(et_obs)
             call my_filter%get_current_epoch(et_current)
             write(*,*) '  传播后时间为: ', et_current
             call my_filter%get_current_state(final_mean)

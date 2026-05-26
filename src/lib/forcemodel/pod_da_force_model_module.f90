@@ -14,9 +14,9 @@ module pod_da_force_model_module
     ! N 体常量定义
     ! =========================================================
     integer, parameter :: MAX_BODIES = 11
-    ! 将 JUPITER 改为 JUPITER BARYCENTER，将其它外行星也做类似处理，以确保与 DE440 内核中的天体 ID 和命名完全对齐
+    ! 所有行星统一使用 BARYCENTER 名称，以确保与 DE440 内核中的天体 ID 和命名完全对齐
     character(len=20), dimension(MAX_BODIES) :: body_names = &
-        [character(len=20) :: 'MERCURY', 'VENUS', 'EARTH', 'MARS', &
+        [character(len=20) :: 'MERCURY BARYCENTER', 'VENUS BARYCENTER', 'EARTH', 'MARS BARYCENTER', &
          'JUPITER BARYCENTER', 'SATURN BARYCENTER', 'URANUS BARYCENTER', &
          'NEPTUNE BARYCENTER', 'PLUTO BARYCENTER', 'MOON', 'SUN']
     real(DP), dimension(MAX_BODIES) :: gm_planets

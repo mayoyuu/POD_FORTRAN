@@ -42,7 +42,7 @@ program test_da_integrator
 
     ! ---- 测试参数 ----
     character(len=*), parameter :: CONFIG_FILE = 'config/dummy_test_config.txt'
-    character(len=*), parameter :: TEST_EPOCH  = '2024-03-09T12:00:00'
+    character(len=*), parameter :: TEST_EPOCH  = '2027-01-01T00:00:00'
     integer,          parameter :: DA_ORDER    = 4
     integer,          parameter :: DA_NVARS    = 6
 
@@ -83,14 +83,14 @@ program test_da_integrator
     ! 0.1 一键初始化
     call pod_engine_init(CONFIG_FILE)
     
-    ! 0.2 强制开启复杂环境（地球 10 阶，月球 10 阶，太阳第三体）
-    config%use_earth_nspheric = .true.
-    config%earth_degree       = 10
-    config%use_moon_nspheric  = .true.
-    config%moon_degree        = 10
-    config%use_third_body     = .true.
-    config%use_planet(10)     = .true. ! 激活月球
-    config%use_planet(11)     = .true. ! 激活太阳
+    ! ! 0.2 强制开启复杂环境（地球 10 阶，月球 10 阶，太阳第三体）
+    ! config%use_earth_nspheric = .true.
+    ! config%earth_degree       = 10
+    ! config%use_moon_nspheric  = .true.
+    ! config%moon_degree        = 10
+    ! config%use_third_body     = .true.
+    ! config%use_planet(10)     = .true. ! 激活月球
+    ! config%use_planet(11)     = .true. ! 激活太阳
 
     ! 0.3 初始化 DA 版引力网
     call init_gravity_network()
@@ -111,21 +111,19 @@ program test_da_integrator
     write(*,*) '>>> [Phase 1] 设置测试状态 (地月转移轨道 LTO)...'
 
     ! 近地点高度 ~300 km，速度 ~10.83 km/s
-    ! state_physical = [6678.137_DP, 0.0_DP, 0.0_DP, &   ! 位置 (km)
-    !                   0.0_DP, 10.83_DP, 0.0_DP]        ! 速度 (km/s)
-    state_physical = [-402779.291910_DP,-181111.455576_DP,-109249.167033_DP, &  ! 位置标称值 (km)
-                                        0.291707_DP,-0.504100_DP,-0.263272_DP]        ! 速度 (km/s)
+    state_physical = [-315141.8258783424971625_DP, -99807.3242707255994901_DP,  -78695.9092085979937110_DP, &  ! 位置 (km)
+                       0.2468153974975767_DP, -0.6701499206493512_DP, -0.2845773686699610_DP]        ! 速度 (km/s)
 
     ! 无量纲化
     state_unit(1:3) = state_physical(1:3) / config%LU
     state_unit(4:6) = state_physical(4:6) / config%VU
 
-    ! 设定积分时长为 1 天 (86400 秒)
+    ! 设定积分时长为 15 天 (86400*15 秒)
     t_start_unit = 0.0_DP
-    t_end_unit   = 86400.0_DP*4 / config%TU
+    t_end_unit   = 86400.0_DP*15 / config%TU
 
     write(*,*) '  初始状态 (km, km/s): ', state_physical
-    write(*,*) '  积分总时长: 4 天 (86400*4 秒)'
+    write(*,*) '  积分总时长: 15 天 (86400*15 秒)'
 
     ! 初始化 DA 状态变量（附带一阶导数展开）
     call state_da%init(6)
@@ -137,7 +135,7 @@ program test_da_integrator
     ! Phase 2: RKF45 变步长一致性测试
     ! ============================================================
     write(*,*) ''
-    write(*,*) '>>> [Phase 2] RKF45 变步长积分测试 (4 天)...'
+    write(*,*) '>>> [Phase 2] RKF45 变步长积分测试 (15 天)...'
 
     ! ---- 实数版 RKF45 ----
     call adaptive_step_integrate(state_unit, t_start_unit, t_end_unit, METHOD_RKF45, &
@@ -152,6 +150,9 @@ program test_da_integrator
     ! ---- 比对结果 ----
     write(*,*) '  实数版步数: ', n_steps_real, '步'
     write(*,*) '  DA 版步数 : ', n_steps_da, '步'
+
+    write(*,*) '  实数版末状态: ', state_rkf_real(1:3)*config%LU, state_rkf_real(4:6)*config%VU
+    write(*,*) '  DA 版末状态 : ', state_rkf_da_cons(1:3)*config%LU, state_rkf_da_cons(4:6)*config%VU
     
     if (n_steps_real == n_steps_da) then
         write(*,*) '  ✓ 变步长截断序列完全一致！'
@@ -176,7 +177,7 @@ program test_da_integrator
     ! Phase 3: RKF78 变步长一致性测试
     ! ============================================================
     write(*,*) ''
-    write(*,*) '>>> [Phase 3] RKF78 变步长积分测试 (4 天)...'
+    write(*,*) '>>> [Phase 3] RKF78 变步长积分测试 (15 天)...'
 
     ! ---- 实数版 RKF78 ----
     call adaptive_step_integrate(state_unit, t_start_unit, t_end_unit, METHOD_RKF78, &
