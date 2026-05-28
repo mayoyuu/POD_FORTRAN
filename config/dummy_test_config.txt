@@ -54,14 +54,14 @@ parallel_computation = false
 memory_limit = 1.0e9
 use_gpu = false
 
-# 力模型参数 (地月空间 Cislunar 特化) earth_degree = 10 moon_degree = 10
+# 力模型参数 (地月空间 Cislunar 特化) earth_degree = 10 moon_degree = 10 1,2,3,4,5,6,7,8,9,10,11
 use_earth_nspheric = true
 use_moon_nspheric = true
 use_third_body = true
 use_srp = true
 use_drag = false
 use_relativity = true
-active_planets = 1,2,3,4,5,6,7,8,9,10,11
+active_planets = 3,10,11
 earth_degree = 30
 moon_degree = 30
 

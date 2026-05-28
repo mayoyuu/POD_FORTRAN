@@ -6,6 +6,7 @@ module pod_uq_propagation
     use pod_uq_base_module,  only: uq_propagator_base
     use pod_uq_da_module,    only: uq_da_propagator
     use pod_uq_mc_module,    only: uq_mc_propagator
+    use pod_uq_ut_module,    only: uq_ut_propagator
     use pod_uq_state_module, only: uq_state_type
     use pod_random_module,   only: init_random_seed, generate_multivariate_normal
     
@@ -14,6 +15,7 @@ module pod_uq_propagation
     ! 传播算法常量定义 (对外暴露作为开关)
     integer, parameter, public :: METHOD_MC = 1
     integer, parameter, public :: METHOD_DA = 2
+    integer, parameter, public :: METHOD_UT = 3
     
 contains
 
@@ -62,6 +64,8 @@ contains
                 allocate(uq_mc_propagator :: propagator)
             case(METHOD_DA)
                 allocate(uq_da_propagator :: propagator)
+            case(METHOD_UT)
+                allocate(uq_ut_propagator :: propagator)
             case default
                 write(*,*) '[ERROR] UQ API: 未知的传播方法开关!'
                 return
@@ -143,8 +147,10 @@ contains
                 allocate(uq_mc_propagator :: propagator)
             case(METHOD_DA)
                 allocate(uq_da_propagator :: propagator)
+            case(METHOD_UT)
+                allocate(uq_ut_propagator :: propagator)
             case default
-                write(*,*) '[ERROR] UQ API: 未知的传播方法开关!' 
+                write(*,*) '[ERROR] UQ API: 未知的传播方法开关!'
                 return
         end select
 
@@ -166,8 +172,16 @@ contains
         end if
         
         ! 在粒子滤波中高频调用，强制关闭打印输出以提升性能 (同时屏蔽不必要的矩计算)
-        call propagator%set_verbosity(.false.) 
-        
+        call propagator%set_verbosity(.false.)
+
+        ! 对于 UT 方法: 确保协方差矩阵已从样本计算
+        select type (prop => propagator)
+            type is (uq_ut_propagator)
+                if (.not. allocated(initial_state%cov)) then
+                    call initial_state%compute_moments()
+                end if
+        end select
+
         ! 4. 核心传播计算 (这里会调用内部的 RKF 或其他积分器逻辑)
         ! 底层的 propagate 内部会自动调用 final_state%allocate_memory
         call propagator%propagate(t_start, t_end, initial_state, final_state)
@@ -181,6 +195,8 @@ contains
                 type is (uq_mc_propagator)
                     ! MC 方法：退化为使用样本均值
                     call final_state%compute_moments()
+                    reference_orbit_out = final_state%mean
+                type is (uq_ut_propagator)
                     reference_orbit_out = final_state%mean
             end select
         end if

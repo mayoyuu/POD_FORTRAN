@@ -15,6 +15,7 @@ module pod_uq_state_module
         procedure :: allocate_memory => state_allocate_memory
         procedure :: deallocate_memory => state_deallocate_memory 
         procedure :: compute_moments => state_compute_moments
+        procedure :: compute_higher_moments => state_compute_higher_moments
     end type uq_state_type
 
 contains
@@ -75,5 +76,49 @@ contains
         
         deallocate(diff)
     end subroutine state_compute_moments
+
+    subroutine state_compute_higher_moments(this, skewness, kurtosis)
+        class(uq_state_type), intent(in) :: this
+        real(DP), allocatable, intent(out) :: skewness(:)
+        real(DP), allocatable, intent(out) :: kurtosis(:)
+
+        integer :: dim, n_particles, i, j
+        real(DP), allocatable :: diff(:), sigma(:)
+
+        if (.not. allocated(this%samples)) then
+            write(*,*) '[Error] UQ State: Samples not allocated for higher moments.'
+            return
+        end if
+        if (.not. allocated(this%mean)) then
+            write(*,*) '[Error] UQ State: Mean not computed. Call compute_moments first.'
+            return
+        end if
+
+        dim = size(this%samples, 1)
+        n_particles = size(this%samples, 2)
+
+        allocate(skewness(dim), kurtosis(dim))
+        allocate(diff(n_particles), sigma(dim))
+
+        do i = 1, dim
+            sigma(i) = sqrt(this%cov(i, i))
+        end do
+
+        do i = 1, dim
+            do j = 1, n_particles
+                diff(j) = this%samples(i, j) - this%mean(i)
+            end do
+
+            if (sigma(i) > 0.0_DP) then
+                skewness(i) = sum(diff**3) / real(n_particles, DP) / (sigma(i)**3)
+                kurtosis(i) = sum(diff**4) / real(n_particles, DP) / (sigma(i)**4)
+            else
+                skewness(i) = 0.0_DP
+                kurtosis(i) = 0.0_DP
+            end if
+        end do
+
+        deallocate(diff, sigma)
+    end subroutine state_compute_higher_moments
 
 end module pod_uq_state_module

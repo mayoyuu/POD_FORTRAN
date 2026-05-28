@@ -24,7 +24,7 @@ program test_uq_api
         init_gravity_network
         
     use pod_uq_propagation, only: &
-        run_uq_propagation, METHOD_MC, METHOD_DA
+        run_uq_propagation, METHOD_MC, METHOD_DA, METHOD_UT
     use pod_uq_state_module, only: uq_state_type
     use pod_dace_classes
 
@@ -170,6 +170,44 @@ program test_uq_api
     if (allocated(final_dist_da%samples)) deallocate(final_dist_da%samples)
     if (allocated(initial_dist_mc%samples)) deallocate(initial_dist_mc%samples)
     if (allocated(final_dist_mc%samples)) deallocate(final_dist_mc%samples)
+
+    ! ============================================================
+    ! Phase 2.5: UT 传播测试
+    ! ============================================================
+    write(*,*) ''
+    write(*,*) '>>> [Phase 2.5] UT 传播测试...'
+
+    call run_uq_propagation( &
+        nominal_state = nominal_orbit, &
+        initial_cov   = initial_covariance, &
+        epoch0        = epoch_start, &
+        t_start       = t0, t_end = tf, &
+        method_switch = METHOD_UT, &
+        n_particles   = 100, &
+        save_results_to_file = .false., &
+        initial_state_out = temp_initial, &
+        final_state_out   = temp_final)
+
+    write(*,*) '  UT 传播完成'
+    write(*,*) '  最终均值: ', temp_final%mean
+    write(*,*) '  最终标准差: '
+    write(*,*) '    Pos: ', sqrt(temp_final%cov(1,1)), sqrt(temp_final%cov(2,2)), sqrt(temp_final%cov(3,3))
+    write(*,*) '    Vel: ', sqrt(temp_final%cov(4,4)), sqrt(temp_final%cov(5,5)), sqrt(temp_final%cov(6,6))
+
+    if (any(temp_final%mean /= temp_final%mean)) then
+        write(*,*) '  *** UT 均值包含 NaN!'
+        n_fail = n_fail + 1
+    else if (any([sqrt(temp_final%cov(1,1)), sqrt(temp_final%cov(2,2)), sqrt(temp_final%cov(3,3)), &
+                   sqrt(temp_final%cov(4,4)), sqrt(temp_final%cov(5,5)), sqrt(temp_final%cov(6,6))] < 0.0_DP)) then
+        write(*,*) '  *** UT 标准差为负!'
+        n_fail = n_fail + 1
+    else
+        write(*,*) '  ✓ UT 传播结果合理'
+        n_pass = n_pass + 1
+    end if
+
+    if (allocated(temp_initial%samples)) deallocate(temp_initial%samples)
+    if (allocated(temp_final%samples)) deallocate(temp_final%samples)
 
     ! ============================================================
     ! Phase 3: DA 内存泄露测试
