@@ -10,7 +10,7 @@
 !> Output:
 !>   MC/DA: <prefix>_particles.csv + <prefix>_moments.json (mean/cov/skewness/kurtosis)
 !>   UT:    <prefix>_moments.json (mean/cov)
-program run_uq_propagation
+program run_uq_prop
     use pod_global, only: DP, MAX_STRING_LEN
     use pod_engine_module, only: pod_engine_init
     use pod_spice, only: str2et
@@ -272,4 +272,4 @@ contains
         close(u)
     end subroutine write_mc_da_json
 
-end program run_uq_propagation
+end program run_uq_prop

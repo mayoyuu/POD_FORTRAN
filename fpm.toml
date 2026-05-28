@@ -32,7 +32,7 @@ source-dir = "app"
 main = "run_CRTBP_uprop.f90"
 
 [[executable]]
-name = "run_uq_propagation"
+name = "run_uq_prop"
 source-dir = "app"
 main = "run_uq_propagation.f90"
 
