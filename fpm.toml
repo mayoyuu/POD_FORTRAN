@@ -32,8 +32,8 @@ source-dir = "app"
 main = "run_CRTBP_uprop.f90"
 
 [[executable]]
-name = "run_uq_prop"
+name = "run_HFEM_uprop"
 source-dir = "app"
-main = "run_uq_propagation.f90"
+main = "run_HFEM_uprop.f90"
 
 

@@ -4,13 +4,13 @@
 !> @date 2026-05-26
 !>
 !> Usage:
-!>   fpm run run_uq_propagation -- -opm <file> -m <MC|DA|UT> -dt <seconds> -o <prefix>
-!>   fpm run run_uq_propagation -- -opm <file> -m <MC|DA|UT> -et <epoch> -n 5000 -o <prefix>
+!>   fpm run run_HFEM_uprop -- -opm <file> -m <MC|DA|UT> -dt <seconds> -o <prefix>
+!>   fpm run run_HFEM_uprop -- -opm <file> -m <MC|DA|UT> -et <epoch> -n 5000 -o <prefix>
 !>
 !> Output:
 !>   MC/DA: <prefix>_particles.csv + <prefix>_moments.json (mean/cov/skewness/kurtosis)
 !>   UT:    <prefix>_moments.json (mean/cov)
-program run_uq_prop
+program run_HFEM_uprop
     use pod_global, only: DP, MAX_STRING_LEN
     use pod_engine_module, only: pod_engine_init
     use pod_spice, only: str2et
@@ -272,4 +272,4 @@ contains
         close(u)
     end subroutine write_mc_da_json
 
-end program run_uq_prop
+end program run_HFEM_uprop

@@ -13,6 +13,7 @@ module pod_data_format_module
     
     public :: load_initial_opm
     public :: write_json_opm, write_residual_line, write_error_line
+    public :: write_gmm_snapshots
 
 contains
 
@@ -312,6 +313,82 @@ contains
 
         close(u)
     end subroutine write_error_line
+
+    !> ======================================================================
+    !> 将所有 GMM 快照一次性写入 .gmms.json 文件
+    !> ======================================================================
+    subroutine write_gmm_snapshots(filename, epochs, gmms, n_steps)
+        character(len=*), intent(in) :: filename
+        real(DP), intent(in)         :: epochs(:)
+        type(uq_gmm_state_type), intent(in) :: gmms(:)
+        integer, intent(in)          :: n_steps
+
+        integer :: u, ios, s, i, j, k
+        character(len=64) :: epoch_str
+        character(len=5), parameter :: s_keys(6) = ["X    ", "Y    ", "Z    ", "X_DOT", "Y_DOT", "Z_DOT"]
+        character(len=256) :: full_filename
+
+        full_filename = trim(filename) // ".gmms.json"
+
+        open(newunit=u, file=full_filename, status='replace', action='write', iostat=ios)
+        if (ios /= 0) then
+            write(*,*) '[警告] 无法创建 GMM 快照文件: ', trim(full_filename)
+            return
+        end if
+
+        write(u, '(A)') '{'
+        write(u, '(A)') '    "STEPS": ['
+
+        do s = 1, n_steps
+            call et2utc(epochs(s), 'ISOC', 3, epoch_str)
+
+            write(u, '(A)') '        {'
+            write(u, '(A,I0,A)')          '            "INDEX": ', s, ','
+            write(u, '(A,A,A)')           '            "EPOCH": "', trim(epoch_str), '",'
+            write(u, '(A,F16.4,A)')       '            "ET": ', epochs(s), ','
+            write(u, '(A,I0,A)')          '            "N_COMPONENTS": ', gmms(s)%n_components, ','
+            write(u, '(A)')               '            "COMPONENTS": ['
+
+            do i = 1, gmms(s)%n_components
+                write(u, '(A)') '                {'
+                write(u, '(A,I0,A)')      '                    "INDEX": ', i, ','
+                write(u, '(A,ES22.15,A)') '                    "WEIGHT": ', gmms(s)%components(i)%weight, ','
+                write(u, '(A,5(ES22.15,", "),ES22.15,A)') &
+                    '                    "MEAN": [', gmms(s)%components(i)%mean, '],'
+                write(u, '(A)')           '                    "COV": ['
+                do j = 1, 6
+                    if (j < 6) then
+                        write(u, '(A,5(ES22.15,", "),ES22.15,A)') &
+                            '                        [', gmms(s)%components(i)%cov(j, 1:6), '],'
+                    else
+                        write(u, '(A,5(ES22.15,", "),ES22.15,A)') &
+                            '                        [', gmms(s)%components(i)%cov(j, 1:6), ']'
+                    end if
+                end do
+                write(u, '(A)') '                    ]'
+
+                if (i < gmms(s)%n_components) then
+                    write(u, '(A)') '                },'
+                else
+                    write(u, '(A)') '                }'
+                end if
+            end do
+
+            write(u, '(A)') '            ]'
+
+            if (s < n_steps) then
+                write(u, '(A)') '        },'
+            else
+                write(u, '(A)') '        }'
+            end if
+        end do
+
+        write(u, '(A)') '    ]'
+        write(u, '(A)') '}'
+
+        close(u)
+        write(*,*) '  [GMM] ', n_steps, '个快照已写入: ', trim(full_filename)
+    end subroutine write_gmm_snapshots
 
     !> ======================================================================
     !> 内部辅助工具：从 JSON 字符串行中提取实数值

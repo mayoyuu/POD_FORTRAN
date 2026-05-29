@@ -12,6 +12,7 @@ program pod_emdac_test
     character(len=MAX_STRING_LEN) :: config_file
     character(len=MAX_STRING_LEN) :: obs_file, initial_json_file, output_file_name, site_json_file
     character(len=MAX_STRING_LEN) :: ref_orbit_file, output_residual_file, output_error_file
+    character(len=MAX_STRING_LEN) :: output_gmm_file
     character(len=32) :: arg_str
     integer :: i, num_args
     
@@ -39,7 +40,8 @@ program pod_emdac_test
     output_file_name     = 'OPM/DRO/DRO_single_R91_1h_emdac'
     output_residual_file = 'OPM/DRO/DRO_single_R91_1h_emdac'
     output_error_file    = 'OPM/DRO/DRO_single_R91_1h_emdac'
-    
+    output_gmm_file      = ''
+
     ! 2. 灵活解析命令行可选参数
     num_args = command_argument_count()
     i = 1
@@ -72,6 +74,9 @@ program pod_emdac_test
             case ('-err', '--error')
                 call get_command_argument(i+1, arg_str); output_error_file = trim(arg_str)
                 i = i + 1
+            case ('-gmms', '--gmm_snapshot')
+                call get_command_argument(i+1, arg_str); output_gmm_file = trim(arg_str)
+                i = i + 1
         end select
         i = i + 1
     end do
@@ -92,22 +97,43 @@ program pod_emdac_test
     write(*,*) '定轨结果输出 : ', trim(output_file_name)
     write(*,*) '残差输出     : ', trim(output_residual_file)
     write(*,*) '误差输出     : ', trim(output_error_file)
+    if (len_trim(output_gmm_file) > 0) then
+        write(*,*) 'GMM快照输出  : ', trim(output_gmm_file)
+    end if
     write(*,*) '--------------------------------------------------'
-    
-    call run_emdac_orbit_determination( &
-        obs_file             = obs_file, &
-        site_json_file       = site_json_file, &
-        ref_orbit_file       = ref_orbit_file, &
-        initial_json_file    = initial_json_file, &
-        output_opm_file      = output_file_name, &
-        output_residual_file = output_residual_file, &
-        output_error_file    = output_error_file, &
-        gmm_in_switch        = gmm_in_switch, &
-        opt_particles        = opt_particles, &
-        max_da_order         = opt_da_order, &
-        opt_em_max_iter      = opt_em_max_iter, &
-        opt_em_tol           = opt_em_tol, &
-        n_components         = n_components)
+
+    if (len_trim(output_gmm_file) > 0) then
+        call run_emdac_orbit_determination( &
+            obs_file             = obs_file, &
+            site_json_file       = site_json_file, &
+            ref_orbit_file       = ref_orbit_file, &
+            initial_json_file    = initial_json_file, &
+            output_opm_file      = output_file_name, &
+            output_residual_file = output_residual_file, &
+            output_error_file    = output_error_file, &
+            gmm_in_switch        = gmm_in_switch, &
+            opt_particles        = opt_particles, &
+            max_da_order         = opt_da_order, &
+            opt_em_max_iter      = opt_em_max_iter, &
+            opt_em_tol           = opt_em_tol, &
+            n_components         = n_components, &
+            output_gmm_file      = output_gmm_file)
+    else
+        call run_emdac_orbit_determination( &
+            obs_file             = obs_file, &
+            site_json_file       = site_json_file, &
+            ref_orbit_file       = ref_orbit_file, &
+            initial_json_file    = initial_json_file, &
+            output_opm_file      = output_file_name, &
+            output_residual_file = output_residual_file, &
+            output_error_file    = output_error_file, &
+            gmm_in_switch        = gmm_in_switch, &
+            opt_particles        = opt_particles, &
+            max_da_order         = opt_da_order, &
+            opt_em_max_iter      = opt_em_max_iter, &
+            opt_em_tol           = opt_em_tol, &
+            n_components         = n_components)
+    end if
                                        
     write(*,*) '✅ 测试任务圆满完成！'
     write(*,*) '=================================================='

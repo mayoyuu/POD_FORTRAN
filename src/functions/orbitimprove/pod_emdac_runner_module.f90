@@ -10,7 +10,8 @@ module pod_emdac_runner_module
     use pod_measurement_base_module, only: observation_station
     use pod_basicmath_module, only: PI
     use pod_data_format_module, only: load_initial_opm, write_json_opm, &
-                                       write_residual_line, write_error_line
+                                       write_residual_line, write_error_line, &
+                                       write_gmm_snapshots
     use pod_error_analysis_module, only: compute_orbit_error
 
     implicit none
@@ -28,8 +29,9 @@ contains
                                              initial_json_file, output_opm_file, &
                                              output_residual_file, output_error_file, &
                                              gmm_in_switch, n_components, max_da_order, &
-                                             opt_particles, opt_em_max_iter, opt_em_tol)
-        
+                                             opt_particles, opt_em_max_iter, opt_em_tol, &
+                                             output_gmm_file)
+
         character(len=*), intent(in) :: obs_file             ! 观测数据文件 (.obs)
         character(len=*), intent(in) :: site_json_file       ! 测站配置文件 (.json)
         character(len=*), intent(in) :: initial_json_file    ! 初始先验状态文件 (.json)
@@ -37,10 +39,11 @@ contains
         character(len=*), intent(in) :: output_residual_file ! 输出残差文件
         character(len=*), intent(in), optional :: ref_orbit_file    ! 参考轨道文件 (.ref)
         character(len=*), intent(in), optional :: output_error_file ! 输出误差文件 (.err)
+        character(len=*), intent(in), optional :: output_gmm_file   ! GMM 快照输出文件 (.gmms.json)
         logical, intent(in) :: gmm_in_switch
         integer,  intent(in) :: n_components
         integer,  intent(in) :: max_da_order
-    
+
         logical :: has_gmm_loaded
         integer,  intent(in), optional :: opt_particles      ! 粒子总数
         integer,  intent(in), optional :: opt_em_max_iter    ! EM 算法最大迭代次数
@@ -71,6 +74,11 @@ contains
         real(DP) :: step_comp(2)   ! 存储最近一次计算出的预测观测值 (Lon, Lat)
         real(DP) :: pos_err(3), vel_err(3)
         real(DP) :: pos_rms, vel_rms, mahalanobis_d
+
+        ! GMM 快照收集
+        type(uq_gmm_state_type), allocatable :: gmm_snapshots(:)
+        real(DP), allocatable :: gmm_epochs(:)
+        logical :: collect_gmms
         
         ! 1. 测量噪声协方差设置 (例如光学赤经赤纬，0.1角秒精度)
         noise_R = 0.0_DP
@@ -118,6 +126,14 @@ contains
         else
             write(*,*) '  [Runner] 预加载完成：观测 ', size(obs_list), &
                        ' 条，测站 ', size(station_list), ' 个'
+        end if
+
+        ! GMM 快照收集初始化
+        collect_gmms = present(output_gmm_file)
+        if (collect_gmms) then
+            allocate(gmm_snapshots(size(obs_list)))
+            allocate(gmm_epochs(size(obs_list)))
+            write(*,*) '  [Runner] GMM 快照输出启用，将记录 ', size(obs_list), ' 步'
         end if
 
         ! 5. 核心数据同化流 (Time Update + Measurement Update)
@@ -197,16 +213,28 @@ contains
             write(*,*) '  测量更新后结果为: ',  final_mean
 
             call my_filter%get_last_residual(step_res, step_comp)
-    
+
             ! 调用写入函数
             ! obs_count == 1 时为 true，创建新文件；之后为 false，追加写入
             call write_residual_line(output_residual_file, et_obs, y_meas, step_comp, &
                                     step_res, trim(current_station%name), (obs_count == 1))
 
+            ! 收集测量更新后的 GMM 快照
+            if (collect_gmms) then
+                call my_filter%get_current_gmm(gmm_snapshots(obs_count))
+                gmm_epochs(obs_count) = et_obs
+            end if
+
         end do
         
         write(*,*) '  [Runner] 滤波结束，有效观测数: ', obs_count - 1
-        
+
+        ! 写入 GMM 快照文件
+        if (collect_gmms) then
+            call write_gmm_snapshots(output_gmm_file, gmm_epochs, gmm_snapshots, size(obs_list))
+            deallocate(gmm_snapshots, gmm_epochs)
+        end if
+
         ! 5. 结果提取与落盘
         call my_filter%get_current_epoch(et_current)
         call my_filter%get_current_state(final_mean)
