@@ -27,6 +27,11 @@ source-dir = "app"
 main = "run_pod_ut.f90"
 
 [[executable]]
+name = "test_gmm_first_step"
+source-dir = "app"
+main = "test_gmm_first_step.f90"
+
+[[executable]]
 name = "run_CRTBP_uprop"
 source-dir = "app"
 main = "run_CRTBP_uprop.f90"
@@ -36,4 +41,8 @@ name = "run_HFEM_uprop"
 source-dir = "app"
 main = "run_HFEM_uprop.f90"
 
+[[executable]]
+name = "test_ut_first_step"
+source-dir = "app"
+main = "test_ut_first_step.f90"
 
