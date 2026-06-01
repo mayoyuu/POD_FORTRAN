@@ -4,9 +4,9 @@
 !   -obs OBS/L1Halo-1/L1Halo-1_supp_single_R91_1h.obs \
 !   -init OPM/L1Halo-1/L1Halo-1_init.opm.json \
 !   -ref ORBITS_REF/L1Halo-1/L1Halo-1_supp_single_R91_1h.ref \
-!   -out OPM/L1Halo-1/L1Halo-1_supp_single_R91_1h_ut \
-!   -res OPM/L1Halo-1/L1Halo-1_supp_single_R91_1h_ut \
-!   -err OPM/L1Halo-1/L1Halo-1_supp_single_R91_1h_ut \
+!   -out OPM/L1Halo-1/L1Halo-1_supp_single_R91_1h_ut_fixed \
+!   -res OPM/L1Halo-1/L1Halo-1_supp_single_R91_1h_ut_fixed \
+!   -err OPM/L1Halo-1/L1Halo-1_supp_single_R91_1h_ut_fixed \
 ! !   -p 100000 -o 4 -gmm > ut_single.log 2>&1 &
 program run_pod_ut
     use pod_global, only: DP, MAX_STRING_LEN

@@ -4,9 +4,9 @@
 !   -obs OBS/L1Halo-1/L1Halo-1_supp_single_R91_1h.obs \
 !   -init OPM/L1Halo-1/L1Halo-1_init.opm.json \
 !   -ref ORBITS_REF/L1Halo-1/L1Halo-1_supp_single_R91_1h.ref \
-!   -out OPM/L1Halo-1/0NoiseR_L1Halo-1_supp_single_R91_1h_emdac_n1 \
-!   -res OPM/L1Halo-1/0NoiseR_L1Halo-1_supp_single_R91_1h_emdac_n1 \
-!   -err OPM/L1Halo-1/0NoiseR_L1Halo-1_supp_single_R91_1h_emdac_n1 \
+!   -out OPM/L1Halo-1/0NoiseR_L1Halo-1_supp_single_R91_1h_emdac_n5 \
+!   -res OPM/L1Halo-1/0NoiseR_L1Halo-1_supp_single_R91_1h_emdac_n5 \
+!   -err OPM/L1Halo-1/0NoiseR_L1Halo-1_supp_single_R91_1h_emdac_n5 \
 !   -p 100000 -o 4 -gmm > emdac_single.log 2>&1 &
 program run_pod_emdac
     use pod_global, only: DP, MAX_STRING_LEN
@@ -29,7 +29,7 @@ program run_pod_emdac
     integer :: opt_da_order = 5
     integer :: opt_em_max_iter = 50
     real(DP) :: opt_em_tol = 1.0e-4_DP
-    integer :: n_components = 1
+    integer :: n_components = 5
     logical :: gmm_in_switch = .false.
 
     ! ===================================================================

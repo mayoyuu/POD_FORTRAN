@@ -227,6 +227,27 @@ contains
     end subroutine write_json_opm
 
     !> ======================================================================
+    !> 内部工具：按指定宽度格式化实数，F格式溢出时自动回退为ES科学记数法
+    !> ======================================================================
+    subroutine fmt_real(val, fw, fd, buf)
+        real(DP), intent(in) :: val
+        integer, intent(in) :: fw, fd
+        character(len=*), intent(out) :: buf
+
+        character(len=64) :: tmp, ffmt, efmt
+        integer :: ed
+
+        write(ffmt, '("(F",I0,".",I0,")")') fw, fd
+        write(tmp, ffmt) val
+        if (tmp(1:1) == '*') then
+            ed = max(1, fw - 7)
+            write(efmt, '("(ES",I0,".",I0,")")') fw, ed
+            write(tmp, efmt) val
+        end if
+        buf = tmp(1:fw)
+    end subroutine fmt_real
+
+    !> ======================================================================
     !> 写入单行残差数据 (支持占位符格式化输出)
     !> ======================================================================
     subroutine write_residual_line(filename, et, obs, comp, res, id, is_first)
@@ -238,10 +259,13 @@ contains
         character(len=*), intent(in) :: id         ! 目标/站ID
         logical, intent(in)          :: is_first   ! 是否为首行（用于写表头或覆盖旧文件）
 
-        integer :: u, ios
+        integer :: u, ios, i
         character(len=64) :: utc_str
         character(len=256) :: full_filename
-    
+        character(len=16) :: et_str
+        character(len=12) :: obs1_str, obs2_str, comp1_str, comp2_str
+        character(len=10) :: res_str(6)
+
         ! 自动拼接扩展名
         full_filename = trim(filename) // ".residual"
 
@@ -260,18 +284,21 @@ contains
 
         if (ios /= 0) return ! 打开失败则静默退出
 
-        ! 格式化输出: 
-        ! 1. UTC时间与ET 
-        ! 2. 观测值 (2F12.6) 
-        ! 3. ID与占位 (A6, 2F6.1) 
-        ! 4. 计算值 (2F12.6) 
-        ! 5. 6列残差 (6F10.3)
-        write(u, '(A24, F16.4, 2F12.6, A8, 2F6.1, 2F12.6, 6F10.3)') &
-            utc_str, et, &              ! 时间信息
-            obs(1), obs(2), &           ! 观测
-            trim(id), 0.0, 0.0, &       ! 标识符与占位符
-            comp(1), comp(2), &         ! 计算值
-            res(1:6)                    ! 残差向量
+        call fmt_real(et,       16, 4, et_str)
+        call fmt_real(obs(1),   12, 6, obs1_str)
+        call fmt_real(obs(2),   12, 6, obs2_str)
+        call fmt_real(comp(1),  12, 6, comp1_str)
+        call fmt_real(comp(2),  12, 6, comp2_str)
+        do i = 1, 6
+            call fmt_real(res(i), 10, 3, res_str(i))
+        end do
+
+        write(u, '(A24, A16, A12, A12, A8, 2F6.1, A12, A12, 6A10)') &
+            utc_str, et_str, &
+            obs1_str, obs2_str, &
+            trim(id), 0.0, 0.0, &
+            comp1_str, comp2_str, &
+            res_str
 
         close(u)
     end subroutine write_residual_line
@@ -287,9 +314,11 @@ contains
         real(DP), intent(in)         :: pos_rms, vel_rms, mahalanobis_d
         logical, intent(in)          :: is_first
 
-        integer :: u, ios
+        integer :: u, ios, i
         character(len=64) :: utc_str
         character(len=256) :: full_filename
+        character(len=16) :: et_str
+        character(len=14) :: pe_str(3), ve_str(3), pr_str, vr_str, md_str
 
         full_filename = trim(filename) // ".err"
 
@@ -305,11 +334,22 @@ contains
 
         if (ios /= 0) return
 
-        write(u, '(A24, F16.4, 3F14.6, 3F14.8, 2F14.6, F14.6)') &
-            utc_str, et, &
-            pos_err(1), pos_err(2), pos_err(3), &
-            vel_err(1), vel_err(2), vel_err(3), &
-            pos_rms, vel_rms, mahalanobis_d
+        call fmt_real(et,             16, 4, et_str)
+        call fmt_real(pos_err(1),     14, 6, pe_str(1))
+        call fmt_real(pos_err(2),     14, 6, pe_str(2))
+        call fmt_real(pos_err(3),     14, 6, pe_str(3))
+        call fmt_real(vel_err(1),     14, 8, ve_str(1))
+        call fmt_real(vel_err(2),     14, 8, ve_str(2))
+        call fmt_real(vel_err(3),     14, 8, ve_str(3))
+        call fmt_real(pos_rms,        14, 6, pr_str)
+        call fmt_real(vel_rms,        14, 6, vr_str)
+        call fmt_real(mahalanobis_d,  14, 6, md_str)
+
+        write(u, '(A24, A16, 3A14, 3A14, 3A14)') &
+            utc_str, et_str, &
+            pe_str(1), pe_str(2), pe_str(3), &
+            ve_str(1), ve_str(2), ve_str(3), &
+            pr_str, vr_str, md_str
 
         close(u)
     end subroutine write_error_line
