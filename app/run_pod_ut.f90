@@ -4,9 +4,9 @@
 !   -obs OBS/L1Halo-1/L1Halo-1_supp_single_R91_1h.obs \
 !   -init OPM/L1Halo-1/L1Halo-1_init.opm.json \
 !   -ref ORBITS_REF/L1Halo-1/L1Halo-1_supp_single_R91_1h.ref \
-!   -out OPM/L1Halo-1/L1Halo-1_supp_single_R91_1h_ut_fixed \
-!   -res OPM/L1Halo-1/L1Halo-1_supp_single_R91_1h_ut_fixed \
-!   -err OPM/L1Halo-1/L1Halo-1_supp_single_R91_1h_ut_fixed \
+!   -out OPM/L1Halo-1/0_noise_Q_L1Halo-1_supp_single_R91_1h_ut \
+!   -res OPM/L1Halo-1/0_noise_Q_L1Halo-1_supp_single_R91_1h_ut \
+!   -err OPM/L1Halo-1/0_noise_Q_L1Halo-1_supp_single_R91_1h_ut \
 ! !   -p 100000 -o 4 -gmm > ut_single.log 2>&1 &
 program run_pod_ut
     use pod_global, only: DP, MAX_STRING_LEN
@@ -26,7 +26,7 @@ program run_pod_ut
     ! ===================================================================
     ! 1. 初始化路径变量 (解除硬编码)
     ! ===================================================================
-    config_file          = 'config/config.txt'  ! 默认引擎配置文件
+    config_file          = 'config/ut_config.txt'  ! 默认引擎配置文件
     site_json_file       = 'config/site.json'    ! 默认地面站配置文件
     obs_file             = ''
     initial_json_file    = ''

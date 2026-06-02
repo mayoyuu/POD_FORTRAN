@@ -138,7 +138,13 @@ module pod_config
         real(DP) :: measurement_noise_std = 1.0e-3_DP  ! 测量噪声标准差
         logical :: use_measurement_weights = .true.  ! 使用测量权重
         real(DP) :: outlier_threshold = 3.0_DP  ! 异常值阈值
-        
+
+        ! 滤波器噪声参数
+        real(DP) :: measurement_noise_ra_arcsec = 0.1_DP     ! RA 测量噪声标准差 (角秒)
+        real(DP) :: measurement_noise_dec_arcsec = 0.1_DP    ! Dec 测量噪声标准差 (角秒)
+        real(DP) :: process_noise_sigma_a = 1.0e-11_DP       ! 过程噪声加速度标准差 (km/s²)
+        logical  :: use_process_noise = .true.                ! 是否启用过程噪声
+
         ! 文件I/O参数
         character(len=MAX_STRING_LEN) :: data_directory = './data/'
         character(len=MAX_STRING_LEN) :: results_directory = './results/'
@@ -289,7 +295,11 @@ contains
         config%measurement_noise_std = 1.0e-3_DP
         config%use_measurement_weights = .true.
         config%outlier_threshold = 3.0_DP
-        
+        config%measurement_noise_ra_arcsec  = 0.1_DP
+        config%measurement_noise_dec_arcsec = 0.1_DP
+        config%process_noise_sigma_a        = 1.0e-11_DP
+        config%use_process_noise            = .true.
+
         ! 文件I/O参数
         config%data_directory = './data/'
         config%results_directory = './results/'
@@ -419,6 +429,10 @@ contains
         write(unit, '(A)') 'measurement_noise_std = 1.0e-3'
         write(unit, '(A)') 'use_measurement_weights = true'
         write(unit, '(A)') 'outlier_threshold = 3.0'
+        write(unit, '(A)') 'measurement_noise_ra_arcsec = 0.1'
+        write(unit, '(A)') 'measurement_noise_dec_arcsec = 0.1'
+        write(unit, '(A)') 'process_noise_sigma_a = 1.0e-11'
+        write(unit, '(A)') 'use_process_noise = true'
         write(unit, '(A)') ''
         
         write(unit, '(A)') '# 文件I/O参数'
@@ -595,7 +609,15 @@ contains
                 config%use_measurement_weights = (trim(value) == 'true')
             case ('outlier_threshold')
                 read(value, *, iostat=ios) config%outlier_threshold
-            
+            case ('measurement_noise_ra_arcsec')
+                read(value, *, iostat=ios) config%measurement_noise_ra_arcsec
+            case ('measurement_noise_dec_arcsec')
+                read(value, *, iostat=ios) config%measurement_noise_dec_arcsec
+            case ('process_noise_sigma_a')
+                read(value, *, iostat=ios) config%process_noise_sigma_a
+            case ('use_process_noise')
+                config%use_process_noise = (trim(value) == 'true')
+
             ! 文件I/O参数
             case ('data_directory')
                 config%data_directory = trim(value)
@@ -757,9 +779,15 @@ contains
         write(*, *) '' ! 换行
         write(*, *) ''
         write(*, *) '测量模型参数:'
-        write(*, *) '  测量噪声标准差: ', config%measurement_noise_std
+        write(*, *) '  测量噪声标准差(旧): ', config%measurement_noise_std
         write(*, *) '  使用测量权重: ', config%use_measurement_weights
         write(*, *) '  异常值阈值: ', config%outlier_threshold
+        write(*, *) ''
+        write(*, *) '滤波器噪声参数:'
+        write(*, *) '  RA 测量噪声 (角秒): ', config%measurement_noise_ra_arcsec
+        write(*, *) '  Dec 测量噪声 (角秒): ', config%measurement_noise_dec_arcsec
+        write(*, *) '  过程噪声 sigma_a (km/s²): ', config%process_noise_sigma_a
+        write(*, *) '  启用过程噪声: ', config%use_process_noise
         write(*, *) ''
         write(*, *) '文件I/O参数:'
         write(*, *) '  数据目录: ', trim(config%data_directory)

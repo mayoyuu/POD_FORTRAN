@@ -2,6 +2,7 @@
 !> @brief 无迹变换（UT）轨道确定集成封装层
 module pod_ut_runner_module
     use pod_global, only: DP, MAX_STRING_LEN
+    use pod_config, only: config
     use pod_filter_ut_module, only: ut_filter
     use pod_obs_io_module, only: obs_record, preload_observations, &
                                   station_record, preload_stations, find_station_by_id, &
@@ -46,8 +47,6 @@ contains
         real(DP) :: y_meas(2), noise_R(2,2)
         real(DP) :: et_current, et_obs, dt
         integer  :: obs_count, i
-        real(DP), parameter :: sigma_a = 1.0e-11_DP   ! km/s²
-
         real(DP) :: step_res(6)    ! 存储最近一次测量更新的 6 列残差
         real(DP) :: step_comp(2)   ! 存储最近一次计算出的预测观测值 (Lon, Lat)
         real(DP) :: pos_err(3), vel_err(3)
@@ -56,8 +55,8 @@ contains
 
         ! ---- 1. 测量噪声协方差（光学赤经赤纬，0.1角秒精度）----
         noise_R = 0.0_DP
-        noise_R(1,1) = (0.1_DP * PI / 180.0_DP / 3600.0_DP)**2
-        noise_R(2,2) = noise_R(1,1)
+        noise_R(1,1) = (config%measurement_noise_ra_arcsec * PI / 180.0_DP / 3600.0_DP)**2
+        noise_R(2,2) = (config%measurement_noise_dec_arcsec * PI / 180.0_DP / 3600.0_DP)**2
 
         ! ---- 2. 从 JSON 加载初始状态（仅均值和协方差）----
         call load_initial_opm(initial_json_file, et_current, initial_mean, initial_cov)
@@ -97,17 +96,22 @@ contains
 
             ! 构造与时间步长相关的过程噪声 Q
             noise_Q = 0.0_DP
-            do i = 1, 3
-                noise_Q(i,i)       = (dt**4 / 4.0_DP) * sigma_a**2
-                noise_Q(i+3,i+3)   = dt**2 * sigma_a**2
-            end do
+            if (config%use_process_noise) then
+                do i = 1, 3
+                    noise_Q(i,i)     = (dt**4 / 4.0_DP) * config%process_noise_sigma_a**2
+                    noise_Q(i+3,i+3) = dt**2 * config%process_noise_sigma_a**2
+                end do
+            end if
 
             write(*,*) '  [UT Runner] 处理观测 #', obs_count, &
                     '  观测时刻 et_obs = ', et_obs, ' 秒', &
                     '  时间步长 dt =', dt, ' 秒'
 
-            call my_filter%time_update(et_obs, noise_Q)
-            ! call my_filter%time_update(et_obs)
+            if (config%use_process_noise) then
+                call my_filter%time_update(et_obs, noise_Q)
+            else
+                call my_filter%time_update(et_obs)
+            end if
             call my_filter%get_current_epoch(et_current)
             call my_filter%get_current_state(final_mean)
             call my_filter%get_current_cov(final_cov)

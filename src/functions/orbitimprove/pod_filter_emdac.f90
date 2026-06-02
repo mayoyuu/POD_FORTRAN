@@ -194,7 +194,7 @@ contains
         call run_particle_propagation(uq_particles, this%state_mean, this%current_epoch, &
                                       0.0_DP, t_end, METHOD_DA,  this%propagated_particles, &
                                       da_order=this%da_order, &
-                                      reference_orbit_out=temp_mean) ! 传出传播后的均值，供后续 EM 聚类使用
+                                      reference_orbit_out=temp_mean) ! 传出传播后的均值
         
         this%state_mean = temp_mean ! 更新滤波器的全局均值为传播后的均值，供后续测量更新使用，过程噪声均值为0,此处不增加噪声项
         ! ! 增加过程噪声
@@ -208,6 +208,7 @@ contains
 
         ! 时间更新
         this%current_epoch = et  
+        call this%update_global_mean()  ! 根据新的 GMM 组件均值和权重更新全局均值
         call this%update_global_cov()                       
         
         ! 释放临时粒子对象内存，保留 this%propagated_particles 供后续测量更新使用
@@ -474,6 +475,7 @@ contains
                  matmul(reshape(this%gmm_state%components(i)%mean - this%state_mean, (/dim, 1/)), &
                         reshape(this%gmm_state%components(i)%mean - this%state_mean, (/1, dim/))))
         end do
+
     end subroutine update_global_cov
 
     subroutine get_random_addos_from_noise(this, noise_Q, n_samples, addos_out)

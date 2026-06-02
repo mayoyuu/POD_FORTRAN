@@ -70,6 +70,12 @@ measurement_noise_std = 1.0e-3
 use_measurement_weights = true
 outlier_threshold = 3.0
 
+# 滤波器噪声参数
+measurement_noise_ra_arcsec = 0.1
+measurement_noise_dec_arcsec = 0.1
+process_noise_sigma_a = 1.0e-11
+use_process_noise = true
+
 # 文件I/O参数
 data_directory = ./data/
 results_directory = ./results/

@@ -2,6 +2,7 @@
 !> @brief EMDAC-N 轨道改进集成封装层
 module pod_emdac_runner_module
     use pod_global, only: DP, MAX_STRING_LEN
+    use pod_config, only: config
     use pod_uq_gmm_state_module, only: uq_gmm_state_type
     use pod_filter_emdac_module, only: emdac_filter
     use pod_obs_io_module, only: obs_record, preload_observations, &
@@ -59,7 +60,6 @@ contains
         ! 状态与时间变量
         real(DP) :: initial_mean(6), final_mean(6)
         real(DP) :: initial_cov(6,6), final_cov(6,6), noise_Q(6,6)
-        real(DP), parameter :: sigma_a = 1.0e-11_DP   ! km/s²
         type(uq_gmm_state_type) :: initial_gmm
 
         real(DP) :: y_meas(2), noise_R(2,2)
@@ -82,8 +82,8 @@ contains
         
         ! 1. 测量噪声协方差设置 (例如光学赤经赤纬，0.1角秒精度)
         noise_R = 0.0_DP
-        noise_R(1,1) = (0.1_DP * PI / 180.0_DP / 3600.0_DP)**2 
-        noise_R(2,2) = noise_R(1,1)
+        noise_R(1,1) = (config%measurement_noise_ra_arcsec * PI / 180.0_DP / 3600.0_DP)**2
+        noise_R(2,2) = (config%measurement_noise_dec_arcsec * PI / 180.0_DP / 3600.0_DP)**2
 
         ! 2. 初始状态加载 (从文件读取先验值)
         if (gmm_in_switch) then
@@ -156,12 +156,12 @@ contains
 
             ! 给出noise_Q
             noise_Q = 0.0_DP
-            do i = 1, 3
-                noise_Q(i,i)       = (dt**4 / 4.0_DP) * sigma_a**2
-                noise_Q(i+3,i+3)   = dt**2 * sigma_a**2
-                ! noise_Q(i,i+3)     = (dt**3 / 2.0_DP) * sigma_a**2
-                ! noise_Q(i+3,i)     = noise_Q(i,i+3)       ! 对称
-            end do
+            if (config%use_process_noise) then
+                do i = 1, 3
+                    noise_Q(i,i)     = (dt**4 / 4.0_DP) * config%process_noise_sigma_a**2
+                    noise_Q(i+3,i+3) = dt**2 * config%process_noise_sigma_a**2
+                end do
+            end if
             ! ==========================================================
             ! 智能 DA 阶数调整逻辑 (完全基于步长时间判定)
             ! ==========================================================
@@ -188,8 +188,11 @@ contains
             write(*,'(A,I0,A,F10.2,A,I1)') '  [Runner] 处理观测 #', obs_count, &
                   ' dt:', dt, 's, DA阶数:', current_order
             
-            call my_filter%time_update(et_obs, noise_Q)
-            ! call my_filter%time_update(et_obs)
+            if (config%use_process_noise) then
+                call my_filter%time_update(et_obs, noise_Q)
+            else
+                call my_filter%time_update(et_obs)
+            end if
             call my_filter%get_current_epoch(et_current)
             write(*,*) '  传播后时间为: ', et_current
             call my_filter%get_current_state(final_mean)
