@@ -46,3 +46,8 @@ name = "test_ut_first_step"
 source-dir = "app"
 main = "test_ut_first_step.f90"
 
+[[test]]
+name = "test_sample_particles_from_gmm"
+source-dir = "test"
+main = "test_sample_particles_from_gmm.f90"
+
