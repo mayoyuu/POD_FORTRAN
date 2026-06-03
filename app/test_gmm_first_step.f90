@@ -26,6 +26,7 @@ program test_gmm_first_step
     real(DP) :: initial_mean(6), initial_cov(6,6), noise_Q(6,6), noise_R(2,2)
     real(DP) :: et_current, et_obs, y_meas(2), dt
     real(DP), parameter :: sigma_a = 1.0e-11_DP
+    real(DP) :: global_means(2, 6), global_covs(2, 6, 6)
 
     type(uq_gmm_state_type) :: gmm_snapshots(2)
     real(DP) :: gmm_epochs(2)
@@ -132,6 +133,9 @@ program test_gmm_first_step
         write(*,*) '    分量 ', i, ' 权重: ', gmm_snapshots(1)%components(i)%weight
     end do
 
+    call my_filter%get_current_state(global_means(1,:))
+    call my_filter%get_current_cov(global_covs(1,:,:))
+
     ! 9. 执行测量更新
     write(*,*) '  执行测量更新...'
     call my_filter%measurement_update(y_meas, noise_R, et_obs, current_station)
@@ -148,9 +152,13 @@ program test_gmm_first_step
                    ' 均值前3维: ', gmm_snapshots(2)%components(i)%mean(1:3)
     end do
 
+    call my_filter%get_current_state(global_means(2,:))
+    call my_filter%get_current_cov(global_covs(2,:,:))
+
     ! 11. 写入文件
     write(*,*) '  写入 GMM 快照...'
-    call write_gmm_snapshots_with_labels(output_gmm_file, gmm_epochs, gmm_snapshots, label, 2)
+    call write_gmm_snapshots_with_labels(output_gmm_file, gmm_epochs, gmm_snapshots, &
+                                         global_means, global_covs, label, 2)
 
     write(*,*) '=================================================='
     write(*,*) '  完成！输出: ', trim(output_gmm_file) // '.gmms.json'
@@ -159,10 +167,12 @@ program test_gmm_first_step
 contains
 
     !> 带标签的 GMM 快照写入（与 data_format 中类似，但多了 label 字段）
-    subroutine write_gmm_snapshots_with_labels(filename, epochs, gmms, labels, n_steps)
+    subroutine write_gmm_snapshots_with_labels(filename, epochs, gmms, &
+                                               global_means, global_covs, labels, n_steps)
         character(len=*), intent(in) :: filename
         real(DP), intent(in)         :: epochs(:)
         type(uq_gmm_state_type), intent(in) :: gmms(:)
+        real(DP), intent(in)         :: global_means(:,:), global_covs(:,:,:)
         character(len=*), intent(in) :: labels(:)
         integer, intent(in)          :: n_steps
 
@@ -189,6 +199,23 @@ contains
             write(u, '(A,A,A)')           '            "LABEL": "', trim(labels(s)), '",'
             write(u, '(A,A,A)')           '            "EPOCH": "', trim(epoch_str), '",'
             write(u, '(A,F16.4,A)')       '            "ET": ', epochs(s), ','
+            write(u, '(A)')               '            "GLOBAL": {'
+
+            write(u, '(A,5(ES22.15,", "),ES22.15,A)') &
+                '                "MEAN": [', global_means(s, 1:6), '],'
+            write(u, '(A)')               '                "COV": ['
+            do j = 1, 6
+                if (j < 6) then
+                    write(u, '(A,5(ES22.15,", "),ES22.15,A)') &
+                        '                    [', global_covs(s, j, 1:6), '],'
+                else
+                    write(u, '(A,5(ES22.15,", "),ES22.15,A)') &
+                        '                    [', global_covs(s, j, 1:6), ']'
+                end if
+            end do
+            write(u, '(A)')               '                ]'
+            write(u, '(A)')               '            },'
+
             write(u, '(A,I0,A)')          '            "N_COMPONENTS": ', gmms(s)%n_components, ','
             write(u, '(A)')               '            "COMPONENTS": ['
 

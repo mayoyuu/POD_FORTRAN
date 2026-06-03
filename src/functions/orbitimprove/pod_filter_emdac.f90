@@ -208,7 +208,7 @@ contains
 
         ! 时间更新
         this%current_epoch = et  
-        call this%update_global_mean()  ! 根据新的 GMM 组件均值和权重更新全局均值
+        ! call this%update_global_mean()  ! 根据新的 GMM 组件均值和权重更新全局均值
         call this%update_global_cov()                       
         
         ! 释放临时粒子对象内存，保留 this%propagated_particles 供后续测量更新使用
