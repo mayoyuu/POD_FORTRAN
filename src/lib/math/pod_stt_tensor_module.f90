@@ -736,15 +736,141 @@ contains
     end subroutine compute_stt_rhs
 
     ! =========================================================================
-    ! compute_stt_moments — 占位 (Task 3 实现)
+    ! compute_stt_moments — 由 STT 计算非线性均值和协方差
+    !
+    ! 假定初始分布为高斯分布 N(μ₀, P₀), 利用 STT 展开:
+    !   δx_i = Σ (1/p!) Φ_{i,K} δx°_K
+    !
+    ! 均值修正 (到 4 阶):
+    !   μ_i = x*_i + (1/2) Φ^{2}_{i,ab} P_{ab}
+    !             + (1/8) Φ^{4}_{i,abcd} (P_{ab}P_{cd}+P_{ac}P_{bd}+P_{ad}P_{bc})
+    !
+    ! 协方差修正 (到 3 阶):
+    !   Σ_{ij}  =  Φ¹_{i,a} P_{ab} Φ¹_{j,b}
+    !           + (1/4) Φ²_{i,ab} Φ²_{j,cd} (P_{ac}P_{bd} + P_{ad}P_{bc})
+    !           + (1/6) [Φ¹_{i,a}(Φ³_{j,bcd}+Φ³_{j,cbd}+Φ³_{j,dbc})
+    !                  + Φ¹_{j,a}(Φ³_{i,bcd}+Φ³_{i,cbd}+Φ³_{i,dbc})] P_{ab} P_{cd}
     ! =========================================================================
     subroutine compute_stt_moments(x_star, stt_store, P0, order, mean_out, cov_out)
         real(DP), intent(in) :: x_star(6), P0(6,6)
         type(stt_store_type), intent(in) :: stt_store
         integer, intent(in) :: order
         real(DP), intent(out) :: mean_out(6), cov_out(6,6)
+
+        integer :: i, j, a, b, c, d
+        integer :: ab_idx, cd_idx, abc_idx, abcd_idx
+        real(DP) :: fac
+        integer :: tup3_1(3), tup3_2(3), tup3_3(3), tup4(4)
+
+        ! ---- 初始化 ----
         mean_out = x_star
         cov_out = 0.0_DP
+
+        ! =====================================================================
+        ! 均值修正
+        ! =====================================================================
+
+        ! ---- 2 阶均值修正: (1/2) Φ_{i,ab} P_{ab} ----
+        if (order >= 2) then
+            do i = 1, 6
+                do a = 1, 6
+                    do b = a, 6
+                        ab_idx = tuple_to_sym_index([a, b], 2)
+                        fac = P0(a, b)
+                        if (a /= b) fac = 2.0_DP * fac  ! 对称性
+                        mean_out(i) = mean_out(i) + 0.5_DP &
+                            * stt_store%get(i, ab_idx, 2) * fac
+                    end do
+                end do
+            end do
+        end if
+
+        ! ---- 4 阶均值修正: (1/8) Φ_{i,abcd} (P_{ab}P_{cd}+P_{ac}P_{bd}+P_{ad}P_{bc}) ----
+        if (order >= 4) then
+            do i = 1, 6
+                do a = 1, 6
+                    do b = a, 6
+                        do c = 1, 6
+                            do d = c, 6
+                                tup4 = sort4(a, b, c, d)
+                                abcd_idx = tuple_to_sym_index(tup4, 4)
+                                fac = P0(a,b)*P0(c,d) + P0(a,c)*P0(b,d) + P0(a,d)*P0(b,c)
+                                ! 补偿重复计数
+                                if (a /= b) fac = fac * 2.0_DP
+                                if (c /= d) fac = fac * 2.0_DP
+                                mean_out(i) = mean_out(i) + (1.0_DP/8.0_DP) &
+                                    * stt_store%get(i, abcd_idx, 4) * fac
+                            end do
+                        end do
+                    end do
+                end do
+            end do
+        end if
+
+        ! =====================================================================
+        ! 协方差修正
+        ! =====================================================================
+
+        ! ---- 线性项: Σ_{i,j} = Φ¹_{i,a} P_{ab} Φ¹_{j,b} ----
+        do i = 1, 6
+            do j = 1, 6
+                do a = 1, 6
+                    do b = 1, 6
+                        cov_out(i,j) = cov_out(i,j) &
+                            + stt_store%get(i, a, 1) * P0(a,b) * stt_store%get(j, b, 1)
+                    end do
+                end do
+            end do
+        end do
+
+        ! ---- 2 阶协方差: (1/4) Φ²_{i,ab} Φ²_{j,cd} (P_{ac}P_{bd} + P_{ad}P_{bc}) ----
+        if (order >= 2) then
+            do i = 1, 6
+                do j = 1, 6
+                    do a = 1, 6
+                        do b = a, 6
+                            ab_idx = tuple_to_sym_index([a, b], 2)
+                            do c = 1, 6
+                                do d = c, 6
+                                    cd_idx = tuple_to_sym_index([c, d], 2)
+                                    fac = P0(a,c)*P0(b,d) + P0(a,d)*P0(b,c)
+                                    if (a /= b) fac = fac * 2.0_DP
+                                    if (c /= d) fac = fac * 2.0_DP
+                                    cov_out(i,j) = cov_out(i,j) + 0.25_DP &
+                                        * stt_store%get(i, ab_idx, 2) &
+                                        * stt_store%get(j, cd_idx, 2) * fac
+                                end do
+                            end do
+                        end do
+                    end do
+                end do
+            end do
+        end if
+
+        ! ---- 3 阶协方差: (1/6) [Φ¹_i · Φ³_j + Φ³_i · Φ¹_j] 三种配对 ----
+        if (order >= 3) then
+            do i = 1, 6
+                do j = 1, 6
+                    do a = 1, 6
+                        do b = 1, 6
+                            do c = 1, 6
+                                do d = 1, 6
+                                    abc_idx = tuple_to_sym_index(sort3(b, c, d), 3)
+                                    ! 三种 P 配对: P_{ab}P_{cd} + P_{ac}P_{bd} + P_{ad}P_{bc}
+                                    fac = P0(a,b)*P0(c,d) + P0(a,c)*P0(b,d) + P0(a,d)*P0(b,c)
+
+                                    cov_out(i,j) = cov_out(i,j) + (1.0_DP/6.0_DP) * fac &
+                                        * stt_store%get(i, a, 1) * stt_store%get(j, abc_idx, 3)
+
+                                    cov_out(i,j) = cov_out(i,j) + (1.0_DP/6.0_DP) * fac &
+                                        * stt_store%get(j, a, 1) * stt_store%get(i, abc_idx, 3)
+                                end do
+                            end do
+                        end do
+                    end do
+                end do
+            end do
+        end if
     end subroutine compute_stt_moments
 
     ! =========================================================================
