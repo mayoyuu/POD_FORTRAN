@@ -475,15 +475,264 @@ contains
     end subroutine gen_block_assignments
 
     ! =========================================================================
-    ! compute_stt_rhs — 占位 (Task 2 实现)
+    ! Faà di Bruno α-收缩核心
+    !
+    ! 对于给定的 k 个块，计算:
+    !   Σ_{α₁,...,αₖ ∈ {1..6}^k} f*_{i, α₁...αₖ} · Π_{b=1}^{k} Φ_{α_b, B_b, λ_b}
+    !
+    ! 使用显式嵌套循环优化 k=1..6 的情况。
     ! =========================================================================
-    subroutine compute_stt_rhs(i_comp, p, tup, f_tensors, stt_store, dphi)
+    real(DP) function contract_alpha(i_comp, k, block_indices, block_orders, &
+                                      f_tensors, max_f_order, stt_store) result(res)
+        integer, intent(in) :: i_comp, k
+        integer, intent(in) :: block_indices(k)
+        integer, intent(in) :: block_orders(k)
+        real(DP), intent(in) :: f_tensors(:, :, 0:)
+        integer, intent(in) :: max_f_order
+        type(stt_store_type), intent(in) :: stt_store
+        integer :: a1, a2, a3, a4, a5, a6
+        integer :: fidx
+        real(DP) :: f_val, prod
+
+        res = 0.0_DP
+
+        ! f* 的压缩索引: 将 α 元组压缩
+        ! 注意: f* 的指标 α₁...αₖ 不排序 (因为它们是求和的虚拟指标)
+        ! 但 f_tensors 存储的是对称压缩形式
+        ! 对于 f* 的 RHS 使用，我们需要 f*_{i, α₁...αₖ} 其中指标已排序
+        ! 由于 f_tensors 是压缩对称存储的，需要先排序 α 再查询
+
+        select case (k)
+        case (1)
+            do a1 = 1, 6
+                fidx = tuple_to_sym_index([a1], 1)
+                f_val = f_tensors(i_comp, fidx, 1)
+                prod = f_val * stt_store%get(a1, block_indices(1), block_orders(1))
+                res = res + prod
+            end do
+        case (2)
+            do a1 = 1, 6
+                do a2 = 1, 6
+                    fidx = tuple_to_sym_index(sort2(a1, a2), 2)
+                    f_val = f_tensors(i_comp, fidx, 2)
+                    prod = f_val &
+                        * stt_store%get(a1, block_indices(1), block_orders(1)) &
+                        * stt_store%get(a2, block_indices(2), block_orders(2))
+                    res = res + prod
+                end do
+            end do
+        case (3)
+            do a1 = 1, 6
+                do a2 = 1, 6
+                    do a3 = 1, 6
+                        fidx = tuple_to_sym_index(sort3(a1, a2, a3), 3)
+                        f_val = f_tensors(i_comp, fidx, 3)
+                        prod = f_val &
+                            * stt_store%get(a1, block_indices(1), block_orders(1)) &
+                            * stt_store%get(a2, block_indices(2), block_orders(2)) &
+                            * stt_store%get(a3, block_indices(3), block_orders(3))
+                        res = res + prod
+                    end do
+                end do
+            end do
+        case (4)
+            do a1 = 1, 6
+                do a2 = 1, 6
+                    do a3 = 1, 6
+                        do a4 = 1, 6
+                            fidx = tuple_to_sym_index(sort4(a1, a2, a3, a4), 4)
+                            f_val = f_tensors(i_comp, fidx, 4)
+                            prod = f_val &
+                                * stt_store%get(a1, block_indices(1), block_orders(1)) &
+                                * stt_store%get(a2, block_indices(2), block_orders(2)) &
+                                * stt_store%get(a3, block_indices(3), block_orders(3)) &
+                                * stt_store%get(a4, block_indices(4), block_orders(4))
+                            res = res + prod
+                        end do
+                    end do
+                end do
+            end do
+        case (5)
+            do a1 = 1, 6
+                do a2 = 1, 6
+                    do a3 = 1, 6
+                        do a4 = 1, 6
+                            do a5 = 1, 6
+                                fidx = tuple_to_sym_index(sort5(a1, a2, a3, a4, a5), 5)
+                                f_val = f_tensors(i_comp, fidx, 5)
+                                prod = f_val &
+                                    * stt_store%get(a1, block_indices(1), block_orders(1)) &
+                                    * stt_store%get(a2, block_indices(2), block_orders(2)) &
+                                    * stt_store%get(a3, block_indices(3), block_orders(3)) &
+                                    * stt_store%get(a4, block_indices(4), block_orders(4)) &
+                                    * stt_store%get(a5, block_indices(5), block_orders(5))
+                                res = res + prod
+                            end do
+                        end do
+                    end do
+                end do
+            end do
+        case (6)
+            do a1 = 1, 6
+                do a2 = 1, 6
+                    do a3 = 1, 6
+                        do a4 = 1, 6
+                            do a5 = 1, 6
+                                do a6 = 1, 6
+                                    fidx = tuple_to_sym_index( &
+                                        sort6(a1, a2, a3, a4, a5, a6), 6)
+                                    f_val = f_tensors(i_comp, fidx, 6)
+                                    prod = f_val &
+                                        * stt_store%get(a1, block_indices(1), block_orders(1)) &
+                                        * stt_store%get(a2, block_indices(2), block_orders(2)) &
+                                        * stt_store%get(a3, block_indices(3), block_orders(3)) &
+                                        * stt_store%get(a4, block_indices(4), block_orders(4)) &
+                                        * stt_store%get(a5, block_indices(5), block_orders(5)) &
+                                        * stt_store%get(a6, block_indices(6), block_orders(6))
+                                    res = res + prod
+                                end do
+                            end do
+                        end do
+                    end do
+                end do
+            end do
+        end select
+    end function contract_alpha
+
+    ! ---- 内联排序辅助函数 (2~6 个元素) ----
+
+    function sort2(a, b) result(r)
+        integer, intent(in) :: a, b
+        integer :: r(2)
+        if (a <= b) then; r = [a, b]; else; r = [b, a]; end if
+    end function
+
+    function sort3(a, b, c) result(r)
+        integer, intent(in) :: a, b, c
+        integer :: r(3)
+        r = [a, b, c]
+        call isort3(r)
+    end function
+
+    function sort4(a, b, c, d) result(r)
+        integer, intent(in) :: a, b, c, d
+        integer :: r(4)
+        r = [a, b, c, d]
+        call isort4(r)
+    end function
+
+    function sort5(a, b, c, d, e) result(r)
+        integer, intent(in) :: a, b, c, d, e
+        integer :: r(5)
+        r = [a, b, c, d, e]
+        call isort5(r)
+    end function
+
+    function sort6(a, b, c, d, e, f) result(r)
+        integer, intent(in) :: a, b, c, d, e, f
+        integer :: r(6)
+        r = [a, b, c, d, e, f]
+        call isort6(r)
+    end function
+
+    subroutine isort3(a)
+        integer, intent(inout) :: a(3)
+        integer :: t
+        if (a(1) > a(2)) then; t = a(1); a(1) = a(2); a(2) = t; end if
+        if (a(2) > a(3)) then; t = a(2); a(2) = a(3); a(3) = t; end if
+        if (a(1) > a(2)) then; t = a(1); a(1) = a(2); a(2) = t; end if
+    end subroutine
+
+    subroutine isort4(a)
+        integer, intent(inout) :: a(4)
+        integer :: t, i, j
+        do i = 1, 3
+            do j = i + 1, 4
+                if (a(i) > a(j)) then; t = a(i); a(i) = a(j); a(j) = t; end if
+            end do
+        end do
+    end subroutine
+
+    subroutine isort5(a)
+        integer, intent(inout) :: a(5)
+        integer :: t, i, j
+        do i = 1, 4
+            do j = i + 1, 5
+                if (a(i) > a(j)) then; t = a(i); a(i) = a(j); a(j) = t; end if
+            end do
+        end do
+    end subroutine
+
+    subroutine isort6(a)
+        integer, intent(inout) :: a(6)
+        integer :: t, i, j
+        do i = 1, 5
+            do j = i + 1, 6
+                if (a(i) > a(j)) then; t = a(i); a(i) = a(j); a(j) = t; end if
+            end do
+        end do
+    end subroutine
+
+    ! =========================================================================
+    ! compute_stt_rhs — Faà di Bruno 右端项计算
+    !
+    ! 给定分量 i、阶数 p、压缩索引对应的元组 tup(1:p)、
+    ! 力场导数张量 f_tensors 和当前 STT 存储，
+    ! 计算 dΦ_{i, tup} / dt。
+    !
+    ! 算法:
+    !   1. 均匀项: Σ_α f*_{i,α} · Φ_{α, tup, p}
+    !   2. 划分项: 对每个 λ ⊢ p (k ≥ 2):
+    !        对每个块指配:
+    !          dphi += contract_alpha(i, k, [B₁..Bₖ], [λ₁..λₖ], f*, stt)
+    ! =========================================================================
+    subroutine compute_stt_rhs(i_comp, p, tup, f_tensors, max_f_order, stt_store, dphi)
         integer, intent(in) :: i_comp, p
         integer, intent(in) :: tup(p)
-        real(DP), intent(in) :: f_tensors(:,:,:)
-        type(stt_store_type), intent(inout) :: stt_store
+        real(DP), intent(in) :: f_tensors(:, :, 0:)
+        integer, intent(in) :: max_f_order
+        type(stt_store_type), intent(in) :: stt_store
         real(DP), intent(out) :: dphi
+
+        type(partition_list_type) :: plist
+        integer, allocatable :: blocks_list(:,:)
+        integer :: n_assign
+        integer :: ip, ia
+        integer :: tup_idx
+        integer :: alpha, k_blk
+        real(DP) :: term
+
         dphi = 0.0_DP
+
+        ! ---- 1. 均匀项: Σ_α f*_{i,α} · Φ_{α, tup_idx, p} ----
+        tup_idx = tuple_to_sym_index(tup, p)
+        do alpha = 1, 6
+            dphi = dphi + f_tensors(i_comp, alpha, 1) &
+                        * stt_store%get(alpha, tup_idx, p)
+        end do
+
+        ! ---- 2. 非均匀项: 对所有划分 λ ⊢ p (k ≥ 2) ----
+        if (p >= 2) then
+            call generate_partitions(p, plist)
+
+            do ip = 1, plist%n_parts
+                k_blk = plist%k(ip)
+                if (k_blk < 2) cycle  ! 均匀项已处理
+
+                call gen_block_assignments(tup, p, plist%counts(ip, 1:k_blk), &
+                                           k_blk, blocks_list, n_assign)
+
+                do ia = 1, n_assign
+                    term = contract_alpha(i_comp, k_blk, &
+                                          blocks_list(ia, 1:k_blk), &
+                                          plist%counts(ip, 1:k_blk), &
+                                          f_tensors, max_f_order, stt_store)
+                    dphi = dphi + term
+                end do
+
+                deallocate(blocks_list)
+            end do
+        end if
     end subroutine compute_stt_rhs
 
     ! =========================================================================
