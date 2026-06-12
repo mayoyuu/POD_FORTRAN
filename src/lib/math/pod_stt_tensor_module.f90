@@ -1,4 +1,4 @@
-!--------------------------------------------------------------------------------------------------------------
+﻿!--------------------------------------------------------------------------------------------------------------
 !> STT 对称张量模块
 !>
 !> 提供 STT 计算所需的对称张量数据结构和组合算法：
@@ -36,12 +36,12 @@ module pod_stt_tensor_module
     ! =========================================================================
     ! 公开接口
     ! =========================================================================
-    public :: STT_MAX_ORDER, STT_DIM, stt_sizes
+    public :: stt_sizes
     public :: init_stt_indexing, stt_order_p_size, indexing_initialized
     public :: tuple_to_sym_index, sym_index_to_tuple
     public :: generate_partitions, factorial
-    public :: compute_stt_rhs, compute_stt_moments
-    public :: stt_store_type
+    public :: compute_stt_rhs, compute_stt_rhs_order, compute_stt_moments
+    public :: stt_store_type, stt_flat_offset
     public :: gen_block_assignments, expand_sym_index
 
     ! =========================================================================
@@ -62,6 +62,19 @@ module pod_stt_tensor_module
         integer :: k
         integer, allocatable :: blocks(:,:)   ! (n_assign, k) — compressed block indices
     end type block_assign_type
+
+    ! Partition 缓存 (在 init_stt_indexing 中填充)
+    type(partition_list_type), allocatable, save :: part_cache(:)
+
+    ! Alpha 查找表: 对 6^k 种 α 组合预计算有序压缩索引
+    integer, allocatable, save :: alpha_lut_2(:,:)
+    integer, allocatable, save :: alpha_lut_3(:,:,:)
+    integer, allocatable, save :: alpha_lut_4(:,:,:,:)
+
+    ! gen_block_assignments 工作数组 (避免反复分配)
+    integer, allocatable, save :: gba_buf(:,:)
+    integer, allocatable, save :: gba_dist(:,:)
+    integer, parameter :: GBA_BUF_SIZE = 10000
 
     ! =========================================================================
     ! STT 存储类型
@@ -133,6 +146,19 @@ contains
             stt_sizes(p) = binom_table(STT_DIM + p - 1, p)
         end do
 
+        ! 预计算 partition 缓存 (p=2..STT_MAX_ORDER 在 RHS 中反复使用)
+        allocate(part_cache(2:STT_MAX_ORDER))
+        do p = 2, STT_MAX_ORDER
+            call generate_partitions(p, part_cache(p))
+        end do
+
+        ! 预计算 alpha 查找表 (消除 contract_alpha 内层 sort+index)
+        call build_alpha_luts()
+
+        ! 预分配 gen_block_assignments 工作数组 (k ≤ STT_MAX_ORDER)
+        allocate(gba_buf(GBA_BUF_SIZE, STT_MAX_ORDER))
+        allocate(gba_dist(STT_DIM, STT_MAX_ORDER))
+
         indexing_initialized = .true.
     end subroutine init_stt_indexing
 
@@ -201,7 +227,7 @@ contains
         integer, intent(in)  :: idx, p
         integer, allocatable, intent(out) :: expanded_tuples(:,:)
         integer, intent(out) :: n_perm
-        integer :: tup(p), i, j
+        integer :: tup(p), i, j, current(p)
         integer, parameter :: MAX_PERM = 6**6  ! worst case, will rarely reach
 
         call sym_index_to_tuple(idx, p, tup)
@@ -212,14 +238,15 @@ contains
         ! 这对于 p ≤ 6 是可接受的 (6^6 = 46656)
         allocate(expanded_tuples(MAX_PERM, p))
         n_perm = 0
-        call gen_all_assignments_rec(tup, p, 1, expanded_tuples, n_perm)
+        current = 0
+        call gen_all_assignments_rec(tup, p, 1, expanded_tuples, n_perm, current)
     end subroutine expand_sym_index
 
-    recursive subroutine gen_all_assignments_rec(tup, p, pos, result, count)
+    recursive subroutine gen_all_assignments_rec(tup, p, pos, result, count, current)
         integer, intent(in)    :: tup(p), p, pos
         integer, intent(inout) :: result(:,:)
         integer, intent(inout) :: count
-        integer, save :: current(p)
+        integer, intent(inout) :: current(p)
         integer :: val, i
 
         if (pos > p) then
@@ -230,7 +257,7 @@ contains
 
         do val = 1, STT_DIM
             current(pos) = val
-            call gen_all_assignments_rec(tup, p, pos + 1, result, count)
+            call gen_all_assignments_rec(tup, p, pos + 1, result, count, current)
         end do
     end subroutine gen_all_assignments_rec
 
@@ -279,7 +306,8 @@ contains
                 d = 1
                 do while (d <= depth)
                     cnt = 1
-                    do while (d + cnt <= depth .and. stack(d + cnt) == stack(d))
+                    do while (d + cnt <= depth)
+                        if (stack(d + cnt) /= stack(d)) exit
                         cnt = cnt + 1
                     end do
                     plist%mults(plist%n_parts) = &
@@ -307,7 +335,7 @@ contains
     ! =========================================================================
     subroutine gen_block_assignments(tup, p, part_sizes, k, blocks_list, n_assign)
         integer, intent(in)  :: tup(p), p
-        integer, intent(in)  :: part_sizes(k)
+        integer, intent(in)  :: part_sizes(:)
         integer, intent(in)  :: k
         integer, allocatable, intent(out) :: blocks_list(:,:)
         integer, intent(out) :: n_assign
@@ -331,7 +359,8 @@ contains
             uniq_n = uniq_n + 1
             values(uniq_n) = tup(i)
             counts(uniq_n) = 1
-            do while (i + counts(uniq_n) <= p .and. tup(i + counts(uniq_n)) == tup(i))
+            do while (i + counts(uniq_n) <= p)
+                if (tup(i + counts(uniq_n)) /= tup(i)) exit
                 counts(uniq_n) = counts(uniq_n) + 1
             end do
             i = i + counts(uniq_n)
@@ -475,18 +504,143 @@ contains
     end subroutine gen_block_assignments
 
     ! =========================================================================
-    ! Faà di Bruno α-收缩核心
+    ! STT 扁平数组偏移: aug_state(7:) 中 STT(i_comp, cidx, p) 的位置 (1-based)
+    ! =========================================================================
+    integer function stt_flat_offset(i_comp, cidx, p) result(off)
+        integer, intent(in) :: i_comp, cidx, p
+        integer :: pp
+        off = 0
+        do pp = 1, p - 1
+            off = off + 6 * stt_sizes(pp)
+        end do
+        off = off + (i_comp - 1) * stt_sizes(p) + cidx
+    end function stt_flat_offset
+
+    ! =========================================================================
+    ! 预计算 alpha 查找表 (在 init_stt_indexing 中调用)
+    ! =========================================================================
+    subroutine build_alpha_luts()
+        integer :: a1, a2, a3, a4
+        integer :: t(6)
+
+        allocate(alpha_lut_2(6, 6))
+        do a1 = 1, 6
+            do a2 = 1, 6
+                t(1:2) = sort2(a1, a2)
+                alpha_lut_2(a1, a2) = tuple_to_sym_index(t(1:2), 2)
+            end do
+        end do
+
+        allocate(alpha_lut_3(6, 6, 6))
+        do a1 = 1, 6
+            do a2 = 1, 6
+                do a3 = 1, 6
+                    t(1:3) = sort3(a1, a2, a3)
+                    alpha_lut_3(a1, a2, a3) = tuple_to_sym_index(t(1:3), 3)
+                end do
+            end do
+        end do
+
+        allocate(alpha_lut_4(6, 6, 6, 6))
+        do a1 = 1, 6
+            do a2 = 1, 6
+                do a3 = 1, 6
+                    do a4 = 1, 6
+                        t(1:4) = sort4(a1, a2, a3, a4)
+                        alpha_lut_4(a1, a2, a3, a4) = tuple_to_sym_index(t(1:4), 4)
+                    end do
+                end do
+            end do
+        end do
+    end subroutine build_alpha_luts
+
+    ! =========================================================================
+    ! Faà di Bruno α-收缩核心 (LUT 加速版, 直接数组访问)
+    !
+    ! 与 contract_alpha 功能相同, 但:
+    !   - 使用预计算的 alpha LUT 消除 sort+index
+    !   - 使用扁平数组 stt_flat(:) 直接访问 STT 值 (无需 stt_store 对象)
+    ! =========================================================================
+    real(DP) function contract_alpha_direct(i_comp, k, block_indices, block_orders, &
+                                              f_tensors, max_f_order, stt_flat) result(res)
+        integer, intent(in) :: i_comp, k
+        integer, intent(in) :: block_indices(:)
+        integer, intent(in) :: block_orders(:)
+        real(DP), intent(in) :: f_tensors(:, :, 0:)
+        integer, intent(in) :: max_f_order
+        real(DP), intent(in) :: stt_flat(:)
+        integer :: a1, a2, a3, a4, a5, a6
+        integer :: fidx
+        real(DP) :: f_val, prod
+        integer :: off1, off2, off3, off4, off5, off6
+
+        res = 0.0_DP
+
+        select case (k)
+        case (1)
+            do a1 = 1, 6
+                f_val = f_tensors(i_comp, a1, 1)
+                off1 = stt_flat_offset(a1, block_indices(1), block_orders(1))
+                res = res + f_val * stt_flat(off1)
+            end do
+        case (2)
+            do a1 = 1, 6
+                off1 = stt_flat_offset(a1, block_indices(1), block_orders(1))
+                do a2 = 1, 6
+                    fidx = alpha_lut_2(a1, a2)
+                    f_val = f_tensors(i_comp, fidx, 2)
+                    off2 = stt_flat_offset(a2, block_indices(2), block_orders(2))
+                    res = res + f_val * stt_flat(off1) * stt_flat(off2)
+                end do
+            end do
+        case (3)
+            do a1 = 1, 6
+                off1 = stt_flat_offset(a1, block_indices(1), block_orders(1))
+                do a2 = 1, 6
+                    off2 = stt_flat_offset(a2, block_indices(2), block_orders(2))
+                    do a3 = 1, 6
+                        fidx = alpha_lut_3(a1, a2, a3)
+                        f_val = f_tensors(i_comp, fidx, 3)
+                        off3 = stt_flat_offset(a3, block_indices(3), block_orders(3))
+                        res = res + f_val * stt_flat(off1) * stt_flat(off2) * stt_flat(off3)
+                    end do
+                end do
+            end do
+        case (4)
+            do a1 = 1, 6
+                off1 = stt_flat_offset(a1, block_indices(1), block_orders(1))
+                do a2 = 1, 6
+                    off2 = stt_flat_offset(a2, block_indices(2), block_orders(2))
+                    do a3 = 1, 6
+                        off3 = stt_flat_offset(a3, block_indices(3), block_orders(3))
+                        do a4 = 1, 6
+                            fidx = alpha_lut_4(a1, a2, a3, a4)
+                            f_val = f_tensors(i_comp, fidx, 4)
+                            off4 = stt_flat_offset(a4, block_indices(4), block_orders(4))
+                            res = res + f_val * stt_flat(off1) * stt_flat(off2) &
+                                        * stt_flat(off3) * stt_flat(off4)
+                        end do
+                    end do
+                end do
+            end do
+        case default
+            res = 0.0_DP
+        end select
+    end function contract_alpha_direct
+
+    ! =========================================================================
+    ! Faà di Bruno α-收缩核心 (原始 stt_store 版本, 保留向后兼容)
     !
     ! 对于给定的 k 个块，计算:
     !   Σ_{α₁,...,αₖ ∈ {1..6}^k} f*_{i, α₁...αₖ} · Π_{b=1}^{k} Φ_{α_b, B_b, λ_b}
     !
-    ! 使用显式嵌套循环优化 k=1..6 的情况。
+    ! 使用显式嵌套循环优化 k=1..6 的情况, 通过 alpha LUT 加速。
     ! =========================================================================
     real(DP) function contract_alpha(i_comp, k, block_indices, block_orders, &
                                       f_tensors, max_f_order, stt_store) result(res)
         integer, intent(in) :: i_comp, k
-        integer, intent(in) :: block_indices(k)
-        integer, intent(in) :: block_orders(k)
+        integer, intent(in) :: block_indices(:)
+        integer, intent(in) :: block_orders(:)
         real(DP), intent(in) :: f_tensors(:, :, 0:)
         integer, intent(in) :: max_f_order
         type(stt_store_type), intent(in) :: stt_store
@@ -505,15 +659,14 @@ contains
         select case (k)
         case (1)
             do a1 = 1, 6
-                fidx = tuple_to_sym_index([a1], 1)
-                f_val = f_tensors(i_comp, fidx, 1)
+                f_val = f_tensors(i_comp, a1, 1)
                 prod = f_val * stt_store%get(a1, block_indices(1), block_orders(1))
                 res = res + prod
             end do
         case (2)
             do a1 = 1, 6
                 do a2 = 1, 6
-                    fidx = tuple_to_sym_index(sort2(a1, a2), 2)
+                    fidx = alpha_lut_2(a1, a2)
                     f_val = f_tensors(i_comp, fidx, 2)
                     prod = f_val &
                         * stt_store%get(a1, block_indices(1), block_orders(1)) &
@@ -525,7 +678,7 @@ contains
             do a1 = 1, 6
                 do a2 = 1, 6
                     do a3 = 1, 6
-                        fidx = tuple_to_sym_index(sort3(a1, a2, a3), 3)
+                        fidx = alpha_lut_3(a1, a2, a3)
                         f_val = f_tensors(i_comp, fidx, 3)
                         prod = f_val &
                             * stt_store%get(a1, block_indices(1), block_orders(1)) &
@@ -540,7 +693,7 @@ contains
                 do a2 = 1, 6
                     do a3 = 1, 6
                         do a4 = 1, 6
-                            fidx = tuple_to_sym_index(sort4(a1, a2, a3, a4), 4)
+                            fidx = alpha_lut_4(a1, a2, a3, a4)
                             f_val = f_tensors(i_comp, fidx, 4)
                             prod = f_val &
                                 * stt_store%get(a1, block_indices(1), block_orders(1)) &
@@ -674,6 +827,26 @@ contains
     end subroutine
 
     ! =========================================================================
+    ! 辅助函数: 计算划分中等大小块的排列因子
+    !
+    ! 对于划分 (λ₁,...,λₖ)，若 cnt_l 个块的大小等于 l，
+    ! 则块指配枚举会产生 Π(cnt_l)! 倍的重复计数。
+    ! 返回 Π(cnt_l)!。
+    ! =========================================================================
+    integer function equal_blocks_factor(part_sizes, k) result(fac)
+        integer, intent(in) :: part_sizes(:), k
+        integer :: size_counts(6), i
+        size_counts = 0
+        do i = 1, k
+            size_counts(part_sizes(i)) = size_counts(part_sizes(i)) + 1
+        end do
+        fac = 1
+        do i = 1, 6
+            fac = fac * factorial(size_counts(i))
+        end do
+    end function equal_blocks_factor
+
+    ! =========================================================================
     ! compute_stt_rhs — Faà di Bruno 右端项计算
     !
     ! 给定分量 i、阶数 p、压缩索引对应的元组 tup(1:p)、
@@ -694,12 +867,11 @@ contains
         type(stt_store_type), intent(in) :: stt_store
         real(DP), intent(out) :: dphi
 
-        type(partition_list_type) :: plist
         integer, allocatable :: blocks_list(:,:)
         integer :: n_assign
         integer :: ip, ia
         integer :: tup_idx
-        integer :: alpha, k_blk
+        integer :: alpha, k_blk, eq_fac
         real(DP) :: term
 
         dphi = 0.0_DP
@@ -713,27 +885,246 @@ contains
 
         ! ---- 2. 非均匀项: 对所有划分 λ ⊢ p (k ≥ 2) ----
         if (p >= 2) then
-            call generate_partitions(p, plist)
-
-            do ip = 1, plist%n_parts
-                k_blk = plist%k(ip)
+            associate(pl => part_cache(p))
+            do ip = 1, pl%n_parts
+                k_blk = pl%k(ip)
                 if (k_blk < 2) cycle  ! 均匀项已处理
 
-                call gen_block_assignments(tup, p, plist%counts(ip, 1:k_blk), &
+                eq_fac = equal_blocks_factor(pl%counts(ip, 1:k_blk), k_blk)
+
+                call gen_block_assignments(tup, p, pl%counts(ip, 1:k_blk), &
                                            k_blk, blocks_list, n_assign)
 
                 do ia = 1, n_assign
                     term = contract_alpha(i_comp, k_blk, &
                                           blocks_list(ia, 1:k_blk), &
-                                          plist%counts(ip, 1:k_blk), &
+                                          pl%counts(ip, 1:k_blk), &
                                           f_tensors, max_f_order, stt_store)
-                    dphi = dphi + term
+                    dphi = dphi + term / real(eq_fac, DP)
                 end do
 
                 deallocate(blocks_list)
             end do
+            end associate
         end if
     end subroutine compute_stt_rhs
+
+    ! =========================================================================
+    ! compute_stt_rhs_order — 批量计算某一阶所有分量的 STT RHS (优化版)
+    !
+    ! 关键优化:
+    !   1. 块指配在 (p, cidx) 层计算一次，6 个分量共用 (6x 减少)
+    !   2. 使用扁平数组直接访问 STT (消除 stt_store 打包/解包)
+    !   3. 使用 alpha LUT 加速 contract_alpha_direct
+    !
+    ! 将结果写入 dydt(pos_start : pos_start + 6*stt_sizes(p) - 1)
+    ! =========================================================================
+    subroutine compute_stt_rhs_order(p, stt_flat, f_tensors, max_f_order, &
+                                      dydt, pos_start)
+        integer, intent(in) :: p
+        real(DP), intent(in) :: stt_flat(:)     ! aug_state(7:), 扁平 STT 数据
+        real(DP), intent(in) :: f_tensors(:, :, 0:)
+        integer, intent(in) :: max_f_order
+        real(DP), intent(inout) :: dydt(:)
+        integer, intent(in) :: pos_start
+
+        integer :: cidx, np, i_comp, alpha, tup_idx
+        integer :: tup(6), ip, ia, k_blk, eq_fac
+        integer :: pos
+        real(DP) :: dphi, term
+        integer, allocatable :: blk_assigns(:,:,:)  ! (partition, n_assign, k)
+        integer, allocatable :: blk_mults(:,:)      ! (partition, n_assign) multiplicity
+        integer, allocatable :: blk_counts(:)       ! (partition) n_assign
+        integer, parameter :: MAX_ASSIGN_PER_PART = 2000
+
+        np = stt_sizes(p)
+
+        associate(pl => part_cache(p))
+            allocate(blk_assigns(pl%n_parts, MAX_ASSIGN_PER_PART, p))
+            allocate(blk_mults(pl%n_parts, MAX_ASSIGN_PER_PART))
+            allocate(blk_counts(pl%n_parts))
+
+            do cidx = 1, np
+                call sym_index_to_tuple(cidx, p, tup(1:p))
+                tup_idx = cidx  ! compressed index IS the tuple's compressed index
+
+                ! ---- 预计算所有划分的块指配 (只做一次, 6 个分量共用) ----
+                blk_counts = 0
+                do ip = 1, pl%n_parts
+                    k_blk = pl%k(ip)
+                    if (k_blk < 2) cycle
+                    call gen_block_assignments_v2(tup, p, &
+                        pl%counts(ip, 1:k_blk), k_blk, &
+                        blk_assigns(ip, 1:MAX_ASSIGN_PER_PART, 1:k_blk), &
+                        blk_counts(ip), &
+                        blk_mults(ip, 1:MAX_ASSIGN_PER_PART))
+                end do
+
+                ! ---- 对 6 个分量计算 RHS ----
+                do i_comp = 1, 6
+                    pos = pos_start + (i_comp - 1) * np + cidx - 1
+                    dphi = 0.0_DP
+
+                    ! 均匀项: Σ_α f*_{i,α} · Φ_{α, tup_idx, p}
+                    do alpha = 1, 6
+                        dphi = dphi + f_tensors(i_comp, alpha, 1) &
+                                    * stt_flat(stt_flat_offset(alpha, tup_idx, p))
+                    end do
+
+                    ! 非均匀项
+                    do ip = 1, pl%n_parts
+                        k_blk = pl%k(ip)
+                        if (k_blk < 2) cycle
+                        eq_fac = equal_blocks_factor(pl%counts(ip, 1:k_blk), k_blk)
+                        do ia = 1, blk_counts(ip)
+                            term = contract_alpha_direct(i_comp, k_blk, &
+                                blk_assigns(ip, ia, 1:k_blk), &
+                                pl%counts(ip, 1:k_blk), &
+                                f_tensors, max_f_order, stt_flat)
+                            dphi = dphi + term * real(blk_mults(ip, ia), DP) / real(eq_fac, DP)
+                        end do
+                    end do
+
+                    dydt(pos) = dphi
+                end do
+            end do
+
+            deallocate(blk_assigns, blk_mults, blk_counts)
+        end associate
+    end subroutine compute_stt_rhs_order
+
+    ! =========================================================================
+    ! gen_block_assignments_v2 — 使用模块级工作数组的版本
+    !   避免内部 allocate/deallocate, 使用预分配的 gba_buf/gba_dist
+    ! =========================================================================
+    subroutine gen_block_assignments_v2(tup, p, part_sizes, k, blocks_out, n_assign, mults_out)
+        integer, intent(in)  :: tup(p), p
+        integer, intent(in)  :: part_sizes(:)
+        integer, intent(in)  :: k
+        integer, intent(out) :: blocks_out(:,:)  ! (:, k), 调用者提供足够空间
+        integer, intent(out) :: n_assign
+        integer, intent(out) :: mults_out(:)     ! multiplicity per assignment
+
+        integer :: values(6), counts(6), uniq_n
+        integer :: i, j, v, prev
+        integer :: block_tup(p)
+        integer :: blk, vi, di, bp, blk_size, block_order, block_idx
+        integer :: buf_pos
+
+        ! 1. 压缩 tup 为 (value, count) 对
+        uniq_n = 0
+        i = 1
+        do while (i <= p)
+            uniq_n = uniq_n + 1
+            values(uniq_n) = tup(i)
+            counts(uniq_n) = 1
+            do while (i + counts(uniq_n) <= p)
+                if (tup(i + counts(uniq_n)) /= tup(i)) exit
+                counts(uniq_n) = counts(uniq_n) + 1
+            end do
+            i = i + counts(uniq_n)
+        end do
+
+        gba_dist(1:uniq_n, 1:k) = 0
+        buf_pos = 0
+
+        call enum_dist_v2(1, uniq_n, counts, values, k, part_sizes, &
+                           buf_pos, blocks_out)
+
+        n_assign = buf_pos
+
+    contains
+        recursive subroutine enum_dist_v2(vi, uniq_n, cnts, vals, kk, &
+                                           psz, bpos, blk_out)
+            integer, intent(in)    :: vi, uniq_n, cnts(6), vals(6), kk
+            integer, intent(in)    :: psz(:)
+            integer, intent(inout) :: bpos
+            integer, intent(inout) :: blk_out(:,:)
+            integer :: c, d1, d2, d3, d4, d5
+
+            if (vi > uniq_n) then
+                ! 验证块大小匹配
+                do blk = 1, kk
+                    blk_size = 0
+                    do i = 1, uniq_n
+                        blk_size = blk_size + gba_dist(i, blk)
+                    end do
+                    if (blk_size /= psz(blk)) return
+                end do
+
+                bpos = bpos + 1
+                ! 计算多重性: Πᵢ cnts(i)! / Π_{blk} gba_dist(i, blk)!
+                block
+                    integer :: mult, fac_i, mb
+                    mult = 1
+                    do i = 1, uniq_n
+                        fac_i = factorial(cnts(i))
+                        do mb = 1, kk
+                            fac_i = fac_i / factorial(gba_dist(i, mb))
+                        end do
+                        mult = mult * fac_i
+                    end do
+                    mults_out(bpos) = mult
+                end block
+                ! 为每个块构建压缩索引
+                do blk = 1, kk
+                    bp = 0
+                    do i = 1, uniq_n
+                        v = vals(i)
+                        do di = 1, gba_dist(i, blk)
+                            bp = bp + 1
+                            block_tup(bp) = v
+                        end do
+                    end do
+                    block_order = psz(blk)
+                    if (block_order > 0) then
+                        blk_out(bpos, blk) = tuple_to_sym_index( &
+                            block_tup(1:block_order), block_order)
+                    else
+                        blk_out(bpos, blk) = 0
+                    end if
+                end do
+                return
+            end if
+
+            c = cnts(vi)
+
+            select case (kk)
+            case (2)
+                do d1 = 0, c
+                    gba_dist(vi, 1) = d1
+                    gba_dist(vi, 2) = c - d1
+                    call enum_dist_v2(vi + 1, uniq_n, cnts, vals, kk, &
+                                       psz, bpos, blk_out)
+                end do
+            case (3)
+                do d1 = 0, c
+                    do d2 = 0, c - d1
+                        gba_dist(vi, 1) = d1
+                        gba_dist(vi, 2) = d2
+                        gba_dist(vi, 3) = c - d1 - d2
+                        call enum_dist_v2(vi + 1, uniq_n, cnts, vals, kk, &
+                                           psz, bpos, blk_out)
+                    end do
+                end do
+            case (4)
+                do d1 = 0, c
+                    do d2 = 0, c - d1
+                        do d3 = 0, c - d1 - d2
+                            gba_dist(vi, 1) = d1
+                            gba_dist(vi, 2) = d2
+                            gba_dist(vi, 3) = d3
+                            gba_dist(vi, 4) = c - d1 - d2 - d3
+                            call enum_dist_v2(vi + 1, uniq_n, cnts, vals, kk, &
+                                               psz, bpos, blk_out)
+                        end do
+                    end do
+                end do
+            case default
+                return
+            end select
+        end subroutine enum_dist_v2
+    end subroutine gen_block_assignments_v2
 
     ! =========================================================================
     ! compute_stt_moments — 由 STT 计算非线性均值和协方差

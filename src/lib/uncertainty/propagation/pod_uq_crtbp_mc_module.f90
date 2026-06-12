@@ -6,7 +6,7 @@ module pod_uq_crtbp_mc_module
     implicit none
     private
 
-    public :: crtbp_mc_propagate
+    public :: crtbp_mc_propagate, crtbp_mc_propagate_deviates
 
 contains
 
@@ -74,5 +74,70 @@ contains
 
         if (verbose) write(*, '(A)') '[MC CRTBP] Propagation complete.'
     end subroutine crtbp_mc_propagate
+
+    ! =========================================================================
+    ! crtbp_mc_propagate_deviates — 直接传播给定偏移量 (参考解)
+    !
+    ! 对每个偏离量 nominal_state + deviates(:,i) 进行完整数值积分。
+    ! 速度慢但精度最高，用作 DA/STT 的参考基准。
+    ! =========================================================================
+    subroutine crtbp_mc_propagate_deviates(nominal_state, deviates, mu, t_end, &
+            rel_tol, abs_tol, dt_min, dt_max, max_steps, &
+            final_samples, final_mean, final_cov, verbose)
+        real(DP), intent(in) :: nominal_state(6)
+        real(DP), intent(in) :: deviates(:,:)
+        real(DP), intent(in) :: mu, t_end
+        real(DP), intent(in) :: rel_tol, abs_tol, dt_min, dt_max
+        integer,  intent(in) :: max_steps
+        real(DP), allocatable, intent(out) :: final_samples(:,:)
+        real(DP), intent(out) :: final_mean(6)
+        real(DP), intent(out) :: final_cov(6,6)
+        logical, intent(in) :: verbose
+
+        integer :: dim, i, n_steps, j, n_dev
+        real(DP), allocatable :: temp_times(:), temp_states(:,:)
+        real(DP) :: initial_state(6)
+
+        dim = 6
+        n_dev = size(deviates, 2)
+
+        allocate(final_samples(dim, n_dev))
+
+        call set_crtbp_mu(mu)
+
+        if (verbose) write(*, '(A,I0)') '[MC CRTBP deviates] Propagating ', n_dev
+
+        do i = 1, n_dev
+            initial_state = nominal_state + deviates(:, i)
+
+            call adaptive_integrate_crtbp(initial_state, 0.0_DP, t_end, &
+                rel_tol, abs_tol, dt_min, dt_max, max_steps, &
+                temp_times, temp_states, n_steps)
+
+            final_samples(:, i) = temp_states(n_steps, :)
+
+            if (allocated(temp_times)) deallocate(temp_times)
+            if (allocated(temp_states)) deallocate(temp_states)
+        end do
+
+        ! Compute mean
+        final_mean = 0.0_DP
+        do i = 1, n_dev
+            final_mean = final_mean + final_samples(:, i)
+        end do
+        final_mean = final_mean / real(n_dev, DP)
+
+        ! Compute covariance
+        final_cov = 0.0_DP
+        do i = 1, n_dev
+            do j = 1, dim
+                final_cov(:, j) = final_cov(:, j) + &
+                    (final_samples(:, i) - final_mean) * (final_samples(j, i) - final_mean(j))
+            end do
+        end do
+        final_cov = final_cov / real(n_dev - 1, DP)
+
+        if (verbose) write(*, '(A)') '[MC CRTBP deviates] Propagation complete.'
+    end subroutine crtbp_mc_propagate_deviates
 
 end module pod_uq_crtbp_mc_module

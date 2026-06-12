@@ -22,15 +22,16 @@ module pod_uq_prop_stt_module
     use pod_stt_tensor_module, only: STT_MAX_ORDER, STT_DIM, stt_sizes, &
                                       init_stt_indexing, stt_order_p_size, &
                                       tuple_to_sym_index, sym_index_to_tuple, &
-                                      compute_stt_rhs, compute_stt_moments, &
-                                      stt_store_type, generate_partitions, &
-                                      gen_block_assignments
+                                      compute_stt_rhs, compute_stt_rhs_order, &
+                                      compute_stt_moments, stt_store_type, &
+                                      stt_flat_offset, generate_partitions, &
+                                      gen_block_assignments, factorial
     use pod_crtbp_derivatives_module, only: crtbp_force_derivatives, crtbp_derivatives_init
     use, intrinsic :: ieee_arithmetic, only: ieee_is_nan
     implicit none
     private
 
-    public :: uq_stt_propagator
+    public :: uq_stt_propagator, stt_propagate_deviates
 
     ! =========================================================================
     ! STT 传播器类型
@@ -131,10 +132,7 @@ contains
         real(DP) :: x_nominal(6)
         real(DP), allocatable :: f_tensors(:, :, :)
         real(DP) :: nominal_f(6)
-        type(stt_store_type) :: stt_store
         integer :: pos, p, np, i_comp, tidx, ia
-        integer :: tup(6)
-        real(DP) :: r1, r2, dx1, dy1, dz1, dx2, dy2, dz2
         real(DP) :: mu_
 
         mu_ = mu
@@ -149,49 +147,27 @@ contains
         ! ---- 3. 计算 f* 张量 ----
         call crtbp_force_derivatives(x_nominal, order, f_tensors)
 
-        ! ---- 4. 解包 STT 到 stt_store ----
-        call stt_store%init(order)
+        ! ---- 4. STM RHS (order 1): Φ̇_{i,a} = f*_{i,α} Φ_{α,a} ----
+        ! 使用扁平数组 y(7:) 直接访问, 无需 stt_store 解包
         pos = 7
-        do p = 1, order
-            np = stt_sizes(p)
-            do i_comp = 1, 6
-                do tidx = 1, np
-                    call stt_store%set(i_comp, tidx, p, y(pos))
-                    pos = pos + 1
-                end do
-            end do
-        end do
-
-        ! ---- 5. 计算 STT RHS ----
-        pos = 7
-        ! Order 1 (STM): Φ̇_{i,a} = f*_{i,α} Φ_{α,a}
         np = stt_sizes(1)  ! = 6
         do i_comp = 1, 6
             do tidx = 1, np
-                call sym_index_to_tuple(tidx, 1, tup(1:1))
                 dydt(pos) = 0.0_DP
                 do ia = 1, 6
                     dydt(pos) = dydt(pos) + f_tensors(i_comp, ia, 1) &
-                                * stt_store%get(ia, tidx, 1)
+                                * y(7 + stt_flat_offset(ia, tidx, 1) - 1)
                 end do
                 pos = pos + 1
             end do
         end do
 
-        ! Orders 2..max_order
+        ! ---- 5. 高阶 STT RHS (order 2..max_order) ----
         do p = 2, order
-            np = stt_sizes(p)
-            do i_comp = 1, 6
-                do tidx = 1, np
-                    call sym_index_to_tuple(tidx, p, tup(1:p))
-                    call compute_stt_rhs(i_comp, p, tup(1:p), &
-                        f_tensors, order, stt_store, dydt(pos))
-                    pos = pos + 1
-                end do
-            end do
+            call compute_stt_rhs_order(p, y(7:), f_tensors, order, dydt, pos)
+            pos = pos + 6 * stt_sizes(p)
         end do
 
-        call stt_store%destroy()
         if (allocated(f_tensors)) deallocate(f_tensors)
     end subroutine compute_stt_aug_derivatives
 
@@ -270,9 +246,8 @@ contains
         this%aug_state(1:6) = input_state%mean(1:6)
 
         ! STM 初始化为 I₆
-        pos = 7
         do i_comp = 1, 6
-            this%aug_state(pos + i_comp - 1) = 1.0_DP
+            this%aug_state(7 + (i_comp-1)*6 + (i_comp-1)) = 1.0_DP
         end do
         ! 高阶 STT 初始化为 0 (已由整体置零完成)
 
@@ -565,5 +540,182 @@ contains
         deallocate(current_state, next_state_7th, next_state_8th)
         deallocate(error_est, scale_vector)
     end subroutine adaptive_integrate_var_dim
+
+    ! =====================================================================
+    ! 使用给定初始偏移量传播 (deviates 版本)
+    !
+    ! 不依赖协方差矩阵，直接用 STT Taylor 多项式映射每个偏离量。
+    ! =====================================================================
+    subroutine stt_propagate_deviates(this, t_start, t_end, &
+                                       nominal_state, deviates, &
+                                       output_samples, output_mean, output_cov, &
+                                       stt_store_out)
+        class(uq_stt_propagator), intent(inout) :: this
+        real(DP), intent(in) :: t_start, t_end
+        real(DP), intent(in) :: nominal_state(6)
+        real(DP), intent(in) :: deviates(:,:)
+        real(DP), allocatable, intent(out) :: output_samples(:,:)
+        real(DP), intent(out) :: output_mean(6)
+        real(DP), intent(out) :: output_cov(6,6)
+        type(stt_store_type), intent(out), optional :: stt_store_out
+
+        real(DP), allocatable :: times(:), states(:,:)
+        integer :: n_steps, p, np, pos, i, j, n_dev
+        type(stt_store_type) :: stt_store
+        real(DP) :: x_star(6)
+
+        n_dev = size(deviates, 2)
+
+        if (this%stt_order < 2 .or. this%stt_order > STT_MAX_ORDER) then
+            write(*,*) '[STT] ERROR: call set_stt_order() before propagate()'
+            return
+        end if
+
+        call init_stt_indexing(this%stt_order)
+        call crtbp_derivatives_init(this%mu)
+
+        ! ---- 1. 计算增广维度 ----
+        this%total_dim = 6
+        do p = 1, this%stt_order
+            this%total_dim = this%total_dim + 6 * stt_sizes(p)
+        end do
+
+        ! ---- 2. 初始化增广状态 ----
+        allocate(this%aug_state(this%total_dim))
+        this%aug_state = 0.0_DP
+        this%aug_state(1:6) = nominal_state
+        do i = 1, 6
+            this%aug_state(7 + (i-1)*6 + (i-1)) = 1.0_DP
+        end do
+
+        ! ---- 3. 联合积分 ----
+        call adaptive_integrate_var_dim(this%aug_state, this%total_dim, &
+            t_start, t_end, &
+            this%stt_abs_tol, this%stt_rel_tol, &
+            this%stt_dt_min, this%stt_dt_max, this%stt_max_steps, &
+            this%stt_order, this%mu, times, states, n_steps)
+
+        ! ---- 4. 提取终点 STT ----
+        x_star = states(n_steps, 1:6)
+        call stt_store%init(this%stt_order)
+        pos = 7
+        do p = 1, this%stt_order
+            np = stt_sizes(p)
+            do i = 1, 6
+                do j = 1, np
+                    call stt_store%set(i, j, p, states(n_steps, pos))
+                    pos = pos + 1
+                end do
+            end do
+        end do
+
+        ! ---- 5. 用 STT 多项式映射所有偏离量 ----
+        allocate(output_samples(6, n_dev))
+        call stt_eval_deviates(x_star, stt_store, this%stt_order, &
+                                deviates, n_dev, output_samples)
+
+        ! ---- 6. 计算经验矩 ----
+        output_mean = 0.0_DP
+        do i = 1, n_dev
+            output_mean = output_mean + output_samples(:, i)
+        end do
+        output_mean = output_mean / real(n_dev, DP)
+
+        output_cov = 0.0_DP
+        do i = 1, n_dev
+            do j = 1, 6
+                output_cov(:, j) = output_cov(:, j) + &
+                    (output_samples(:, i) - output_mean) * (output_samples(j, i) - output_mean(j))
+            end do
+        end do
+        output_cov = output_cov / real(n_dev - 1, DP)
+
+        if (present(stt_store_out)) then
+            stt_store_out%order = this%stt_order
+            if (allocated(stt_store_out%stt)) deallocate(stt_store_out%stt)
+            allocate(stt_store_out%stt(6, size(stt_store%stt, 2), 0:this%stt_order))
+            stt_store_out%stt = stt_store%stt
+        end if
+
+        call stt_store%destroy()
+        deallocate(times, states, this%aug_state)
+    end subroutine stt_propagate_deviates
+
+    ! =====================================================================
+    ! 用 STT Taylor 多项式映射偏离量样本
+    !
+    !   dx_f(i) = Σ_{p=1}^{order} Σ_{c} Φ^p_{i,c} * Π_j dx0(tup_c(j)) / Π(cnt_v!)
+    ! =====================================================================
+    subroutine stt_eval_deviates(x_star, stt_store, order, deviates, n_dev, mapped)
+        real(DP), intent(in) :: x_star(6)
+        type(stt_store_type), intent(in) :: stt_store
+        integer, intent(in) :: order, n_dev
+        real(DP), intent(in) :: deviates(6, n_dev)
+        real(DP), intent(out) :: mapped(6, n_dev)
+
+        integer :: p, cidx, np, i_comp, k, j, tup(6)
+        real(DP) :: prod, phi_val
+        integer, allocatable, save :: eq_factors(:,:)
+
+        if (.not. allocated(eq_factors)) then
+            allocate(eq_factors(2:STT_MAX_ORDER, maxval(stt_sizes(2:STT_MAX_ORDER))))
+            do p = 2, STT_MAX_ORDER
+                np = stt_sizes(p)
+                do cidx = 1, np
+                    call sym_index_to_tuple(cidx, p, tup(1:p))
+                    eq_factors(p, cidx) = compute_eq_factor(tup, p)
+                end do
+            end do
+        end if
+
+        do k = 1, n_dev
+            mapped(:, k) = x_star
+
+            ! Order 1: STM 直接矩阵乘法 (p=1: factor=1/1=1)
+            do i_comp = 1, 6
+                do j = 1, 6
+                    mapped(i_comp, k) = mapped(i_comp, k) + &
+                        stt_store%get(i_comp, j, 1) * deviates(j, k)
+                end do
+            end do
+
+            ! Orders 2+: dx_i += Σ_c Φ^p_{i,c} · Π dx0(tup) / Π cnt_v!
+            ! (p! in Taylor expansion cancels with permutation multiplicity)
+            do p = 2, order
+                np = stt_sizes(p)
+                do i_comp = 1, 6
+                    do cidx = 1, np
+                        phi_val = stt_store%get(i_comp, cidx, p)
+                        if (phi_val == 0.0_DP) cycle
+                        call sym_index_to_tuple(cidx, p, tup(1:p))
+                        prod = product(deviates(tup(1:p), k))
+                        mapped(i_comp, k) = mapped(i_comp, k) + &
+                            phi_val * prod / real(eq_factors(p, cidx), DP)
+                    end do
+                end do
+            end do
+        end do
+    end subroutine stt_eval_deviates
+
+    ! =====================================================================
+    ! 计算对称元组的等式因子: Π_v cnt(v)!
+    ! 即: 每个不同值出现次数的阶乘之积
+    ! =====================================================================
+    integer function compute_eq_factor(tup, p) result(fac)
+        integer, intent(in) :: tup(p), p
+        integer :: cnt(6), i, j
+
+        cnt = 0
+        do i = 1, p
+            cnt(tup(i)) = cnt(tup(i)) + 1
+        end do
+
+        fac = 1
+        do i = 1, 6
+            do j = 2, cnt(i)
+                fac = fac * j
+            end do
+        end do
+    end function compute_eq_factor
 
 end module pod_uq_prop_stt_module

@@ -6,13 +6,14 @@
 !> Usage:
 !>   fpm run run_HFEM_uprop -- -opm <file> -m <MC|DA|UT> -dt <seconds> -o <prefix>
 !>   fpm run run_HFEM_uprop -- -opm <file> -m <MC|DA|UT> -et <epoch> -n 5000 -o <prefix>
-!>
+!> fpm run run_HFEM_uprop -- -opm input/TD1_2604_2.opm -m DA -et 2026-06-12T12:00:00 -o output/TD1_2604_2_TO_260612
 !> Output:
 !>   MC/DA: <prefix>_particles.csv + <prefix>_moments.json (mean/cov/skewness/kurtosis)
 !>   UT:    <prefix>_moments.json (mean/cov)
 program run_HFEM_uprop
     use pod_global, only: DP, MAX_STRING_LEN
     use pod_engine_module, only: pod_engine_init
+    use pod_dace_classes, only: dace_initialize
     use pod_spice, only: str2et
     use pod_data_format_module, only: load_initial_opm
     use pod_uq_propagation, only: run_uq_propagation, METHOD_MC, METHOD_DA, METHOD_UT
@@ -34,7 +35,7 @@ program run_HFEM_uprop
 
     ! Defaults
     config_file  = 'config/config.txt'
-    n_particles  = 10000
+    n_particles  = 1000000
     da_order     = 4
     has_dt       = .false.
     has_et       = .false.
@@ -150,6 +151,13 @@ program run_HFEM_uprop
     call pod_engine_init(trim(config_file))
     write(*,*) '>>> Engine initialized.'
 
+    ! Init DA if needed
+    if (method_switch == METHOD_DA) then
+        write(*,*) '>>> Initializing DACE for DA propagation...'
+        call dace_initialize(da_order, 6)
+        write(*,*) '>>> DACE initialized with order=', da_order, ' and nvars=6.'
+    end if
+
     ! Load OPM
     write(*,*) '>>> Loading OPM file: ', trim(opm_file)
     call load_initial_opm(trim(opm_file), epoch0, state, cov)
@@ -240,7 +248,7 @@ contains
         open(newunit=u, file=trim(filename), status='replace', action='write')
         write(u, '(A)') '{'
         write(u, '(A,A,A)') '  "method": "', trim(method_label), '",'
-        write(u, '(A,5(ES22.15,", "),ES22.15)') '  "mean": [', mean_vec, '],'
+        write(u, '(A,5(ES22.15,", "),ES22.15,A)') '  "mean": [', mean_vec, '],'
         write(u, '(A)') '  "covariance": ['
         do r = 1, 5
             write(u, '(A,5(ES22.15,", "),ES22.15,A)') '    [', cov_mat(r,:), '],'
@@ -259,15 +267,15 @@ contains
         open(newunit=u, file=trim(filename), status='replace', action='write')
         write(u, '(A)') '{'
         write(u, '(A,A,A)') '  "method": "', trim(method_label), '",'
-        write(u, '(A,5(ES22.15,", "),ES22.15)') '  "mean": [', mean_vec, '],'
+        write(u, '(A,5(ES22.15,", "),ES22.15,A)') '  "mean": [', mean_vec, '],'
         write(u, '(A)') '  "covariance": ['
         do r = 1, 5
             write(u, '(A,5(ES22.15,", "),ES22.15,A)') '    [', cov_mat(r,:), '],'
         end do
         write(u, '(A,5(ES22.15,", "),ES22.15,A)') '    [', cov_mat(6,:), ']'
         write(u, '(A)') '  ],'
-        write(u, '(A,5(ES22.15,", "),ES22.15)') '  "marginal_skewness": [', skew, '],'
-        write(u, '(A,5(ES22.15,", "),ES22.15)') '  "marginal_kurtosis": [', kurt, ']'
+        write(u, '(A,5(ES22.15,", "),ES22.15,A)') '  "marginal_skewness": [', skew, '],'
+        write(u, '(A,5(ES22.15,", "),ES22.15,A)') '  "marginal_kurtosis": [', kurt, ']'
         write(u, '(A)') '}'
         close(u)
     end subroutine write_mc_da_json

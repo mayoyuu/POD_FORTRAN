@@ -7,7 +7,7 @@ module pod_uq_crtbp_da_module
     implicit none
     private
 
-    public :: crtbp_da_propagate
+    public :: crtbp_da_propagate, crtbp_da_propagate_deviates
 
 contains
 
@@ -102,5 +102,80 @@ contains
 
         if (verbose) write(*, '(A)') '[DA CRTBP] Propagation complete.'
     end subroutine crtbp_da_propagate
+
+    ! =========================================================================
+    ! crtbp_da_propagate_deviates — 使用给定的初始偏移量直接传播
+    !
+    ! deviates(dim, n_dev): 初始偏移量 (dx_0 = x_0 - nominal)，已在 nominal 附近
+    ! =========================================================================
+    subroutine crtbp_da_propagate_deviates(nominal_state, deviates, mu, t_end, &
+            da_order, rel_tol, abs_tol, dt_min, dt_max, max_steps, &
+            final_samples, final_mean, final_cov, propagated_ref, verbose)
+        real(DP), intent(in) :: nominal_state(6)
+        real(DP), intent(in) :: deviates(:,:)
+        real(DP), intent(in) :: mu, t_end
+        integer,  intent(in) :: da_order
+        real(DP), intent(in) :: rel_tol, abs_tol, dt_min, dt_max
+        integer,  intent(in) :: max_steps
+        real(DP), allocatable, intent(out) :: final_samples(:,:)
+        real(DP), intent(out) :: final_mean(6)
+        real(DP), intent(out) :: final_cov(6,6)
+        real(DP), intent(out) :: propagated_ref(6)
+        logical, intent(in) :: verbose
+
+        type(AlgebraicVector) :: state_da_0, state_da_f
+        type(CompiledDA) :: compiled
+        integer :: i, j, dim, n_dev
+        real(DP) :: eval_inputs(6), eval_results(6)
+
+        dim = 6
+        n_dev = size(deviates, 2)
+
+        call set_crtbp_mu(mu)
+        call dace_push_to(da_order)
+
+        call state_da_0%init(dim)
+        do i = 1, dim
+            state_da_0%elements(i) = nominal_state(i) + da_var(i)
+        end do
+
+        call state_da_f%init(dim)
+        if (verbose) write(*, '(A)') '[DA CRTBP deviates] Starting DA integration...'
+
+        call da_adaptive_integrate_crtbp(state_da_0, 0.0_DP, t_end, &
+            rel_tol, abs_tol, dt_min, dt_max, max_steps, state_da_f)
+
+        propagated_ref = state_da_f%cons()
+        compiled = state_da_f%compile()
+
+        allocate(final_samples(dim, n_dev))
+        do i = 1, n_dev
+            eval_inputs(:) = deviates(:, i)
+            eval_results = compiled%eval(eval_inputs)
+            final_samples(:, i) = eval_results
+        end do
+
+        final_mean = 0.0_DP
+        do i = 1, n_dev
+            final_mean = final_mean + final_samples(:, i)
+        end do
+        final_mean = final_mean / real(n_dev, DP)
+
+        final_cov = 0.0_DP
+        do i = 1, n_dev
+            do j = 1, dim
+                final_cov(:, j) = final_cov(:, j) + &
+                    (final_samples(:, i) - final_mean) * (final_samples(j, i) - final_mean(j))
+            end do
+        end do
+        final_cov = final_cov / real(n_dev - 1, DP)
+
+        call compiled%destroy()
+        call state_da_0%destroy()
+        call state_da_f%destroy()
+        call dace_pop_to()
+
+        if (verbose) write(*, '(A)') '[DA CRTBP deviates] Propagation complete.'
+    end subroutine crtbp_da_propagate_deviates
 
 end module pod_uq_crtbp_da_module

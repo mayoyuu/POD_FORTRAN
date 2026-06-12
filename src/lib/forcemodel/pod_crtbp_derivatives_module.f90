@@ -64,7 +64,7 @@ contains
     subroutine crtbp_force_derivatives(x, max_order, f_tensors)
         real(DP), intent(in) :: x(6)
         integer, intent(in) :: max_order
-        real(DP), allocatable, intent(out) :: f_tensors(:, :, 0:)
+        real(DP), allocatable, intent(out) :: f_tensors(:,:,:)
 
         integer :: p, idx, max_sz, i_comp
         integer :: tup(6)
