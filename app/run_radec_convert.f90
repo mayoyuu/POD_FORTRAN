@@ -5,7 +5,7 @@
 !>
 !> Usage:
 !>   fpm run run_radec_convert -- -i <particles.csv> -s <station_id> -et <epoch> [-o <output>] [--site <site.json>] [--deg]
-!>
+!>   fpm run run_radec_convert -- -i output/TD1_2604_2_TO_260612_times_100_particles.csv -s R91 -et "2026-06-12T12:00:00" -o output/TD1_2604_2_TO_260612_times_100_radec.csv --site config/site-used.json
 !> Input CSV format:  x,y,z,vx,vy,vz  (J2000, same as run_HFEM_uprop output)
 !> Output CSV format: ra,dec  (radians by default, degrees with --deg)
 program run_radec_convert
@@ -27,7 +27,8 @@ program run_radec_convert
     character(len=MAX_STRING_LEN) :: arg_str, line
     type(station_record), allocatable :: station_list(:)
     type(observation_station) :: station
-    real(DP) :: pos_j2000(3), state(6), measurement(2)
+    real(DP) :: state(6)
+    real(DP), allocatable :: measurement(:)
     real(DP) :: ra, dec
 
     ! Defaults
@@ -165,7 +166,7 @@ program run_radec_convert
         read(line, *, iostat=ios) state
         if (ios /= 0) cycle
 
-        pos_j2000 = state(1:3)
+        if (.not. allocated(measurement)) allocate(measurement(2))
 
         call compute_measurement(state, et, station, 'OPTICAL', measurement)
 
@@ -188,6 +189,7 @@ program run_radec_convert
     close(u_in)
     close(u_out)
 
+    if (allocated(measurement)) deallocate(measurement)
     deallocate(station_list)
 
     write(*,*) '========================================'

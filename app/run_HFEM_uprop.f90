@@ -6,7 +6,7 @@
 !> Usage:
 !>   fpm run run_HFEM_uprop -- -opm <file> -m <MC|DA|UT> -dt <seconds> -o <prefix>
 !>   fpm run run_HFEM_uprop -- -opm <file> -m <MC|DA|UT> -et <epoch> -n 5000 -o <prefix>
-!> fpm run run_HFEM_uprop -- -opm input/TD1_2604_2.opm -m DA -et 2026-06-12T12:00:00 -o output/TD1_2604_2_TO_260612
+!> fpm run run_HFEM_uprop -- -opm input/TD1_2604_2_times_100.opm -m DA -et 2026-06-12T12:00:00 -o output/TD1_2604_2_TO_260612_times_100
 !> Output:
 !>   MC/DA: <prefix>_particles.csv + <prefix>_moments.json (mean/cov/skewness/kurtosis)
 !>   UT:    <prefix>_moments.json (mean/cov)

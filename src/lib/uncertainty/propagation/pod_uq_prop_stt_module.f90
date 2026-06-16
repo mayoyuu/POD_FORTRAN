@@ -2,7 +2,7 @@
 !> STT 误差传播模块
 !>
 !> 实现基于 State Transition Tensor 的非线性不确定性传播。
-!> 支持可配置的 STT 阶数 (2~6) 和联合积分。
+!> 支持可配置的 STT 阶数 (1~6) 和联合积分。
 !>
 !> 架构:
 !>   - 变维度 RKF78 积分器 (从 pod_integrator_module 泛化)
@@ -84,10 +84,10 @@ contains
     subroutine set_stt_order(this, order)
         class(uq_stt_propagator), intent(inout) :: this
         integer, intent(in) :: order
-        if (order >= 2 .and. order <= STT_MAX_ORDER) then
+        if (order >= 1 .and. order <= STT_MAX_ORDER) then
             this%stt_order = order
         else
-            write(*,*) '[STT] ERROR: order must be 2..6, got:', order
+            write(*,*) '[STT] ERROR: order must be 1..6, got:', order
         end if
     end subroutine set_stt_order
 
@@ -213,7 +213,7 @@ contains
         character(len=64) :: msg
 
         ! ---- 1. 验证初始化 ----
-        if (this%stt_order < 2 .or. this%stt_order > STT_MAX_ORDER) then
+        if (this%stt_order < 1 .or. this%stt_order > STT_MAX_ORDER) then
             write(*,*) '[STT] ERROR: call set_stt_order() before propagate()'
             return
         end if
@@ -566,7 +566,7 @@ contains
 
         n_dev = size(deviates, 2)
 
-        if (this%stt_order < 2 .or. this%stt_order > STT_MAX_ORDER) then
+        if (this%stt_order < 1 .or. this%stt_order > STT_MAX_ORDER) then
             write(*,*) '[STT] ERROR: call set_stt_order() before propagate()'
             return
         end if
