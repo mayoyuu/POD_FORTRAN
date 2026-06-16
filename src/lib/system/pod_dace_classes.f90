@@ -22,6 +22,7 @@ module pod_dace_classes
     public :: da_sin_sub, da_cos_sub, da_atan2_sub, da_asin_sub
     public :: da_sqrt_sub, da_pow_int_sub, da_pow_real_sub
     public :: vector_norm2_sub, vector_dot_vector_sub
+    public :: da_estim_norm
     public :: vec_matmul, vec_add_scaled_inplace, da_add_da_sub
 
 
@@ -222,6 +223,13 @@ module pod_dace_classes
         subroutine c_fdace_trunc(hi, ho) bind(C, name="fdace_trunc")
             import :: c_int; integer(c_int), value :: hi, ho
         end subroutine c_fdace_trunc
+
+        function c_fdace_estim_norm(h, var_idx, max_order, norms) bind(C, name="fdace_estim_norm") result(sz)
+            import :: c_int, c_double
+            integer(c_int), value :: h, var_idx, max_order
+            real(c_double), intent(out) :: norms(*)
+            integer(c_int) :: sz
+        end function c_fdace_estim_norm
 
         function c_fdace_get_to() bind(C, name="fdace_get_to")
             import :: c_int; integer(c_int) :: c_fdace_get_to
@@ -1305,6 +1313,21 @@ contains
         call res%init()
         call c_fdace_trunc(this%handle, res%handle)
     end function da_trunc
+
+    !> estimNorm wrapper: returns top-order norm for DA truncation error estimation
+    subroutine da_estim_norm(da_handle, var_idx, max_order, top_norm)
+        integer(c_int), intent(in) :: da_handle
+        integer, intent(in) :: var_idx, max_order
+        real(DP), intent(out) :: top_norm
+        real(c_double) :: norms(10)  ! max_order+1 entries, safe upper bound
+        integer :: sz, i
+        sz = c_fdace_estim_norm(da_handle, int(var_idx, c_int), int(max_order, c_int), norms)
+        if (sz > 0) then
+            top_norm = real(norms(sz), DP)
+        else
+            top_norm = 0.0_DP
+        end if
+    end subroutine da_estim_norm
 
     ! ==========================================
     ! AlgebraicVector 向量对象截断实现
