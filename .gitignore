@@ -25,6 +25,9 @@ lib/*.so
 .DS_Store
 .vscode/
 
+# Worktrees
+.worktrees/
+
 # SPICE Kernels
 kernels/
 *.bsp
