@@ -1319,14 +1319,16 @@ contains
         integer(c_int), intent(in) :: da_handle
         integer, intent(in) :: var_idx, max_order
         real(DP), intent(out) :: top_norm
-        real(c_double) :: norms(10)  ! max_order+1 entries, safe upper bound
-        integer :: sz, i
+        real(c_double), allocatable :: norms(:)
+        integer :: sz
+        allocate(norms(max_order + 1))
         sz = c_fdace_estim_norm(da_handle, int(var_idx, c_int), int(max_order, c_int), norms)
         if (sz > 0) then
             top_norm = real(norms(sz), DP)
         else
             top_norm = 0.0_DP
         end if
+        deallocate(norms)
     end subroutine da_estim_norm
 
     ! ==========================================

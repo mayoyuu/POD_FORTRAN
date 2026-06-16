@@ -247,7 +247,7 @@ extern "C" {
     // Norm estimate (EstimNorm) -- for ADS truncation error estimation
     // ==========================================
     int fdace_estim_norm(int h_in, int var_idx, int max_order, double* norms) {
-        std::vector<double> err;
+        std::vector<double> err; // err is intentionally unused; we only need the norm values
         std::vector<double> result = da_registry[h_in].estimNorm(err, var_idx, 0, max_order + 1);
         int sz = static_cast<int>(result.size());
         for (int i = 0; i < sz; ++i) norms[i] = result[i];
