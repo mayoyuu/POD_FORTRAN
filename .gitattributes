@@ -1,0 +1,14 @@
+# Shell scripts must use LF line endings (Windows CRLF breaks bash)
+*.sh text eol=lf
+
+# Fortran source: native platform default is fine
+*.f90 text
+*.F90 text
+
+# C++ source
+*.cpp text
+*.h text
+
+# Build files
+*.toml text
+*.txt text

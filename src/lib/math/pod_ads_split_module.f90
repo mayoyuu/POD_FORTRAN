@@ -213,15 +213,21 @@ contains
 
     ! =========================================================================
     ! Patch: patch_init
+    !
+    ! Moves DA handle ownership from da_vec into p. After the call, da_vec
+    ! elements have handle = -1 (safe to destroy as a no-op).
+    ! To preserve the source, deep-copy into a temporary first.
     ! =========================================================================
     subroutine patch_init(p, da_vec, history)
         type(patch_type), intent(out) :: p
-        type(AlgebraicVector), intent(in) :: da_vec
+        type(AlgebraicVector), intent(inout) :: da_vec
         type(splitting_history_type), intent(in), optional :: history
         integer :: i
+        call p%da_vec%destroy()
         call p%da_vec%init(6)
         do i = 1, 6
-            p%da_vec%elements(i) = da_vec%elements(i)
+            p%da_vec%elements(i)%handle = da_vec%elements(i)%handle
+            da_vec%elements(i)%handle = -1
         end do
         if (present(history)) then
             p%history = history

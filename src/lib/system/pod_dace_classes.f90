@@ -1355,7 +1355,7 @@ contains
         real(DP), intent(out) :: top_norm
         real(c_double), allocatable :: norms(:)
         integer :: sz
-        allocate(norms(max_order + 1))
+        allocate(norms(max_order + 3))  ! DACE estimNorm returns up to max_order+2 entries
         sz = c_fdace_estim_norm(da_handle, int(var_idx, c_int), int(max_order, c_int), norms)
         if (sz > 0) then
             top_norm = real(norms(sz), DP)

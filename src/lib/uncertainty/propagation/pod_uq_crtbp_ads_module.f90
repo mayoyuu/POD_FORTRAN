@@ -39,14 +39,20 @@ contains
 
         type(manifold_type) :: queue
         type(patch_type) :: p, f, left, right
-        type(AlgebraicVector) :: f_da_vec
+        type(AlgebraicVector) :: f_da_vec, initial_copy
         real(DP) :: errors(6), rel_errors(6)
-        integer :: pos(1), dir, iter_count, max_queue_size
+        integer :: pos(1), dir, iter_count, max_queue_size, i
 
         call mf_init(result_manifold)
         call mf_init(queue)
 
-        call patch_init(p, initial_da_vec)
+        ! Deep-copy initial_da_vec (intent(in)) into a local then move into patch
+        call initial_copy%init(6)
+        do i = 1, 6
+            initial_copy%elements(i) = initial_da_vec%elements(i)
+        end do
+        call patch_init(p, initial_copy)
+        call initial_copy%destroy()
         call mf_push(queue, p)
 
         iter_count = 0

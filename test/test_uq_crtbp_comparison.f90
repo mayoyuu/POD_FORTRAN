@@ -187,7 +187,7 @@ contains
             end do
         end do
         rel_err = sqrt(diff_fn) / max(sqrt(fn2), 1.0e-15_DP)
-        write(*,'(A,A,ES14.6)') ' Cov ', label, ' rel err:', rel_err
+        write(*,'(A,A,A,ES14.6)') ' Cov ', label, ' rel err:', rel_err
         if (rel_err < threshold) then
             write(*,'(A,A,A)') '  PASS: ', label, ' covariance matches'
             passed = passed + 1
