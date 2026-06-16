@@ -3,7 +3,7 @@
 !> Translated from C++ reference: ADS_cpp_Core_file/
 module pod_ads_split_module
     use pod_global, only: DP
-    use pod_dace_classes, only: AlgebraicVector, DA, da_var, da_estim_norm
+    use pod_dace_classes, only: AlgebraicVector, DA, da_var, da_estim_norm, operator(+), operator(*)
     implicit none
     private
 
@@ -26,6 +26,8 @@ module pod_ads_split_module
 
     public :: splitting_history_type, patch_type, manifold_type
     public :: sh_push, sh_pop, sh_count, sh_replay, sh_center, sh_width, sh_contain, sh_map_point
+    public :: patch_init, patch_destroy, patch_get_trunc_err, patch_get_split_dir, patch_split
+    public :: mf_init, mf_destroy, mf_push, mf_pop_front
 
 contains
 
@@ -208,5 +210,178 @@ contains
 
         call x%destroy()
     end subroutine sh_replay
+
+    ! =========================================================================
+    ! Patch: patch_init
+    ! =========================================================================
+    subroutine patch_init(p, da_vec, history)
+        type(patch_type), intent(out) :: p
+        type(AlgebraicVector), intent(in) :: da_vec
+        type(splitting_history_type), intent(in), optional :: history
+        integer :: i
+        call p%da_vec%init(6)
+        do i = 1, 6
+            p%da_vec%elements(i) = da_vec%elements(i)
+        end do
+        if (present(history)) then
+            p%history = history
+        end if
+    end subroutine patch_init
+
+    ! =========================================================================
+    ! Patch: patch_destroy
+    ! =========================================================================
+    subroutine patch_destroy(p)
+        type(patch_type), intent(inout) :: p
+        call p%da_vec%destroy()
+        if (allocated(p%history%entries)) deallocate(p%history%entries)
+    end subroutine patch_destroy
+
+    ! =========================================================================
+    ! Patch: patch_get_trunc_err
+    ! =========================================================================
+    subroutine patch_get_trunc_err(p, order, errors)
+        type(patch_type), intent(in) :: p
+        integer, intent(in) :: order
+        real(DP), intent(out) :: errors(6)
+        integer :: i
+        do i = 1, 6
+            call da_estim_norm(p%da_vec%elements(i)%handle, 0, order, errors(i))
+        end do
+    end subroutine patch_get_trunc_err
+
+    ! =========================================================================
+    ! Patch: patch_get_split_dir
+    ! =========================================================================
+    integer function patch_get_split_dir(p, comp, order) result(dir)
+        type(patch_type), intent(in) :: p
+        integer, intent(in) :: comp, order
+        real(DP) :: err_m, top_norm
+        integer :: i
+        dir = 1
+        err_m = 0.0_DP
+        do i = 1, 6
+            call da_estim_norm(p%da_vec%elements(comp)%handle, i, order, top_norm)
+            if (top_norm > err_m) then
+                err_m = top_norm
+                dir = i
+            end if
+        end do
+    end function patch_get_split_dir
+
+    ! =========================================================================
+    ! Patch: patch_split
+    ! =========================================================================
+    subroutine patch_split(p, dir, left, right)
+        type(patch_type), intent(inout) :: p
+        integer, intent(in) :: dir
+        type(patch_type), intent(out) :: left, right
+        type(AlgebraicVector) :: obj, temp_result
+        type(DA) :: tmp_da
+        integer :: i
+
+        ! Build identity DA vector
+        call obj%init(6)
+        do i = 1, 6
+            obj%elements(i) = da_var(i)
+        end do
+
+        ! ---- Left half ----
+        left%history = p%history
+        call sh_push(left%history, -dir)
+
+        ! obj(dir) = -0.5 + 0.5*da_var(dir)
+        tmp_da = 0.5_DP * da_var(dir)
+        obj%elements(dir) = -0.5_DP + tmp_da
+
+        temp_result = p%da_vec%eval(obj)
+        call patch_init(left, temp_result, left%history)
+        call temp_result%destroy()
+
+        ! Restore obj(dir)
+        obj%elements(dir) = da_var(dir)
+
+        ! ---- Right half ----
+        right%history = p%history
+        call sh_push(right%history, dir)
+
+        ! obj(dir) = 0.5 + 0.5*da_var(dir)
+        tmp_da = 0.5_DP * da_var(dir)
+        obj%elements(dir) = 0.5_DP + tmp_da
+
+        temp_result = p%da_vec%eval(obj)
+        call patch_init(right, temp_result, right%history)
+        call temp_result%destroy()
+
+        call obj%destroy()
+    end subroutine patch_split
+
+    ! =========================================================================
+    ! Manifold: mf_init
+    ! =========================================================================
+    subroutine mf_init(m)
+        type(manifold_type), intent(out) :: m
+        allocate(m%patches(0))
+        m%n_patches = 0
+    end subroutine mf_init
+
+    ! =========================================================================
+    ! Manifold: mf_destroy
+    ! =========================================================================
+    subroutine mf_destroy(m)
+        type(manifold_type), intent(inout) :: m
+        integer :: i
+        do i = 1, m%n_patches
+            call patch_destroy(m%patches(i))
+        end do
+        if (allocated(m%patches)) deallocate(m%patches)
+        m%n_patches = 0
+    end subroutine mf_destroy
+
+    ! =========================================================================
+    ! Manifold: mf_push
+    ! =========================================================================
+    subroutine mf_push(m, p)
+        type(manifold_type), intent(inout) :: m
+        type(patch_type), intent(in) :: p
+        type(patch_type), allocatable :: tmp(:)
+        integer :: n
+        if (.not. allocated(m%patches)) then
+            allocate(m%patches(1))
+            m%n_patches = 1
+            m%patches(1) = p
+        else
+            n = m%n_patches
+            allocate(tmp(n+1))
+            tmp(1:n) = m%patches(1:n)
+            tmp(n+1) = p
+            call move_alloc(tmp, m%patches)
+            m%n_patches = n + 1
+        end if
+    end subroutine mf_push
+
+    ! =========================================================================
+    ! Manifold: mf_pop_front — removes and returns the FIRST patch (FIFO queue)
+    ! =========================================================================
+    subroutine mf_pop_front(m, p)
+        type(manifold_type), intent(inout) :: m
+        type(patch_type), intent(out) :: p
+        type(patch_type), allocatable :: tmp(:)
+        integer :: n, i
+        if (m%n_patches == 0) return
+        p = m%patches(1)
+        n = m%n_patches
+        if (n == 1) then
+            deallocate(m%patches)
+            m%n_patches = 0
+        else
+            allocate(tmp(n-1))
+            do i = 2, n
+                tmp(i-1) = m%patches(i)
+            end do
+            call move_alloc(tmp, m%patches)
+            m%n_patches = n - 1
+        end if
+    end subroutine mf_pop_front
 
 end module pod_ads_split_module
