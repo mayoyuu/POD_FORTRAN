@@ -254,6 +254,18 @@ extern "C" {
         return sz;
     }
 
+    // ==========================================
+    // DA-to-DA evaluation (polynomial composition)
+    // ==========================================
+    // Substitutes each variable i with a DA expression (passed as handle)
+    void fdace_eval_da_vec(int h_in, const int* h_map, int n_vars, int h_out) {
+        std::vector<DACE::DA> args(n_vars);
+        for (int i = 0; i < n_vars; ++i) {
+            args[i] = da_registry[h_map[i]];
+        }
+        da_registry[h_out] = da_registry[h_in].eval(args);
+    }
+
     // 获取当前截断阶数
     int fdace_get_to() { return DACE::DA::getTO(); }
 

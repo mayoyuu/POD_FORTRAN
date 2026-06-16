@@ -199,17 +199,8 @@ contains
             tmp_da = 0.5_DP * da_var(n+1)
             x%elements(n+1) = sign_val + tmp_da
 
-            ! BLOCKED: DA-to-DA substitution is not available in the current
-            ! pod_dace_classes API. The following call from the spec cannot
-            ! compile because AlgebraicVector%eval does not accept an
-            ! AlgebraicVector argument. Available signatures:
-            !   eval(integer, real(DP))  -> AlgebraicVector  (real substitution)
-            !   eval(real(DP)(:))        -> real(DP), allocatable (full eval)
-            ! Required: obj = obj.eval(x)  -- substitutes variables in each
-            ! element of obj with the DA expressions in x (polynomial composition)
-            !
-            ! Once DA-to-DA substitution is added to the API, uncomment:
-            !   obj = obj%eval(x)
+            ! DA-to-DA composition: substitute variables in obj with DA expressions from x
+            obj = obj%eval(x)
 
             ! x(n) = da_var(n+1)  (restore)
             x%elements(n+1) = da_var(n+1)
