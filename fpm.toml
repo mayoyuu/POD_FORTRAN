@@ -61,3 +61,8 @@ name = "test_stt_crtbp"
 source-dir = "test"
 main = "test_stt_crtbp.f90"
 
+[[test]]
+name = "test_uq_crtbp_comparison"
+source-dir = "test"
+main = "test_uq_crtbp_comparison.f90"
+

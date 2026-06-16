@@ -22,6 +22,7 @@ module pod_dace_classes
     public :: da_sin_sub, da_cos_sub, da_atan2_sub, da_asin_sub
     public :: da_sqrt_sub, da_pow_int_sub, da_pow_real_sub
     public :: vector_norm2_sub, vector_dot_vector_sub
+    public :: da_estim_norm
     public :: vec_matmul, vec_add_scaled_inplace, da_add_da_sub
 
 
@@ -223,6 +224,20 @@ module pod_dace_classes
             import :: c_int; integer(c_int), value :: hi, ho
         end subroutine c_fdace_trunc
 
+        function c_fdace_estim_norm(h, var_idx, max_order, norms) bind(C, name="fdace_estim_norm") result(sz)
+            import :: c_int, c_double
+            integer(c_int), value :: h, var_idx, max_order
+            real(c_double), intent(out) :: norms(*)
+            integer(c_int) :: sz
+        end function c_fdace_estim_norm
+
+        subroutine c_fdace_eval_da_vec(hi, h_map, n_vars, ho) bind(C, name="fdace_eval_da_vec")
+            import :: c_int
+            integer(c_int), value :: hi, n_vars
+            integer(c_int), intent(in) :: h_map(*)
+            integer(c_int), value :: ho
+        end subroutine c_fdace_eval_da_vec
+
         function c_fdace_get_to() bind(C, name="fdace_get_to")
             import :: c_int; integer(c_int) :: c_fdace_get_to
         end function c_fdace_get_to
@@ -351,9 +366,10 @@ module pod_dace_classes
         procedure :: deriv => da_deriv
         procedure, private :: da_eval_var
         procedure, private :: da_eval_all
+        procedure, private :: da_eval_da_vec
         procedure :: get_coeff => da_get_coeff
         procedure :: get_deriv_value => da_get_deriv_value
-        generic :: eval => da_eval_var, da_eval_all
+        generic :: eval => da_eval_var, da_eval_all, da_eval_da_vec
 
         procedure :: trim => da_trim
         procedure :: trunc => da_trunc
@@ -431,7 +447,8 @@ module pod_dace_classes
         procedure :: cons => vector_cons  ! 返回一个实数向量，包含每个 DA 元素的常数项，便于调试
         procedure, private :: vector_eval_var
         procedure, private :: vector_eval_all
-        generic :: eval => vector_eval_var, vector_eval_all
+        procedure, private :: vector_eval_da_vec
+        generic :: eval => vector_eval_var, vector_eval_all, vector_eval_da_vec
 
         procedure :: norm2 => vector_norm2 ! 向量的二范数
 
@@ -1205,6 +1222,14 @@ contains
         call c_fdace_eval_all(this%handle, vals, size(vals), da_eval_all)
     end function da_eval_all
 
+    ! --- DA-to-DA composition: substitute variables with DA expressions ---
+    type(DA) function da_eval_da_vec(this, h_map) result(res)
+        class(DA), intent(in) :: this
+        integer(c_int), intent(in) :: h_map(:)
+        call res%init()
+        call c_fdace_eval_da_vec(this%handle, h_map, size(h_map, kind=c_int), res%handle)
+    end function da_eval_da_vec
+
     ! --- Vector 的全代入实现 (单次极速版，替换原有的 do 循环) ---
     function vector_eval_all(this, vals) result(res)
         ! 只适用于单次求值场景
@@ -1233,6 +1258,23 @@ contains
         ! 4. 立即释放临时计划
         call c_fdace_compiled_free(cda_handle)
     end function vector_eval_all
+
+    ! --- AlgebraicVector DA-to-DA composition ---
+    type(AlgebraicVector) function vector_eval_da_vec(this, map_vec) result(res)
+        class(AlgebraicVector), intent(in) :: this, map_vec
+        integer(c_int), allocatable :: h_map(:)
+        integer :: i
+
+        allocate(h_map(map_vec%size))
+        do i = 1, map_vec%size
+            h_map(i) = map_vec%elements(i)%handle
+        end do
+
+        call res%init(this%size)
+        do i = 1, this%size
+            res%elements(i) = this%elements(i)%eval(h_map)
+        end do
+    end function vector_eval_da_vec
 
     ! ==========================================
     ! DA 的自动析构实现
@@ -1305,6 +1347,23 @@ contains
         call res%init()
         call c_fdace_trunc(this%handle, res%handle)
     end function da_trunc
+
+    !> estimNorm wrapper: returns top-order norm for DA truncation error estimation
+    subroutine da_estim_norm(da_handle, var_idx, max_order, top_norm)
+        integer(c_int), intent(in) :: da_handle
+        integer, intent(in) :: var_idx, max_order
+        real(DP), intent(out) :: top_norm
+        real(c_double), allocatable :: norms(:)
+        integer :: sz
+        allocate(norms(max_order + 1))
+        sz = c_fdace_estim_norm(da_handle, int(var_idx, c_int), int(max_order, c_int), norms)
+        if (sz > 0) then
+            top_norm = real(norms(sz), DP)
+        else
+            top_norm = 0.0_DP
+        end if
+        deallocate(norms)
+    end subroutine da_estim_norm
 
     ! ==========================================
     ! AlgebraicVector 向量对象截断实现
