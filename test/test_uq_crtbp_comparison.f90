@@ -31,7 +31,7 @@ program test_uq_crtbp_comparison
     integer(8) :: t1, t2, t_rate
     integer :: test_order, n_dev, n_mc, unit, io, k, i, j
     integer :: ads_n_patches
-    real(DP) :: err_toll(6)
+    real(DP) :: err_toll(6), ads_domain_scale(6)
     character(len=64) :: fname
 
     passed = 0
@@ -108,11 +108,15 @@ program test_uq_crtbp_comparison
     ! ---- 5. ADS ----
     write(*,*) 'Running ADS...'
     err_toll = 1.0d-4
+    ads_domain_scale = 3.0_DP * [ &
+        5.202913631633715e-04_DP, 5.202913631633715e-04_DP, 5.202913631633715e-04_DP, &
+        6.833378315431714e-04_DP, 6.833378315431714e-04_DP, 6.833378315431714e-04_DP]
     call system_clock(t1, t_rate)
     call crtbp_ads_propagate_deviates(dro_x0, deviates, mu, dro_period, &
         test_order, 12, err_toll, &
         1.0e-14_DP, 1.0e-14_DP, 1.0e-10_DP, 0.01_DP, 100000, &
-        ads_samples, ads_mean, ads_cov, ads_n_patches, .true.)
+        ads_samples, ads_mean, ads_cov, ads_n_patches, .true., &
+        domain_scale=ads_domain_scale)
     call system_clock(t2, t_rate)
     ads_time = real(t2 - t1, DP) / real(t_rate, DP)
 
@@ -148,12 +152,13 @@ program test_uq_crtbp_comparison
     write(*,'(A,F10.1)') ' Speedup vs MC (ADS/MC): ', mc_time / max(ads_time, 1.0e-6_DP)
 
     ! ---- 8. Output samples ----
-    call write_samples('veri_crtbp_mc.txt', mc_samples, n_mc)
-    write(fname, '(A,I0,A)') 'o', test_order, '_veri_crtbp_da.txt'
+    call ensure_output_dir()
+    call write_samples('output/veri_crtbp_mc.txt', mc_samples, n_mc)
+    write(fname, '(A,I0,A)') 'output/o', test_order, '_veri_crtbp_da.txt'
     call write_samples(trim(fname), da_samples, n_dev)
-    write(fname, '(A,I0,A)') 'o', test_order, '_veri_crtbp_stt.txt'
+    write(fname, '(A,I0,A)') 'output/o', test_order, '_veri_crtbp_stt.txt'
     call write_samples(trim(fname), stt_samples, n_dev)
-    write(fname, '(A,I0,A)') 'o', test_order, '_veri_crtbp_ads.txt'
+    write(fname, '(A,I0,A)') 'output/o', test_order, '_veri_crtbp_ads.txt'
     call write_samples(trim(fname), ads_samples, n_dev)
 
     ! ---- Cleanup ----
@@ -196,6 +201,15 @@ contains
             failed = failed + 1
         end if
     end subroutine compare_cov
+
+    subroutine ensure_output_dir()
+        integer :: exitstat
+        call execute_command_line('mkdir -p output', exitstat=exitstat)
+        if (exitstat /= 0) then
+            write(*,*) 'FAIL: unable to create output directory'
+            error stop 1
+        end if
+    end subroutine ensure_output_dir
 
     subroutine write_samples(fname, samples, n)
         character(len=*), intent(in) :: fname

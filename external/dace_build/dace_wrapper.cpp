@@ -247,11 +247,30 @@ extern "C" {
     // Norm estimate (EstimNorm) -- for ADS truncation error estimation
     // ==========================================
     int fdace_estim_norm(int h_in, int var_idx, int max_order, double* norms) {
-        std::vector<double> err; // err is intentionally unused; we only need the norm values
-        std::vector<double> result = da_registry[h_in].estimNorm(err, var_idx, 0, max_order + 1);
-        int sz = static_cast<int>(result.size());
-        for (int i = 0; i < sz; ++i) norms[i] = result[i];
-        return sz;
+        // Use the err-less overload of estimNorm, which does NOT call
+        // DACEException (no warning printed). We handle errors manually.
+        DACEException::setWarning(false);
+        std::vector<double> result = da_registry[h_in].estimNorm(
+            static_cast<unsigned int>(var_idx), 0,
+            static_cast<unsigned int>(max_order + 1));
+        DACEException::setWarning(true);
+
+        bool ok = daceGetError() == 0;
+        daceClearError();
+
+        if (ok) {
+            // estimNorm succeeded: copy result (indices 0..max_order+1)
+            int sz = static_cast<int>(result.size());
+            for (int i = 0; i < sz; ++i) norms[i] = result[i];
+            return sz;
+        }
+
+        // estimNorm failed (coefficients below epsilon): return 0.
+        // This matches the C++ reference behaviour: a failed estimate
+        // means the truncated coefficients are negligible, so the
+        // patch is accepted.
+        norms[0] = 0.0;
+        return 1;
     }
 
     // ==========================================
@@ -264,6 +283,15 @@ extern "C" {
             args[i] = da_registry[h_map[i]];
         }
         da_registry[h_out] = da_registry[h_in].eval(args);
+    }
+
+    // ==========================================
+    // Variable affine translation: var -> a*var + c
+    // Used by ADS patch_split to avoid DA-to-DA eval overhead
+    // ==========================================
+    void fdace_translate_variable(int h_in, int var, double a, double c, int h_out) {
+        da_registry[h_out] = da_registry[h_in].translateVariable(
+            static_cast<unsigned int>(var), a, c);
     }
 
     // 获取当前截断阶数

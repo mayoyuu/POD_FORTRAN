@@ -3,7 +3,9 @@
 !> Translated from C++ reference: ADS_cpp_Core_file/
 module pod_ads_split_module
     use pod_global, only: DP
-    use pod_dace_classes, only: AlgebraicVector, DA, da_var, da_estim_norm, operator(+), operator(*)
+    use pod_dace_classes, only: AlgebraicVector, DA, da_var, da_estim_norm, &
+        da_translate_variable, operator(+), operator(*), assignment(=)
+    use iso_c_binding, only: c_int
     implicit none
     private
 
@@ -222,7 +224,11 @@ contains
         type(patch_type), intent(out) :: p
         type(AlgebraicVector), intent(inout) :: da_vec
         type(splitting_history_type), intent(in), optional :: history
+        type(splitting_history_type) :: hist_copy
         integer :: i
+
+        if (present(history)) hist_copy = history
+
         call p%da_vec%destroy()
         call p%da_vec%init(6)
         do i = 1, 6
@@ -230,7 +236,7 @@ contains
             da_vec%elements(i)%handle = -1
         end do
         if (present(history)) then
-            p%history = history
+            p%history = hist_copy
         end if
     end subroutine patch_init
 
@@ -277,49 +283,79 @@ contains
 
     ! =========================================================================
     ! Patch: patch_split
+    !
+    ! Splits patch p along direction dir using DACE translateVariable to
+    ! perform the affine transformation v_dir -> 0.5*v_dir ± 0.5 on each
+    ! component of the DA vector. This avoids the generic DA-to-DA eval path.
+    !
+    ! DIAGNOSTIC MODE: Set DIAGNOSTIC_SPLIT = .true. to bypass the affine
+    ! transformation and simply deep-copy the original DA into both children.
+    ! This isolates whether the corruption is in translateVariable or downstream.
     ! =========================================================================
     subroutine patch_split(p, dir, left, right)
         type(patch_type), intent(inout) :: p
         integer, intent(in) :: dir
         type(patch_type), intent(out) :: left, right
-        type(AlgebraicVector) :: obj, temp_result
-        type(DA) :: tmp_da
+        type(AlgebraicVector) :: temp_vec
+        type(splitting_history_type) :: saved_hist
+        integer(c_int) :: new_handle
         integer :: i
+        logical, parameter :: DIAGNOSTIC_SPLIT = .false.
 
-        ! Build identity DA vector
-        call obj%init(6)
-        do i = 1, 6
-            obj%elements(i) = da_var(i)
-        end do
+        if (DIAGNOSTIC_SPLIT) then
+            ! === DIAGNOSTIC: deep-copy original DA, no affine transform ===
+            write(*,'(A,I0,A)') '[DIAG] patch_split called, dir=', dir, &
+                ' -- BYPASSING translateVariable, deep-copying instead'
 
-        ! ---- Left half ----
+            left%history = p%history
+            call sh_push(left%history, -dir)
+            call temp_vec%init(6)
+            do i = 1, 6
+                temp_vec%elements(i) = p%da_vec%elements(i)
+            end do
+            saved_hist = left%history  ! break aliasing before patch_init
+            call patch_init(left, temp_vec, saved_hist)
+            call temp_vec%destroy()
+
+            right%history = p%history
+            call sh_push(right%history, dir)
+            call temp_vec%init(6)
+            do i = 1, 6
+                temp_vec%elements(i) = p%da_vec%elements(i)
+            end do
+            saved_hist = right%history  ! break aliasing before patch_init
+            call patch_init(right, temp_vec, saved_hist)
+            call temp_vec%destroy()
+            return
+        end if
+
+        ! ---- Left half: v_dir -> 0.5*v_dir - 0.5 ----
         left%history = p%history
         call sh_push(left%history, -dir)
 
-        ! obj(dir) = -0.5 + 0.5*da_var(dir)
-        tmp_da = 0.5_DP * da_var(dir)
-        obj%elements(dir) = -0.5_DP + tmp_da
+        call temp_vec%init(6)
+        do i = 1, 6
+            call da_translate_variable( &
+                p%da_vec%elements(i)%handle, dir, 0.5_DP, -0.5_DP, new_handle)
+            temp_vec%elements(i)%handle = new_handle
+        end do
+        saved_hist = left%history  ! break aliasing: left%history undefined when patch_init intent(out) fires
+        call patch_init(left, temp_vec, saved_hist)
+        call temp_vec%destroy()
 
-        temp_result = p%da_vec%eval(obj)
-        call patch_init(left, temp_result, left%history)
-        call temp_result%destroy()
-
-        ! Restore obj(dir)
-        obj%elements(dir) = da_var(dir)
-
-        ! ---- Right half ----
+        ! ---- Right half: v_dir -> 0.5*v_dir + 0.5 ----
         right%history = p%history
         call sh_push(right%history, dir)
 
-        ! obj(dir) = 0.5 + 0.5*da_var(dir)
-        tmp_da = 0.5_DP * da_var(dir)
-        obj%elements(dir) = 0.5_DP + tmp_da
-
-        temp_result = p%da_vec%eval(obj)
-        call patch_init(right, temp_result, right%history)
-        call temp_result%destroy()
-
-        call obj%destroy()
+        call temp_vec%init(6)
+        do i = 1, 6
+            call da_translate_variable( &
+                p%da_vec%elements(i)%handle, dir, 0.5_DP, 0.5_DP, new_handle)
+            temp_vec%elements(i)%handle = new_handle
+        end do
+        saved_hist = right%history  ! break aliasing before patch_init
+        call patch_init(right, temp_vec, saved_hist)
+        call temp_vec%destroy()
     end subroutine patch_split
 
     ! =========================================================================

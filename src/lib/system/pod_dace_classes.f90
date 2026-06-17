@@ -22,7 +22,7 @@ module pod_dace_classes
     public :: da_sin_sub, da_cos_sub, da_atan2_sub, da_asin_sub
     public :: da_sqrt_sub, da_pow_int_sub, da_pow_real_sub
     public :: vector_norm2_sub, vector_dot_vector_sub
-    public :: da_estim_norm
+    public :: da_estim_norm, da_translate_variable
     public :: vec_matmul, vec_add_scaled_inplace, da_add_da_sub
 
 
@@ -237,6 +237,13 @@ module pod_dace_classes
             integer(c_int), intent(in) :: h_map(*)
             integer(c_int), value :: ho
         end subroutine c_fdace_eval_da_vec
+
+        subroutine c_fdace_translate_variable(hi, var, a, c, ho) bind(C, name="fdace_translate_variable")
+            import :: c_int, c_double
+            integer(c_int), value :: hi, var
+            real(c_double), value :: a, c
+            integer(c_int), value :: ho
+        end subroutine c_fdace_translate_variable
 
         function c_fdace_get_to() bind(C, name="fdace_get_to")
             import :: c_int; integer(c_int) :: c_fdace_get_to
@@ -1364,6 +1371,19 @@ contains
         end if
         deallocate(norms)
     end subroutine da_estim_norm
+
+    ! ==========================================
+    ! Variable affine translation: var -> a*var + c
+    ! Used in ADS domain splitting
+    ! ==========================================
+    subroutine da_translate_variable(h_in, var, a, c, h_out)
+        integer(c_int), intent(in) :: h_in
+        integer, intent(in) :: var
+        real(DP), intent(in) :: a, c
+        integer(c_int), intent(out) :: h_out
+        call c_fdace_allocate(h_out)
+        call c_fdace_translate_variable(h_in, int(var, c_int), real(a, c_double), real(c, c_double), h_out)
+    end subroutine da_translate_variable
 
     ! ==========================================
     ! AlgebraicVector 向量对象截断实现

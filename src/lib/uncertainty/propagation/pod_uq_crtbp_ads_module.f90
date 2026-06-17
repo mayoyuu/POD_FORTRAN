@@ -9,7 +9,7 @@ module pod_uq_crtbp_ads_module
         mf_init, mf_destroy, mf_push, mf_pop_front
     use pod_crtbp_integrator_module, only: da_adaptive_integrate_crtbp
     use pod_crtbp_module, only: set_crtbp_mu
-    use pod_dace_classes, only: AlgebraicVector, DA, da_var, &
+    use pod_dace_classes, only: AlgebraicVector, DA, CompiledDA, da_var, &
         dace_initialize, dace_push_to, dace_pop_to, &
         operator(+), operator(*), assignment(=)
     use pod_random_module, only: generate_multivariate_normal, init_random_seed
@@ -65,6 +65,12 @@ contains
             iter_count = iter_count + 1
             max_queue_size = max(max_queue_size, queue%n_patches)
 
+            ! Diagnostic: progress every iteration
+            if (verbose) then
+                write(*,'(A,I6,A,I6,A,I6)') '[ADS BFS] iter=', iter_count, &
+                    ' queue=', queue%n_patches, ' accepted=', result_manifold%n_patches
+            end if
+
             call mf_pop_front(queue, p)
 
             ! --- CRTBP DA integration ---
@@ -81,13 +87,20 @@ contains
             call patch_get_trunc_err(f, da_order, errors)
             rel_errors = max(0.0_DP, errors - err_toll)
 
+            if (verbose) then
+                write(*,'(A,I0,A,6(ES9.2,1X))') '[ADS BFS]   hist_depth=', &
+                    sh_count(p%history, 0), ' rel_err=', rel_errors
+            end if
+
             if (maxval(rel_errors) <= 0.0_DP .or. &
                 sh_count(p%history, 0) >= n_split_max) then
                 call mf_push(result_manifold, f)
                 call patch_destroy(p)
+                if (verbose) write(*,'(A)') '[ADS BFS]   -> ACCEPTED'
             else
                 pos = maxloc(rel_errors)
                 dir = patch_get_split_dir(f, pos(1), da_order)
+                if (verbose) write(*,'(A,I0,A,I0)') '[ADS BFS]   -> SPLIT dir=', dir, ' comp=', pos(1)
                 call patch_split(p, dir, left, right)
                 call mf_push(queue, left)
                 call mf_push(queue, right)
@@ -110,7 +123,7 @@ contains
     ! =========================================================================
     subroutine crtbp_ads_propagate_deviates(nominal_state, deviates, mu, t_end, &
             da_order, n_split_max, err_toll, rel_tol, abs_tol, dt_min, dt_max, max_steps, &
-            final_samples, final_mean, final_cov, n_patches_out, verbose)
+            final_samples, final_mean, final_cov, n_patches_out, verbose, domain_scale)
         real(DP), intent(in) :: nominal_state(6)
         real(DP), intent(in) :: deviates(:,:)
         real(DP), intent(in) :: mu, t_end
@@ -121,22 +134,30 @@ contains
         real(DP), intent(out) :: final_mean(6), final_cov(6,6)
         integer,  intent(out) :: n_patches_out
         logical, intent(in) :: verbose
+        real(DP), optional, intent(in) :: domain_scale(6)
 
         type(AlgebraicVector) :: state_da_0
         type(manifold_type) :: manifold
-        real(DP) :: pt_local(6)
+        type(CompiledDA), allocatable :: compiled_patches(:)
+        real(DP) :: pt_local(6), pt_unit(6), scale_vec(6)
         real(DP), allocatable :: eval_res(:)
         integer :: dim, n_dev, i, j, k
         logical :: found
 
         dim = 6
         n_dev = size(deviates, 2)
+        scale_vec = 1.0_DP
+        if (present(domain_scale)) then
+            do i = 1, dim
+                if (abs(domain_scale(i)) > 0.0_DP) scale_vec(i) = domain_scale(i)
+            end do
+        end if
 
         call dace_initialize(da_order, dim)
 
         call state_da_0%init(dim)
         do i = 1, dim
-            state_da_0%elements(i) = nominal_state(i) + da_var(i)
+            state_da_0%elements(i) = nominal_state(i) + scale_vec(i) * da_var(i)
         end do
 
         if (verbose) write(*,'(A)') '[ADS CRTBP] Starting domain splitting...'
@@ -145,16 +166,28 @@ contains
             da_order, manifold, verbose)
         n_patches_out = manifold%n_patches
 
+        allocate(compiled_patches(manifold%n_patches))
+        do i = 1, manifold%n_patches
+            compiled_patches(i) = manifold%patches(i)%da_vec%compile()
+        end do
+
         allocate(final_samples(dim, n_dev))
         final_samples = 0.0_DP
 
+        if (verbose) write(*,'(A,I0,A,I0,A)') &
+            '[ADS CRTBP] Evaluating ', n_dev, ' particles across ', &
+            manifold%n_patches, ' patches...'
         do k = 1, n_dev
+            if (verbose .and. mod(k, 10000) == 0) then
+                write(*,'(A,I0,A,I0)') '[ADS CRTBP]   particle ', k, ' / ', n_dev
+            end if
             found = .false.
+            pt_unit = deviates(:, k) / scale_vec
             do i = 1, manifold%n_patches
-                if (sh_contain(manifold%patches(i)%history, deviates(:, k))) then
-                    pt_local = deviates(:, k)
+                if (sh_contain(manifold%patches(i)%history, pt_unit)) then
+                    pt_local = pt_unit
                     call sh_map_point(manifold%patches(i)%history, pt_local)
-                    eval_res = manifold%patches(i)%da_vec%eval(pt_local)
+                    eval_res = compiled_patches(i)%eval(pt_local)
                     final_samples(:, k) = eval_res
                     found = .true.
                     deallocate(eval_res)
@@ -182,6 +215,12 @@ contains
         end do
         final_cov = final_cov / real(n_dev - 1, DP)
 
+        if (allocated(compiled_patches)) then
+            do i = 1, size(compiled_patches)
+                call compiled_patches(i)%destroy()
+            end do
+            deallocate(compiled_patches)
+        end if
         call state_da_0%destroy()
         call mf_destroy(manifold)
 
@@ -204,9 +243,17 @@ contains
         logical, intent(in) :: verbose
 
         real(DP), allocatable :: particles(:,:), deviates(:,:)
+        real(DP) :: domain_scale(6)
         integer :: i, dim
 
         dim = 6
+        do i = 1, dim
+            if (cov(i, i) > 0.0_DP) then
+                domain_scale(i) = 3.0_DP * sqrt(cov(i, i))
+            else
+                domain_scale(i) = 1.0_DP
+            end if
+        end do
 
         allocate(particles(dim, n_particles))
         call init_random_seed(.true.)
@@ -219,7 +266,8 @@ contains
 
         call crtbp_ads_propagate_deviates(nominal_state, deviates, mu, t_end, &
             da_order, n_split_max, err_toll, rel_tol, abs_tol, dt_min, dt_max, max_steps, &
-            final_samples, final_mean, final_cov, n_patches_out, verbose)
+            final_samples, final_mean, final_cov, n_patches_out, verbose, &
+            domain_scale=domain_scale)
 
         deallocate(particles, deviates)
     end subroutine crtbp_ads_propagate
