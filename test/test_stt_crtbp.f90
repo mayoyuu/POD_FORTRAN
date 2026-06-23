@@ -258,21 +258,27 @@ program test_stt_crtbp
     ! =====================================================================
     ! Test 6: STT vs DA DRO 轨道对比 (共用阶数, 从文件读取偏移量)
     ! =====================================================================
-    test_order = 1   ! <-- 统一调整 DA 和 STT 的阶数
-    n_dev      = 100000
-    n_mc       = 100000     ! MC 参考解样本数 (数值积分慢, 用少量)
+    test_order = 3   ! <-- 统一调整 DA 和 STT 的阶数
+    n_dev      = 1e6
+    n_mc       = 1e6     ! MC 参考解样本数 (数值积分慢, 用少量)
     write(*,'(A,I0,A,I0,A,I0,A)') ' Test 6: STT vs DA vs MC on DRO orbit (order=', &
         test_order, ', N_da/stt=', n_dev, ', N_mc=', n_mc, ')'
 
     dro_mu     = 0.012153614091892_DP
-    dro_x0     = [1.1309265107780351_DP, 0.0_DP, 0.0_DP, &
-                  0.0_DP, -0.46540743845849059_DP, 0.0_DP]
-    dro_period = 2.3017923284002024_DP*1.5_DP
+    ! dro_x0     = [1.1309265107780351_DP, 0.0_DP, 0.0_DP, &
+    !               0.0_DP, -0.46540743845849059_DP, 0.0_DP]
+    dro_x0 = [ 0.80439656344445_DP, &
+                0.0_DP, &
+                0.0_DP, &
+                0.0_DP, &
+                0.520998724874394_DP, &
+                0.0_DP]
+    dro_period = 3.23091892596446_DP*0.5_DP
 
     ! ---- 6a: 从文件读取初始偏移量 ----
-    write(*,*) '  Reading deviates from rand_list200km_0.7ms.txt...'
+    write(*,*) '  Reading deviates from rand_list300km_1.0ms.txt...'
     allocate(deviates(6, n_dev))
-    open(newunit=unit, file='../rand_list200km_0.7ms.txt', status='old', action='read')
+    open(newunit=unit, file='../rand_list300km_1.0ms.txt', status='old', action='read')
     do kk = 1, n_dev
         read(unit, *, iostat=io) deviates(1, kk), deviates(2, kk), deviates(3, kk), &
                                   deviates(4, kk), deviates(5, kk), deviates(6, kk)
@@ -292,7 +298,7 @@ program test_stt_crtbp
     mc_dev_subset = deviates(:, 1:n_mc)
     call system_clock(t1, t_rate)
     call crtbp_mc_propagate_deviates(dro_x0, mc_dev_subset, dro_mu, dro_period, &
-        1.0e-14_DP, 1.0e-14_DP, 1.0e-10_DP, 0.01_DP, 100000, &
+        1.0e-16_DP, 1.0e-12_DP, 1.0e-10_DP, 0.01_DP, 100000, &
         mc_samples, mc_mean, mc_cov, .false.)
     call system_clock(t2, t_rate)
     mc_time = real(t2 - t1, DP) / real(t_rate, DP)
@@ -302,7 +308,7 @@ program test_stt_crtbp
     call dace_initialize(test_order, 6)
     call system_clock(t1, t_rate)
     call crtbp_da_propagate_deviates(dro_x0, deviates, dro_mu, dro_period, &
-        test_order, 1.0e-14_DP, 1.0e-14_DP, 1.0e-10_DP, 0.01_DP, 100000, &
+        test_order, 1.0e-16_DP, 1.0e-12_DP, 1.0e-10_DP, 0.01_DP, 100000, &
         da_samples, da_mean, da_cov, da_ref, .false.)
     call system_clock(t2, t_rate)
     da_time = real(t2 - t1, DP) / real(t_rate, DP)
@@ -311,7 +317,7 @@ program test_stt_crtbp
     write(*,*) '  Running STT (deviates mode)...'
     call stt_prop%set_stt_order(test_order)
     call stt_prop%set_stt_mu(dro_mu)
-    call stt_prop%set_stt_tolerances(abs_tol=1.0e-14_DP, rel_tol=1.0e-14_DP, &
+    call stt_prop%set_stt_tolerances(abs_tol=1.0e-16_DP, rel_tol=1.0e-12_DP, &
         dt_min=1.0e-10_DP, dt_max=0.01_DP, max_steps=100000)
     call stt_prop%set_verbosity(.false.)
     call system_clock(t1, t_rate)
@@ -387,7 +393,9 @@ program test_stt_crtbp
     write(*,'(A,F10.1,A)') '    Speedup vs MC (STT/MC):', mc_time / max(stt_time, 1.0e-6_DP), 'x'
 
     ! ---- 6i: 保存散点样本 ----
-    write(fname, '(A)') 'veri_crtbp_mc.txt'
+    call execute_command_line('mkdir -p output')
+
+    write(fname, '(A)') 'output/veri_crtbp_mc.txt'
     write(*,*) '  Writing ', trim(fname), '...'
     open(newunit=unit, file=trim(fname), status='replace', action='write')
     do kk = 1, n_mc
@@ -395,7 +403,7 @@ program test_stt_crtbp
     end do
     close(unit)
 
-    write(fname, '(A,I0,A)') 'o', test_order, '_veri_crtbp_da.txt'
+    write(fname, '(A,I0,A)') 'output/o', test_order, '_veri_crtbp_da.txt'
     write(*,*) '  Writing ', trim(fname), '...'
     open(newunit=unit, file=trim(fname), status='replace', action='write')
     do kk = 1, n_dev
@@ -403,7 +411,7 @@ program test_stt_crtbp
     end do
     close(unit)
 
-    write(fname, '(A,I0,A)') 'o', test_order, '_veri_crtbp_stt.txt'
+    write(fname, '(A,I0,A)') 'output/o', test_order, '_veri_crtbp_stt.txt'
     write(*,*) '  Writing ', trim(fname), '...'
     open(newunit=unit, file=trim(fname), status='replace', action='write')
     do kk = 1, n_dev

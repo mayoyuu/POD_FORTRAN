@@ -13,9 +13,18 @@ module pod_data_format_module
     
     public :: load_initial_opm
     public :: write_json_opm, write_residual_line, write_error_line
+    public :: format_json_real
     public :: write_gmm_snapshots
 
 contains
+
+    function format_json_real(val) result(text)
+        real(DP), intent(in) :: val
+        character(len=32) :: text
+
+        write(text, '(ES24.15E3)') val
+        text = adjustl(text)
+    end function format_json_real
 
 
     !> ======================================================================
@@ -172,13 +181,13 @@ contains
         ! 历元与状态向量
         write(u, '(A,A,A)') '    "EPOCH": "', trim(epoch_str), '",'
         do i = 1, 6
-            write(u, '(A,A,A,ES22.15,A)') '    "', trim(s_keys(i)), '": ', final_state(i), ','
+            write(u, '(A,A,A,ES24.15E3,A)') '    "', trim(s_keys(i)), '": ', final_state(i), ','
         end do
         
         ! 协方差矩阵 (自动生成 OPM 标准的下三角键名: C + row_name + _ + col_name)
         do i = 1, 6
             do j = 1, i
-                write(u, '(A,A,A,A,A,ES22.15,A)') '    "C', trim(s_keys(i)), '_', trim(s_keys(j)), '": ', final_cov(i,j), ','
+                write(u, '(A,A,A,A,A,ES24.15E3,A)') '    "C', trim(s_keys(i)), '_', trim(s_keys(j)), '": ', final_cov(i,j), ','
             end do
         end do
         
@@ -190,18 +199,18 @@ contains
             do i = 1, gmm_state%n_components
                 write(u, '(A)') '        {'
                 write(u, '(A,I0,A)')          '            "INDEX": ', i, ','
-                write(u, '(A,ES22.15,A)')     '            "WEIGHT": ', gmm_state%components(i)%weight, ','
-                write(u, '(A, 5(ES22.15, ", "), ES22.15, A)') '            "MEAN": [', gmm_state%components(i)%mean, '],'
+                write(u, '(A,ES24.15E3,A)')     '            "WEIGHT": ', gmm_state%components(i)%weight, ','
+                write(u, '(A, 5(ES24.15E3, ", "), ES24.15E3, A)') '            "MEAN": [', gmm_state%components(i)%mean, '],'
                 
                 ! 展开输出下三角协方差矩阵 (COV_1_1 到 COV_6_6)
                 do j = 1, 6
                     do k = 1, j
                         if (j == 6 .and. k == 6) then
                             ! 最后一项不加逗号，遵循严格的 JSON 语法
-                            write(u, '(A,A,A,A,A,ES22.15)') '            "COV_', char(48+j), '_', char(48+k), '": ',&
+                            write(u, '(A,A,A,A,A,ES24.15E3)') '            "COV_', char(48+j), '_', char(48+k), '": ',&
                              gmm_state%components(i)%cov(j,k)
                         else
-                            write(u, '(A,A,A,A,A,ES22.15,A)') '            "COV_', char(48+j), '_', char(48+k), '": ', &
+                            write(u, '(A,A,A,A,A,ES24.15E3,A)') '            "COV_', char(48+j), '_', char(48+k), '": ', &
                             gmm_state%components(i)%cov(j,k), ','
                         end if
                     end do
@@ -217,7 +226,7 @@ contains
         end if
         
         ! 统计信息
-        write(u, '(A,ES22.15,A)') '    "RMS": ', rms, ','
+        write(u, '(A,ES24.15E3,A)') '    "RMS": ', rms, ','
         write(u, '(A,A,A)')       '    "LAST_OBS": "', trim(epoch_str), '",'
         write(u, '(A)')           '    "STATUS": "SUCCESS"'
         
@@ -392,16 +401,16 @@ contains
             do i = 1, gmms(s)%n_components
                 write(u, '(A)') '                {'
                 write(u, '(A,I0,A)')      '                    "INDEX": ', i, ','
-                write(u, '(A,ES22.15,A)') '                    "WEIGHT": ', gmms(s)%components(i)%weight, ','
-                write(u, '(A,5(ES22.15,", "),ES22.15,A)') &
+                write(u, '(A,ES24.15E3,A)') '                    "WEIGHT": ', gmms(s)%components(i)%weight, ','
+                write(u, '(A,5(ES24.15E3,", "),ES24.15E3,A)') &
                     '                    "MEAN": [', gmms(s)%components(i)%mean, '],'
                 write(u, '(A)')           '                    "COV": ['
                 do j = 1, 6
                     if (j < 6) then
-                        write(u, '(A,5(ES22.15,", "),ES22.15,A)') &
+                        write(u, '(A,5(ES24.15E3,", "),ES24.15E3,A)') &
                             '                        [', gmms(s)%components(i)%cov(j, 1:6), '],'
                     else
-                        write(u, '(A,5(ES22.15,", "),ES22.15,A)') &
+                        write(u, '(A,5(ES24.15E3,", "),ES24.15E3,A)') &
                             '                        [', gmms(s)%components(i)%cov(j, 1:6), ']'
                     end if
                 end do

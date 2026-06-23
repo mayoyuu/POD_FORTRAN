@@ -7,7 +7,7 @@ module pod_emdac_runner_module
     use pod_filter_emdac_module, only: emdac_filter
     use pod_obs_io_module, only: obs_record, preload_observations, &
                                   station_record, preload_stations, find_station_by_id, &
-                                  ref_orbit_record, preload_reference_orbits
+                                  ref_orbit_record, preload_reference_orbits, find_reference_by_et
     use pod_measurement_base_module, only: observation_station
     use pod_basicmath_module, only: PI
     use pod_data_format_module, only: load_initial_opm, write_json_opm, &
@@ -74,6 +74,8 @@ contains
         real(DP) :: step_comp(2)   ! 存储最近一次计算出的预测观测值 (Lon, Lat)
         real(DP) :: pos_err(3), vel_err(3)
         real(DP) :: pos_rms, vel_rms, mahalanobis_d
+        real(DP) :: ref_state_at_obs(6)
+        logical :: ref_found
 
         ! GMM 快照收集
         type(uq_gmm_state_type), allocatable :: gmm_snapshots(:)
@@ -200,12 +202,17 @@ contains
             call my_filter%get_current_cov(final_cov)
 
             if (present(ref_orbit_file)) then
-                call compute_orbit_error(final_mean, final_cov, ref_list(obs_count)%state, &
-                                          pos_err, vel_err, pos_rms, vel_rms, mahalanobis_d)
+                call find_reference_by_et(et_obs, ref_list, ref_state_at_obs, ref_found, tolerance=1.0_DP)
+                if (ref_found) then
+                    call compute_orbit_error(final_mean, final_cov, ref_state_at_obs, &
+                                              pos_err, vel_err, pos_rms, vel_rms, mahalanobis_d)
 
-                if (present(output_error_file)) then
-                    call write_error_line(output_error_file, et_obs, pos_err, vel_err, &
-                                           pos_rms, vel_rms, mahalanobis_d, (obs_count == 1))
+                    if (present(output_error_file)) then
+                        call write_error_line(output_error_file, et_obs, pos_err, vel_err, &
+                                               pos_rms, vel_rms, mahalanobis_d, (obs_count == 1))
+                    end if
+                else
+                    write(*,*) '[WARN] No reference orbit found within 1 second of observation ET: ', et_obs
                 end if
             end if
 

@@ -1,7 +1,7 @@
 module pod_uq_crtbp_da_module
     use pod_global, only: DP
     use pod_crtbp_module, only: set_crtbp_mu
-    use pod_crtbp_integrator_module, only: da_adaptive_integrate_crtbp
+    use pod_crtbp_integrator_module, only: da_adaptive_integrate_crtbp_rkf78
     use pod_dace_classes
     use pod_random_module, only: generate_multivariate_normal, init_random_seed
     implicit none
@@ -53,7 +53,7 @@ contains
         call state_da_f%init(dim)
         if (verbose) write(*, '(A)') '[DA CRTBP] Starting DA integration...'
 
-        call da_adaptive_integrate_crtbp(state_da_0, 0.0_DP, t_end, &
+        call da_adaptive_integrate_crtbp_rkf78(state_da_0, 0.0_DP, t_end, &
             rel_tol, abs_tol, dt_min, dt_max, max_steps, &
             state_da_f)
 
@@ -142,7 +142,7 @@ contains
         call state_da_f%init(dim)
         if (verbose) write(*, '(A)') '[DA CRTBP deviates] Starting DA integration...'
 
-        call da_adaptive_integrate_crtbp(state_da_0, 0.0_DP, t_end, &
+        call da_adaptive_integrate_crtbp_rkf78(state_da_0, 0.0_DP, t_end, &
             rel_tol, abs_tol, dt_min, dt_max, max_steps, state_da_f)
 
         propagated_ref = state_da_f%cons()

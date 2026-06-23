@@ -7,7 +7,7 @@ module pod_uq_crtbp_ads_module
         sh_contain, sh_map_point, patch_init, patch_destroy, &
         patch_get_trunc_err, patch_get_split_dir, patch_split, &
         mf_init, mf_destroy, mf_push, mf_pop_front
-    use pod_crtbp_integrator_module, only: da_adaptive_integrate_crtbp
+    use pod_crtbp_integrator_module, only: da_adaptive_integrate_crtbp_rkf78
     use pod_crtbp_module, only: set_crtbp_mu
     use pod_dace_classes, only: AlgebraicVector, DA, CompiledDA, da_var, &
         dace_initialize, dace_push_to, dace_pop_to, &
@@ -22,7 +22,7 @@ contains
 
     ! =========================================================================
     ! ads_get_split_domain_crtbp -- CRTBP-specific BFS domain splitting
-    !   Calls da_adaptive_integrate_crtbp for flow evaluation.
+    !   Calls da_adaptive_integrate_crtbp_rkf78 for flow evaluation.
     !   Corresponds to C++ Manifold::getSplitDomain
     ! =========================================================================
     subroutine ads_get_split_domain_crtbp(initial_da_vec, err_toll, n_split_max, &
@@ -75,7 +75,7 @@ contains
 
             ! --- CRTBP DA integration ---
             call f_da_vec%init(6)
-            call da_adaptive_integrate_crtbp( &
+            call da_adaptive_integrate_crtbp_rkf78( &
                 p%da_vec, 0.0_DP, t_end, &
                 rel_tol, abs_tol, dt_min, dt_max, max_steps, &
                 f_da_vec)

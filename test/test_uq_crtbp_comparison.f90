@@ -27,8 +27,12 @@ program test_uq_crtbp_comparison
     real(DP) :: stt_mean(6), stt_cov(6,6)
     real(DP) :: ads_mean(6), ads_cov(6,6)
     type(uq_stt_propagator) :: stt_prop
-    real(DP) :: mc_time, da_time, stt_time, ads_time
-    integer(8) :: t1, t2, t_rate
+    real(DP) :: load_time, mc_setup_time, mc_time, da_init_time, da_time
+    real(DP) :: stt_setup_time, stt_time, ads_setup_time, ads_time
+    real(DP) :: result_time, output_time, total_time
+    real(DP) :: mc_write_time, da_write_time, stt_write_time, ads_write_time
+    integer(8) :: t1, t2, t_rate, t_total_start, t_total_end
+    integer(8) :: t_output_start, t_output_end
     integer :: test_order, n_dev, n_mc, unit, io, k, i, j
     integer :: ads_n_patches
     real(DP) :: err_toll(6), ads_domain_scale(6)
@@ -36,6 +40,7 @@ program test_uq_crtbp_comparison
 
     passed = 0
     failed = 0
+    call system_clock(t_total_start, t_rate)
 
     write(*,*) '========================================'
     write(*,*) '  CRTBP Uncertainty Propagation'
@@ -56,6 +61,7 @@ program test_uq_crtbp_comparison
 
     ! ---- 1. Load deviates ----
     write(*,*) 'Loading deviates from rand_list200km_0.7ms.txt...'
+    call system_clock(t1, t_rate)
     allocate(deviates(6, n_dev))
     open(newunit=unit, file='../rand_list200km_0.7ms.txt', status='old', action='read')
     do k = 1, n_dev
@@ -69,58 +75,73 @@ program test_uq_crtbp_comparison
         end if
     end do
     close(unit)
+    call system_clock(t2, t_rate)
+    load_time = seconds_between(t1, t2, t_rate)
     write(*,*) 'Loaded', n_dev, 'deviates'
 
     ! ---- 2. MC reference (n_mc subset) ----
     write(*,*) 'Running MC...'
+    call system_clock(t1, t_rate)
     allocate(mc_dev_subset(6, n_mc))
     mc_dev_subset = deviates(:, 1:n_mc)
+    call system_clock(t2, t_rate)
+    mc_setup_time = seconds_between(t1, t2, t_rate)
     call system_clock(t1, t_rate)
     call crtbp_mc_propagate_deviates(dro_x0, mc_dev_subset, mu, dro_period, &
-        1.0e-14_DP, 1.0e-14_DP, 1.0e-10_DP, 0.01_DP, 100000, &
+        1.0e-16_DP, 1.0e-12_DP, 1.0e-10_DP, 0.01_DP, 100000, &
         mc_samples, mc_mean, mc_cov, .false.)
     call system_clock(t2, t_rate)
-    mc_time = real(t2 - t1, DP) / real(t_rate, DP)
+    mc_time = seconds_between(t1, t2, t_rate)
 
     ! ---- 3. DA ----
     write(*,*) 'Running DA...'
+    call system_clock(t1, t_rate)
     call dace_initialize(test_order, 6)
+    call system_clock(t2, t_rate)
+    da_init_time = seconds_between(t1, t2, t_rate)
     call system_clock(t1, t_rate)
     call crtbp_da_propagate_deviates(dro_x0, deviates, mu, dro_period, &
-        test_order, 1.0e-14_DP, 1.0e-14_DP, 1.0e-10_DP, 0.01_DP, 100000, &
+        test_order, 1.0e-16_DP, 1.0e-12_DP, 1.0e-10_DP, 0.01_DP, 100000, &
         da_samples, da_mean, da_cov, da_ref, .false.)
     call system_clock(t2, t_rate)
-    da_time = real(t2 - t1, DP) / real(t_rate, DP)
+    da_time = seconds_between(t1, t2, t_rate)
 
     ! ---- 4. STT ----
     write(*,*) 'Running STT...'
+    call system_clock(t1, t_rate)
     call stt_prop%set_stt_order(test_order)
     call stt_prop%set_stt_mu(mu)
-    call stt_prop%set_stt_tolerances(abs_tol=1.0e-14_DP, rel_tol=1.0e-14_DP, &
+    call stt_prop%set_stt_tolerances(abs_tol=1.0e-16_DP, rel_tol=1.0e-12_DP, &
         dt_min=1.0e-10_DP, dt_max=0.01_DP, max_steps=100000)
     call stt_prop%set_verbosity(.false.)
+    call system_clock(t2, t_rate)
+    stt_setup_time = seconds_between(t1, t2, t_rate)
     call system_clock(t1, t_rate)
     call stt_propagate_deviates(stt_prop, 0.0_DP, dro_period, &
         dro_x0, deviates, stt_samples, stt_mean, stt_cov)
     call system_clock(t2, t_rate)
-    stt_time = real(t2 - t1, DP) / real(t_rate, DP)
+    stt_time = seconds_between(t1, t2, t_rate)
 
     ! ---- 5. ADS ----
     write(*,*) 'Running ADS...'
+    call system_clock(t1, t_rate)
     err_toll = 1.0d-4
     ads_domain_scale = 3.0_DP * [ &
         5.202913631633715e-04_DP, 5.202913631633715e-04_DP, 5.202913631633715e-04_DP, &
         6.833378315431714e-04_DP, 6.833378315431714e-04_DP, 6.833378315431714e-04_DP]
+    call system_clock(t2, t_rate)
+    ads_setup_time = seconds_between(t1, t2, t_rate)
     call system_clock(t1, t_rate)
     call crtbp_ads_propagate_deviates(dro_x0, deviates, mu, dro_period, &
         test_order, 12, err_toll, &
-        1.0e-14_DP, 1.0e-14_DP, 1.0e-10_DP, 0.01_DP, 100000, &
+        1.0e-16_DP, 1.0e-12_DP, 1.0e-10_DP, 0.01_DP, 100000, &
         ads_samples, ads_mean, ads_cov, ads_n_patches, .true., &
         domain_scale=ads_domain_scale)
     call system_clock(t2, t_rate)
-    ads_time = real(t2 - t1, DP) / real(t_rate, DP)
+    ads_time = seconds_between(t1, t2, t_rate)
 
     ! ---- 6. Results comparison ----
+    call system_clock(t1, t_rate)
     write(*,*) '========================================'
     write(*,*) '  Results'
     write(*,*) '========================================'
@@ -138,28 +159,66 @@ program test_uq_crtbp_comparison
     call compare_cov('DA  vs MC', da_cov, mc_cov, 0.10_DP, passed, failed)
     call compare_cov('STT vs MC', stt_cov, mc_cov, 0.10_DP, passed, failed)
     call compare_cov('ADS vs MC', ads_cov, mc_cov, 0.15_DP, passed, failed)
+    call system_clock(t2, t_rate)
+    result_time = seconds_between(t1, t2, t_rate)
 
-    ! ---- 7. Timing ----
+    ! ---- 8. Output samples ----
+    call system_clock(t_output_start, t_rate)
+    call ensure_output_dir()
+    call system_clock(t1, t_rate)
+    call write_samples('output/veri_crtbp_mc.txt', mc_samples, n_mc)
+    call system_clock(t2, t_rate)
+    mc_write_time = seconds_between(t1, t2, t_rate)
+    write(fname, '(A,I0,A)') 'output/o', test_order, '_veri_crtbp_da.txt'
+    call system_clock(t1, t_rate)
+    call write_samples(trim(fname), da_samples, n_dev)
+    call system_clock(t2, t_rate)
+    da_write_time = seconds_between(t1, t2, t_rate)
+    write(fname, '(A,I0,A)') 'output/o', test_order, '_veri_crtbp_stt.txt'
+    call system_clock(t1, t_rate)
+    call write_samples(trim(fname), stt_samples, n_dev)
+    call system_clock(t2, t_rate)
+    stt_write_time = seconds_between(t1, t2, t_rate)
+    write(fname, '(A,I0,A)') 'output/o', test_order, '_veri_crtbp_ads.txt'
+    call system_clock(t1, t_rate)
+    call write_samples(trim(fname), ads_samples, n_dev)
+    call system_clock(t2, t_rate)
+    ads_write_time = seconds_between(t1, t2, t_rate)
+    call system_clock(t_output_end, t_rate)
+    output_time = seconds_between(t_output_start, t_output_end, t_rate)
+
+    call system_clock(t_total_end, t_rate)
+    total_time = seconds_between(t_total_start, t_total_end, t_rate)
+
+    ! ---- 9. Timing ----
     write(*,*) '========================================'
-    write(*,*) '  Timing'
+    write(*,*) '  Detailed Timing'
     write(*,*) '========================================'
-    write(*,'(A,F10.3,A)') ' MC  : ', mc_time,  ' s'
-    write(*,'(A,F10.3,A)') ' DA  : ', da_time,  ' s'
-    write(*,'(A,F10.3,A)') ' STT : ', stt_time, ' s'
-    write(*,'(A,F10.3,A,I0,A)') ' ADS : ', ads_time, ' s (', ads_n_patches, ' patches)'
+    write(*,'(A,F10.3,A)') ' Input load          : ', load_time, ' s'
+    write(*,'(A,F10.3,A)') ' MC setup            : ', mc_setup_time, ' s'
+    write(*,'(A,F10.3,A)') ' MC propagate        : ', mc_time, ' s'
+    write(*,'(A,F10.3,A)') ' DA initialize       : ', da_init_time, ' s'
+    write(*,'(A,F10.3,A)') ' DA aggregate        : ', da_time, ' s'
+    write(*,'(A,F10.3,A)') ' STT setup           : ', stt_setup_time, ' s'
+    write(*,'(A,F10.3,A)') ' STT aggregate       : ', stt_time, ' s'
+    write(*,'(A,F10.3,A)') ' ADS setup           : ', ads_setup_time, ' s'
+    write(*,'(A,F10.3,A,I0,A)') ' ADS aggregate       : ', ads_time, ' s (', ads_n_patches, ' patches)'
+    write(*,'(A,F10.6,A)') ' ADS per patch       : ', &
+        ads_time / max(real(ads_n_patches, DP), 1.0_DP), ' s/patch'
+    write(*,'(A,F10.6,A)') ' ADS per sample      : ', &
+        ads_time / max(real(n_dev, DP), 1.0_DP), ' s/sample'
+    write(*,'(A,F10.1,A)') ' ADS samples/sec     : ', &
+        real(n_dev, DP) / max(ads_time, 1.0e-6_DP), ' samples/s'
+    write(*,'(A,F10.3,A)') ' Results compare     : ', result_time, ' s'
+    write(*,'(A,F10.3,A)') ' Output samples      : ', output_time, ' s'
+    write(*,'(A,F10.3,A)') '   output MC         : ', mc_write_time, ' s'
+    write(*,'(A,F10.3,A)') '   output DA         : ', da_write_time, ' s'
+    write(*,'(A,F10.3,A)') '   output STT        : ', stt_write_time, ' s'
+    write(*,'(A,F10.3,A)') '   output ADS        : ', ads_write_time, ' s'
+    write(*,'(A,F10.3,A)') ' Total wall          : ', total_time, ' s'
     write(*,'(A,F10.1)') ' Speedup vs MC (DA/MC):  ', mc_time / max(da_time, 1.0e-6_DP)
     write(*,'(A,F10.1)') ' Speedup vs MC (STT/MC): ', mc_time / max(stt_time, 1.0e-6_DP)
     write(*,'(A,F10.1)') ' Speedup vs MC (ADS/MC): ', mc_time / max(ads_time, 1.0e-6_DP)
-
-    ! ---- 8. Output samples ----
-    call ensure_output_dir()
-    call write_samples('output/veri_crtbp_mc.txt', mc_samples, n_mc)
-    write(fname, '(A,I0,A)') 'output/o', test_order, '_veri_crtbp_da.txt'
-    call write_samples(trim(fname), da_samples, n_dev)
-    write(fname, '(A,I0,A)') 'output/o', test_order, '_veri_crtbp_stt.txt'
-    call write_samples(trim(fname), stt_samples, n_dev)
-    write(fname, '(A,I0,A)') 'output/o', test_order, '_veri_crtbp_ads.txt'
-    call write_samples(trim(fname), ads_samples, n_dev)
 
     ! ---- Cleanup ----
     deallocate(deviates, mc_dev_subset)
@@ -175,6 +234,11 @@ program test_uq_crtbp_comparison
     if (failed > 0) stop 1
 
 contains
+
+    real(DP) function seconds_between(t_start, t_stop, rate) result(seconds)
+        integer(8), intent(in) :: t_start, t_stop, rate
+        seconds = real(t_stop - t_start, DP) / real(max(rate, 1_8), DP)
+    end function seconds_between
 
     subroutine compare_cov(label, cov1, cov2, threshold, passed, failed)
         character(len=*), intent(in) :: label

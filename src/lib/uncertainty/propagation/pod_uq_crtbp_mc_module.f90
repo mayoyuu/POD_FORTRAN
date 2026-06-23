@@ -1,7 +1,7 @@
 module pod_uq_crtbp_mc_module
     use pod_global, only: DP, MAX_STRING_LEN
     use pod_crtbp_module, only: set_crtbp_mu
-    use pod_crtbp_integrator_module, only: adaptive_integrate_crtbp
+    use pod_crtbp_integrator_module, only: adaptive_integrate_crtbp_rkf78
     use pod_random_module, only: generate_multivariate_normal, init_random_seed
     implicit none
     private
@@ -44,7 +44,7 @@ contains
         do i = 1, n_particles
             current_state = final_samples(:, i)
 
-            call adaptive_integrate_crtbp(current_state, 0.0_DP, t_end, &
+            call adaptive_integrate_crtbp_rkf78(current_state, 0.0_DP, t_end, &
                 rel_tol, abs_tol, dt_min, dt_max, max_steps, &
                 temp_times, temp_states, n_steps)
 
@@ -110,7 +110,7 @@ contains
         do i = 1, n_dev
             initial_state = nominal_state + deviates(:, i)
 
-            call adaptive_integrate_crtbp(initial_state, 0.0_DP, t_end, &
+            call adaptive_integrate_crtbp_rkf78(initial_state, 0.0_DP, t_end, &
                 rel_tol, abs_tol, dt_min, dt_max, max_steps, &
                 temp_times, temp_states, n_steps)
 

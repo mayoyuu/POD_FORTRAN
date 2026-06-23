@@ -12,6 +12,7 @@ module pod_obs_io_module
     public :: obs_record, station_record, ref_orbit_record
     public :: preload_observations, preload_stations, find_station_by_id
     public :: preload_reference_orbits
+    public :: find_reference_by_et
 
     !> 轻量级观测记录（仅含滤波所需字段）
     type :: obs_record
@@ -233,6 +234,40 @@ contains
 
 
     !> 轻量级手写 JSON 扫描器
+    subroutine find_reference_by_et(et_query, ref_list, ref_state, found, tolerance, matched_index)
+        real(DP), intent(in) :: et_query
+        type(ref_orbit_record), intent(in) :: ref_list(:)
+        real(DP), intent(out) :: ref_state(6)
+        logical, intent(out) :: found
+        real(DP), intent(in), optional :: tolerance
+        integer, intent(out), optional :: matched_index
+
+        real(DP) :: tol, best_dt, dt
+        integer :: i, best_i
+
+        tol = 0.5_DP
+        if (present(tolerance)) tol = tolerance
+
+        found = .false.
+        ref_state = 0.0_DP
+        best_dt = huge(1.0_DP)
+        best_i = 0
+
+        do i = 1, size(ref_list)
+            dt = abs(ref_list(i)%et - et_query)
+            if (dt < best_dt) then
+                best_dt = dt
+                best_i = i
+            end if
+        end do
+
+        if (best_i > 0 .and. best_dt <= tol) then
+            found = .true.
+            ref_state = ref_list(best_i)%state
+        end if
+
+        if (present(matched_index)) matched_index = best_i
+    end subroutine find_reference_by_et
     subroutine parse_site_json(json_file, target_id, station)
         character(len=*), intent(in) :: json_file, target_id
         type(observation_station), intent(out) :: station

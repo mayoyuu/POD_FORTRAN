@@ -66,3 +66,28 @@ name = "test_uq_crtbp_comparison"
 source-dir = "test"
 main = "test_uq_crtbp_comparison.f90"
 
+
+[[test]]
+name = "test_json_real_format"
+source-dir = "test"
+main = "test_json_real_format.f90"
+
+[[test]]
+name = "test_reference_orbit_lookup"
+source-dir = "test"
+main = "test_reference_orbit_lookup.f90"
+
+[[test]]
+name = "test_orbit_error_mahalanobis"
+source-dir = "test"
+main = "test_orbit_error_mahalanobis.f90"
+
+[[test]]
+name = "test_covariance_condition_number"
+source-dir = "test"
+main = "test_covariance_condition_number.f90"
+
+[[test]]
+name = "test_mahalanobis_prepost_diagnostics"
+source-dir = "test"
+main = "test_mahalanobis_prepost_diagnostics.f90"
