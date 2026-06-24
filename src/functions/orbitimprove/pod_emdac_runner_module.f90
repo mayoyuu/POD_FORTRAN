@@ -13,7 +13,8 @@ module pod_emdac_runner_module
     use pod_data_format_module, only: load_initial_opm, write_json_opm, &
                                        write_residual_line, write_error_line, &
                                        write_gmm_snapshots
-    use pod_error_analysis_module, only: compute_orbit_error
+    use pod_error_analysis_module, only: compute_orbit_error, &
+                                       compute_covariance_condition_number
 
     implicit none
     private
@@ -72,9 +73,14 @@ contains
 
         real(DP) :: step_res(6)    ! 存储最近一次测量更新的 6 列残差
         real(DP) :: step_comp(2)   ! 存储最近一次计算出的预测观测值 (Lon, Lat)
-        real(DP) :: pos_err(3), vel_err(3)
-        real(DP) :: pos_rms, vel_rms, mahalanobis_d
+        real(DP) :: prior_pos_err(3), prior_vel_err(3)
+        real(DP) :: posterior_pos_err(3), posterior_vel_err(3)
+        real(DP) :: prior_pos_rms, prior_vel_rms, prior_mahalanobis_d
+        real(DP) :: posterior_pos_rms, posterior_vel_rms, posterior_mahalanobis_d
+        real(DP) :: prior_cond_p, prior_lambda_min_p, prior_lambda_max_p
+        real(DP) :: posterior_cond_p, posterior_lambda_min_p, posterior_lambda_max_p
         real(DP) :: ref_state_at_obs(6)
+        integer :: prior_cov_info, posterior_cov_info
         logical :: ref_found
 
         ! GMM 快照收集
@@ -205,12 +211,15 @@ contains
                 call find_reference_by_et(et_obs, ref_list, ref_state_at_obs, ref_found, tolerance=1.0_DP)
                 if (ref_found) then
                     call compute_orbit_error(final_mean, final_cov, ref_state_at_obs, &
-                                              pos_err, vel_err, pos_rms, vel_rms, mahalanobis_d)
-
-                    if (present(output_error_file)) then
-                        call write_error_line(output_error_file, et_obs, pos_err, vel_err, &
-                                               pos_rms, vel_rms, mahalanobis_d, (obs_count == 1))
-                    end if
+                                              prior_pos_err, prior_vel_err, &
+                                              prior_pos_rms, prior_vel_rms, &
+                                              prior_mahalanobis_d)
+                    prior_cond_p = -1.0_DP
+                    prior_lambda_min_p = -1.0_DP
+                    prior_lambda_max_p = -1.0_DP
+                    call compute_covariance_condition_number(final_cov, prior_cond_p, prior_cov_info, &
+                                                             lambda_min=prior_lambda_min_p, &
+                                                             lambda_max=prior_lambda_max_p)
                 else
                     write(*,*) '[WARN] No reference orbit found within 1 second of observation ET: ', et_obs
                 end if
@@ -221,6 +230,37 @@ contains
             write(*,*) '  测量更新后时间为: ', et_current
             call my_filter%get_current_state(final_mean)
             write(*,*) '  测量更新后结果为: ',  final_mean
+
+            call my_filter%get_current_cov(final_cov)
+
+            if (present(ref_orbit_file)) then
+                if (ref_found) then
+                    call compute_orbit_error(final_mean, final_cov, ref_state_at_obs, &
+                                              posterior_pos_err, posterior_vel_err, &
+                                              posterior_pos_rms, posterior_vel_rms, &
+                                              posterior_mahalanobis_d)
+                    posterior_cond_p = -1.0_DP
+                    posterior_lambda_min_p = -1.0_DP
+                    posterior_lambda_max_p = -1.0_DP
+                    call compute_covariance_condition_number(final_cov, posterior_cond_p, &
+                                                             posterior_cov_info, &
+                                                             lambda_min=posterior_lambda_min_p, &
+                                                             lambda_max=posterior_lambda_max_p)
+
+                    if (present(output_error_file)) then
+                        call write_error_line(output_error_file, et_obs, prior_pos_err, prior_vel_err, &
+                                               prior_pos_rms, prior_vel_rms, prior_mahalanobis_d, &
+                                               (obs_count == 1), &
+                                               posterior_mahalanobis_d=posterior_mahalanobis_d, &
+                                               prior_cond_p=prior_cond_p, &
+                                               prior_lambda_min_p=prior_lambda_min_p, &
+                                               prior_lambda_max_p=prior_lambda_max_p, &
+                                               posterior_cond_p=posterior_cond_p, &
+                                               posterior_lambda_min_p=posterior_lambda_min_p, &
+                                               posterior_lambda_max_p=posterior_lambda_max_p)
+                    end if
+                end if
+            end if
 
             call my_filter%get_last_residual(step_res, step_comp)
 

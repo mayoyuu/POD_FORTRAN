@@ -256,6 +256,18 @@ contains
         buf = tmp(1:fw)
     end subroutine fmt_real
 
+    subroutine fmt_sci_real(val, fw, fd, buf)
+        real(DP), intent(in) :: val
+        integer, intent(in) :: fw, fd
+        character(len=*), intent(out) :: buf
+
+        character(len=64) :: tmp, efmt
+
+        write(efmt, '("(ES",I0,".",I0,")")') fw, fd
+        write(tmp, efmt) val
+        buf = tmp(1:fw)
+    end subroutine fmt_sci_real
+
     !> ======================================================================
     !> 写入单行残差数据 (支持占位符格式化输出)
     !> ======================================================================
@@ -316,27 +328,78 @@ contains
     !> 写入单行轨道误差数据 (对称于 write_residual_line)
     !> ======================================================================
     subroutine write_error_line(filename, et, pos_err, vel_err, &
-                                 pos_rms, vel_rms, mahalanobis_d, is_first)
+                                 pos_rms, vel_rms, mahalanobis_d, is_first, &
+                                 posterior_mahalanobis_d, prior_cond_p, &
+                                 prior_lambda_min_p, prior_lambda_max_p, &
+                                 posterior_cond_p, posterior_lambda_min_p, &
+                                 posterior_lambda_max_p)
         character(len=*), intent(in) :: filename
         real(DP), intent(in)         :: et
         real(DP), intent(in)         :: pos_err(3), vel_err(3)
         real(DP), intent(in)         :: pos_rms, vel_rms, mahalanobis_d
         logical, intent(in)          :: is_first
+        real(DP), intent(in), optional :: posterior_mahalanobis_d
+        real(DP), intent(in), optional :: prior_cond_p
+        real(DP), intent(in), optional :: prior_lambda_min_p
+        real(DP), intent(in), optional :: prior_lambda_max_p
+        real(DP), intent(in), optional :: posterior_cond_p
+        real(DP), intent(in), optional :: posterior_lambda_min_p
+        real(DP), intent(in), optional :: posterior_lambda_max_p
 
         integer :: u, ios, i
         character(len=64) :: utc_str
         character(len=256) :: full_filename
         character(len=16) :: et_str
         character(len=14) :: pe_str(3), ve_str(3), pr_str, vr_str, md_str
+        character(len=14) :: post_md_str, prior_cond_str, prior_lmin_str
+        character(len=14) :: prior_lmax_str, post_cond_str, post_lmin_str
+        character(len=14) :: post_lmax_str
+        real(DP) :: post_md_val, prior_cond_val, prior_lmin_val, prior_lmax_val
+        real(DP) :: post_cond_val, post_lmin_val, post_lmax_val
+        logical :: has_diagnostics
 
         full_filename = trim(filename) // ".err"
+
+        has_diagnostics = present(posterior_mahalanobis_d) .or. &
+                          present(prior_cond_p) .or. &
+                          present(prior_lambda_min_p) .or. &
+                          present(prior_lambda_max_p) .or. &
+                          present(posterior_cond_p) .or. &
+                          present(posterior_lambda_min_p) .or. &
+                          present(posterior_lambda_max_p)
+
+        post_md_val = -1.0_DP
+        prior_cond_val = -1.0_DP
+        prior_lmin_val = -1.0_DP
+        prior_lmax_val = -1.0_DP
+        post_cond_val = -1.0_DP
+        post_lmin_val = -1.0_DP
+        post_lmax_val = -1.0_DP
+
+        if (present(posterior_mahalanobis_d)) post_md_val = posterior_mahalanobis_d
+        if (present(prior_cond_p)) prior_cond_val = prior_cond_p
+        if (present(prior_lambda_min_p)) prior_lmin_val = prior_lambda_min_p
+        if (present(prior_lambda_max_p)) prior_lmax_val = prior_lambda_max_p
+        if (present(posterior_cond_p)) post_cond_val = posterior_cond_p
+        if (present(posterior_lambda_min_p)) post_lmin_val = posterior_lambda_min_p
+        if (present(posterior_lambda_max_p)) post_lmax_val = posterior_lambda_max_p
 
         call et2utc(et, 'ISOC', 3, utc_str)
 
         if (is_first) then
             open(newunit=u, file=full_filename, status='replace', action='write', iostat=ios)
-            write(u, '(A)') "# UTC_Time                 ET_Seconds     dX(km)       dY(km)       dZ(km)     &
-             dVx(km/s)     dVy(km/s)     dVz(km/s)    Pos_RMS(km)  Vel_RMS(km/s)  Mahal_D"
+            if (has_diagnostics) then
+                write(u, '(A)') "# UTC_Time                 ET_Seconds     dX(km)       dY(km)" // &
+                    "       dZ(km)       dVx(km/s)     dVy(km/s)     dVz(km/s)" // &
+                    "    Pos_RMS(km)  Vel_RMS(km/s)  Prior_Mahal_D" // &
+                    "  Posterior_Mahal_D  Prior_CondP  Prior_LambdaMinP" // &
+                    "  Prior_LambdaMaxP  Posterior_CondP" // &
+                    "  Posterior_LambdaMinP  Posterior_LambdaMaxP"
+            else
+                write(u, '(A)') "# UTC_Time                 ET_Seconds     dX(km)       dY(km)" // &
+                    "       dZ(km)       dVx(km/s)     dVy(km/s)     dVz(km/s)" // &
+                    "    Pos_RMS(km)  Vel_RMS(km/s)  Mahal_D"
+            end if
         else
             open(newunit=u, file=full_filename, status='old', position='append', action='write', iostat=ios)
         end if
@@ -353,12 +416,29 @@ contains
         call fmt_real(pos_rms,        14, 6, pr_str)
         call fmt_real(vel_rms,        14, 6, vr_str)
         call fmt_real(mahalanobis_d,  14, 6, md_str)
+        call fmt_real(post_md_val,    14, 6, post_md_str)
+        call fmt_real(prior_cond_val, 14, 6, prior_cond_str)
+        call fmt_sci_real(prior_lmin_val, 14, 6, prior_lmin_str)
+        call fmt_sci_real(prior_lmax_val, 14, 6, prior_lmax_str)
+        call fmt_real(post_cond_val,  14, 6, post_cond_str)
+        call fmt_sci_real(post_lmin_val,  14, 6, post_lmin_str)
+        call fmt_sci_real(post_lmax_val,  14, 6, post_lmax_str)
 
-        write(u, '(A24, A16, 3A14, 3A14, 3A14)') &
-            utc_str, et_str, &
-            pe_str(1), pe_str(2), pe_str(3), &
-            ve_str(1), ve_str(2), ve_str(3), &
-            pr_str, vr_str, md_str
+        if (has_diagnostics) then
+            write(u, '(A24, A16, 3A14, 3A14, 10A14)') &
+                utc_str, et_str, &
+                pe_str(1), pe_str(2), pe_str(3), &
+                ve_str(1), ve_str(2), ve_str(3), &
+                pr_str, vr_str, md_str, post_md_str, &
+                prior_cond_str, prior_lmin_str, prior_lmax_str, &
+                post_cond_str, post_lmin_str, post_lmax_str
+        else
+            write(u, '(A24, A16, 3A14, 3A14, 3A14)') &
+                utc_str, et_str, &
+                pe_str(1), pe_str(2), pe_str(3), &
+                ve_str(1), ve_str(2), ve_str(3), &
+                pr_str, vr_str, md_str
+        end if
 
         close(u)
     end subroutine write_error_line

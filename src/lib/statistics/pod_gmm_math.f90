@@ -5,7 +5,7 @@ module pod_gmm_math_module
     
     implicit none   
     
-    private :: kmeans_cluster, EM_step
+    private :: kmeans_cluster, EM_step, initialize_kmeans_centers
     public :: fit_gmm_to_particles
 contains
     !> 🚀 顶层接口：将粒子集拟合为 GMM，并直接更新 OOP 数据结构
@@ -135,6 +135,7 @@ contains
         integer, dimension(:), intent(out)    :: assignments
         
         integer :: dim, n_particles, iter, i, j, best_k
+        integer :: changed_count
         real(DP) :: min_dist, dist
         integer, dimension(n_clusters) :: counts
         logical :: converged
@@ -144,18 +145,19 @@ contains
         
         ! 1. 简单初始化：随机挑选前 n_clusters 个粒子作为初始中心
         ! (你也可以调用 pod_random 模块来随机抽取索引，这是最基础的写法)
-        means = particles(:, 1:n_clusters)
+        call initialize_kmeans_centers(particles, n_clusters, means)
+        assignments = 0
         
         ! 最大迭代次数保护
         do iter = 1, 100
-            converged = .true.
+            changed_count = 0
             
             ! ---------------------------------------------------------
             ! 步骤 A: 期望步 (E-step) - 为每个粒子寻找最近的中心点
             ! ---------------------------------------------------------
             !$omp parallel do default(none) &
-            !$omp shared(n_particles, n_clusters, dim, particles, means, assignments, converged) &
-            !$omp private(i, j, best_k, min_dist, dist)
+            !$omp shared(n_particles, n_clusters, dim, particles, means, assignments) &
+            !$omp private(i, j, best_k, min_dist, dist) reduction(+:changed_count)
             do i = 1, n_particles
                 min_dist = huge(1.0_DP)
                 best_k = 1
@@ -170,11 +172,12 @@ contains
                 end do
                 
                 ! 检查是否收敛 (如果有任何一个粒子改变了阵营，说明还没收敛)
-                if (assignments(i) /= best_k) converged = .false.
+                if (assignments(i) /= best_k) changed_count = changed_count + 1
                 assignments(i) = best_k
             end do
             !$omp end parallel do
             
+            converged = (changed_count == 0)
             if (converged) exit
             
             ! ---------------------------------------------------------
@@ -203,6 +206,60 @@ contains
         end do
         
     end subroutine kmeans_cluster
+
+    subroutine initialize_kmeans_centers(particles, n_clusters, means)
+        real(DP), dimension(:,:), intent(in)  :: particles
+        integer, intent(in)                   :: n_clusters
+        real(DP), dimension(:,:), intent(out) :: means
+
+        integer :: dim, n_particles, i, c, best_idx
+        real(DP), allocatable :: center(:), min_dist_sq(:)
+        real(DP) :: dist, best_dist
+
+        dim = size(particles, 1)
+        n_particles = size(particles, 2)
+        allocate(center(dim), min_dist_sq(n_particles))
+
+        center = 0.0_DP
+        do i = 1, n_particles
+            center = center + particles(:, i)
+        end do
+        center = center / real(n_particles, DP)
+
+        best_idx = 1
+        best_dist = huge(1.0_DP)
+        do i = 1, n_particles
+            dist = sum((particles(:, i) - center)**2)
+            if (dist < best_dist) then
+                best_dist = dist
+                best_idx = i
+            end if
+        end do
+        means(:, 1) = particles(:, best_idx)
+
+        do i = 1, n_particles
+            min_dist_sq(i) = sum((particles(:, i) - means(:, 1))**2)
+        end do
+
+        do c = 2, n_clusters
+            best_idx = 1
+            best_dist = -1.0_DP
+            do i = 1, n_particles
+                if (min_dist_sq(i) > best_dist) then
+                    best_dist = min_dist_sq(i)
+                    best_idx = i
+                end if
+            end do
+            means(:, c) = particles(:, best_idx)
+
+            do i = 1, n_particles
+                dist = sum((particles(:, i) - means(:, c))**2)
+                if (dist < min_dist_sq(i)) min_dist_sq(i) = dist
+            end do
+        end do
+
+        deallocate(center, min_dist_sq)
+    end subroutine initialize_kmeans_centers
 
     subroutine EM_step(particles, n_clusters, means, covariances, weights, omega, responsibility)
         real(DP), dimension(:,:), intent(in)      :: particles

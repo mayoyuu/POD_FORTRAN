@@ -91,3 +91,14 @@ main = "test_covariance_condition_number.f90"
 name = "test_mahalanobis_prepost_diagnostics"
 source-dir = "test"
 main = "test_mahalanobis_prepost_diagnostics.f90"
+
+[[test]]
+name = "test_error_line_diagnostics"
+source-dir = "test"
+main = "test_error_line_diagnostics.f90"
+
+[[test]]
+name = "test_gmm_kmeans_initialization"
+source-dir = "test"
+main = "test_gmm_kmeans_initialization.f90"
+
