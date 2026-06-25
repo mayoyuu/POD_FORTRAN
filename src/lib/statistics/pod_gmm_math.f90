@@ -6,7 +6,7 @@ module pod_gmm_math_module
     implicit none   
     
     private :: kmeans_cluster, EM_step, initialize_kmeans_centers
-    public :: fit_gmm_to_particles
+    public :: fit_gmm_to_particles, compute_gmm_posterior_weights, apply_gmm_weight_floor
 contains
     !> 🚀 顶层接口：将粒子集拟合为 GMM，并直接更新 OOP 数据结构
     !> @param[in]    particles  粒子状态矩阵 (dim, n_particles)
@@ -363,4 +363,57 @@ contains
     end subroutine EM_step
 
 
+    !> Compute posterior weights from prior weights and measurement likelihoods
+    !> using Eq. (34): mu_i^+ = mu_i^- * P(y|i,Y_k) / sum_h mu_h^- * P(y|h,Y_k)
+    !> Implemented in log-space for numerical stability.
+    subroutine compute_gmm_posterior_weights(prior_weights, likelihoods, posterior)
+        real(DP), intent(in)  :: prior_weights(:)
+        real(DP), intent(in)  :: likelihoods(:)
+        real(DP), intent(out) :: posterior(:)
+
+        integer :: n, i
+        real(DP) :: log_weights(size(prior_weights))
+        real(DP) :: max_log, sum_exp
+
+        n = size(prior_weights)
+
+        do i = 1, n
+            log_weights(i) = log(prior_weights(i)) + log(likelihoods(i))
+        end do
+
+        max_log = maxval(log_weights(1:n))
+        sum_exp = 0.0_DP
+        do i = 1, n
+            sum_exp = sum_exp + exp(log_weights(i) - max_log)
+        end do
+
+        do i = 1, n
+            posterior(i) = exp(log_weights(i) - max_log) / sum_exp
+        end do
+    end subroutine compute_gmm_posterior_weights
+
+
+    !> Apply a posterior weight floor and renormalize the mixture weights.
+    subroutine apply_gmm_weight_floor(weights, floor)
+        real(DP), intent(inout) :: weights(:)
+        real(DP), intent(in) :: floor
+
+        integer :: i
+        real(DP) :: floor_value, total
+
+        floor_value = max(floor, 0.0_DP)
+
+        if (floor_value > 0.0_DP) then
+            do i = 1, size(weights)
+                if (weights(i) < floor_value) weights(i) = floor_value
+            end do
+        end if
+
+        total = sum(weights)
+        if (total > 0.0_DP) then
+            weights = weights / total
+        else if (size(weights) > 0) then
+            weights = 1.0_DP / real(size(weights), DP)
+        end if
+    end subroutine apply_gmm_weight_floor
 end module pod_gmm_math_module

@@ -107,3 +107,23 @@ main = "test_gmm_kmeans_initialization.f90"
 name = "test_gmm_component_diagnostics"
 source-dir = "test"
 main = "test_gmm_component_diagnostics.f90"
+
+[[test]]
+name = "test_gmm_weight_update_formula"
+source-dir = "test"
+main = "test_gmm_weight_update_formula.f90"
+
+[[test]]
+name = "test_gmm_likelihood_diagnostics"
+source-dir = "test"
+main = "test_gmm_likelihood_diagnostics.f90"
+
+[[test]]
+name = "test_angle_innovation_wrap"
+source-dir = "test"
+main = "test_angle_innovation_wrap.f90"
+
+[[test]]
+name = "test_gmm_weight_floor"
+source-dir = "test"
+main = "test_gmm_weight_floor.f90"

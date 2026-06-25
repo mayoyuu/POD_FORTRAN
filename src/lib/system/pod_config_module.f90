@@ -144,6 +144,7 @@ module pod_config
         real(DP) :: measurement_noise_dec_arcsec = 0.1_DP    ! Dec 测量噪声标准差 (角秒)
         real(DP) :: process_noise_sigma_a = 1.0e-11_DP       ! 过程噪声加速度标准差 (km/s²)
         logical  :: use_process_noise = .true.                ! 是否启用过程噪声
+        real(DP) :: gmm_weight_floor = 0.0_DP                 ! GMM posterior weight floor; 0 disables flooring
 
         ! 文件I/O参数
         character(len=MAX_STRING_LEN) :: data_directory = './data/'
@@ -299,6 +300,7 @@ contains
         config%measurement_noise_dec_arcsec = 0.1_DP
         config%process_noise_sigma_a        = 1.0e-11_DP
         config%use_process_noise            = .true.
+        config%gmm_weight_floor             = 0.0_DP
 
         ! 文件I/O参数
         config%data_directory = './data/'
@@ -433,6 +435,7 @@ contains
         write(unit, '(A)') 'measurement_noise_dec_arcsec = 0.1'
         write(unit, '(A)') 'process_noise_sigma_a = 1.0e-11'
         write(unit, '(A)') 'use_process_noise = true'
+        write(unit, '(A)') 'gmm_weight_floor = 0.0'
         write(unit, '(A)') ''
         
         write(unit, '(A)') '# 文件I/O参数'
@@ -617,6 +620,8 @@ contains
                 read(value, *, iostat=ios) config%process_noise_sigma_a
             case ('use_process_noise')
                 config%use_process_noise = (trim(value) == 'true')
+            case ('gmm_weight_floor')
+                read(value, *, iostat=ios) config%gmm_weight_floor
 
             ! 文件I/O参数
             case ('data_directory')
@@ -788,6 +793,7 @@ contains
         write(*, *) '  Dec 测量噪声 (角秒): ', config%measurement_noise_dec_arcsec
         write(*, *) '  过程噪声 sigma_a (km/s²): ', config%process_noise_sigma_a
         write(*, *) '  启用过程噪声: ', config%use_process_noise
+        write(*, *) '  GMM 权重 floor: ', config%gmm_weight_floor
         write(*, *) ''
         write(*, *) '文件I/O参数:'
         write(*, *) '  数据目录: ', trim(config%data_directory)
@@ -932,6 +938,11 @@ contains
         
         if (config%outlier_threshold <= 0.0_DP) then
             write(*, *) '错误: 异常值阈值必须大于0'
+            validate_config = .false.
+        end if
+
+        if (config%gmm_weight_floor < 0.0_DP .or. config%gmm_weight_floor >= 1.0_DP) then
+            write(*, *) '错误: GMM 权重 floor 必须满足 0 <= floor < 1'
             validate_config = .false.
         end if
         

@@ -5,11 +5,12 @@
 !-----------------------------------------------------------------------------------------
 module pod_filter_emdac_module
     use pod_global, only: DP
-    use pod_basicmath_module, only: PI
+    use pod_config, only: config
+    use pod_basicmath_module, only: PI, wrap_angle_rad
     use pod_dace_classes
     use pod_uq_gmm_state_module, only: uq_gmm_state_type
     use pod_uq_state_module, only: uq_state_type
-    use pod_gmm_math_module, only: fit_gmm_to_particles
+    use pod_gmm_math_module, only: fit_gmm_to_particles, apply_gmm_weight_floor
     use pod_uq_propagation, only: run_particle_propagation, METHOD_DA
     use pod_measurement_base_module, only: observation_station 
     use pod_measurement_da_module, only: compute_measurement_da
@@ -43,6 +44,16 @@ module pod_filter_emdac_module
 
         real(DP) :: last_residual(6)    ! 存储最近一次测量更新的 6 列残差
         real(DP) :: last_comp_val(2)   ! 存储最近一次计算出的预测观测值 (Lon, Lat)
+
+        ! Measurement-update diagnostics (per component)
+        real(DP), allocatable :: last_z_mahal_sq(:)
+        real(DP), allocatable :: last_loglike_noprior(:)
+        real(DP), allocatable :: last_logweight_prior(:)
+        real(DP), allocatable :: last_logweight_posterior(:)
+        real(DP), allocatable :: last_det_pzz(:)
+        real(DP), allocatable :: last_pzz_cond(:)
+        real(DP), allocatable :: last_innov_ra_arcsec(:)
+        real(DP), allocatable :: last_innov_dec_arcsec(:)
         
     contains
 
@@ -63,6 +74,7 @@ module pod_filter_emdac_module
         procedure :: get_current_cov => filter_get_current_cov
         procedure :: get_current_gmm => filter_get_current_gmm
         procedure :: get_last_residual => filter_get_last_residual
+        procedure :: get_last_like_diag => filter_get_last_like_diag
 
         procedure :: get_random_addos_from_noise
     end type emdac_filter
@@ -164,6 +176,45 @@ contains
         comp_out = this%last_comp_val
     end subroutine filter_get_last_residual
 
+    subroutine filter_get_last_like_diag(this, z_mahal_sq, loglike_noprior, &
+                                          logweight_prior, logweight_posterior, &
+                                          det_pzz, pzz_cond, innov_ra_arcsec, innov_dec_arcsec)
+        class(emdac_filter), intent(in) :: this
+        real(DP), intent(out), optional :: z_mahal_sq(:)
+        real(DP), intent(out), optional :: loglike_noprior(:)
+        real(DP), intent(out), optional :: logweight_prior(:)
+        real(DP), intent(out), optional :: logweight_posterior(:)
+        real(DP), intent(out), optional :: det_pzz(:)
+        real(DP), intent(out), optional :: pzz_cond(:)
+        real(DP), intent(out), optional :: innov_ra_arcsec(:)
+        real(DP), intent(out), optional :: innov_dec_arcsec(:)
+
+        if (present(z_mahal_sq)) then
+            if (allocated(this%last_z_mahal_sq)) z_mahal_sq = this%last_z_mahal_sq
+        end if
+        if (present(loglike_noprior)) then
+            if (allocated(this%last_loglike_noprior)) loglike_noprior = this%last_loglike_noprior
+        end if
+        if (present(logweight_prior)) then
+            if (allocated(this%last_logweight_prior)) logweight_prior = this%last_logweight_prior
+        end if
+        if (present(logweight_posterior)) then
+            if (allocated(this%last_logweight_posterior)) logweight_posterior = this%last_logweight_posterior
+        end if
+        if (present(det_pzz)) then
+            if (allocated(this%last_det_pzz)) det_pzz = this%last_det_pzz
+        end if
+        if (present(pzz_cond)) then
+            if (allocated(this%last_pzz_cond)) pzz_cond = this%last_pzz_cond
+        end if
+        if (present(innov_ra_arcsec)) then
+            if (allocated(this%last_innov_ra_arcsec)) innov_ra_arcsec = this%last_innov_ra_arcsec
+        end if
+        if (present(innov_dec_arcsec)) then
+            if (allocated(this%last_innov_dec_arcsec)) innov_dec_arcsec = this%last_innov_dec_arcsec
+        end if
+    end subroutine filter_get_last_like_diag
+
     !> ======================================================================
     !> 2. 时间更新 (Time Update)
     !> 逻辑: k步GMM -> 按权重采样粒子 -> DA动力学传播 -> EM聚类 -> k+1步GMM
@@ -236,11 +287,12 @@ contains
         real(DP), allocatable :: particles_z(:,:)! particles_z_not_da(:, :) ! 存储每个粒子的预测测量值 (ny, n_particles)
         real(DP), allocatable :: means_z(:,:)   ! 存储每个核的预测测量均值 (ny, n_comp)
         real(DP), allocatable :: P_zz(:,:,:), P_xz(:,:,:), K_gain(:,:,:), P_zz_inv(:,:,:) ! 存储每个核的预测测量协方差、交叉协方差、卡尔曼增益和协方差逆
-        real(DP), allocatable :: log_likelihood(:) ! 存储每个核的对数似然概率 (n_comp)
+        real(DP), allocatable :: log_likelihood(:), updated_weights(:) ! 存储每个核的对数似然概率与更新后权重 (n_comp)
         real(DP), allocatable :: innovation(:, :) ! 存储每个核的测量残差 (ny, n_comp)
         real(DP), allocatable :: det_Pzz(:),  mahalanobis_sq(:) ! 存储每个核的 P_zz 行列式和马氏距离平方 (n_comp)
         real(DP) :: sum_exp
         real(DP) :: pred_z_pre(2)
+        real(DP) :: tr_pzz, dt_pzz, disc_pzz, lmax_pzz, lmin_pzz
         
         
         n_comp = this%gmm_state%n_components
@@ -248,7 +300,7 @@ contains
         dim = this%gmm_state%state_dim ! [修复] 获取状态维度
         
         ! 显式分配所有 allocatable 数组的内存！
-        allocate(log_likelihood(n_comp), det_Pzz(n_comp), mahalanobis_sq(n_comp))
+        allocate(log_likelihood(n_comp), updated_weights(n_comp), det_Pzz(n_comp), mahalanobis_sq(n_comp))
         allocate(particles_z(ny, this%n_particles))
         ! allocate(particles_z(ny, this%n_particles), particles_z_not_da(ny, this%n_particles)) ! 存储 DA 和非 DA 的预测测量值，供后续分析使用
         allocate(means_z(ny, n_comp), innovation(ny, n_comp))   ! 存储 DA 和非 DA 的预测测量均值，供后续分析使用
@@ -340,7 +392,9 @@ contains
 
             K_gain(:,:, i) = matmul(P_xz(:,:, i), P_zz_inv(:,:, i))
 
-            this%gmm_state%components(i)%mean = this%gmm_state%components(i)%mean + matmul(K_gain(:,:, i), y_meas - means_z(:, i))
+            innovation(:, i) = y_meas - means_z(:, i)
+            innovation(1, i) = wrap_angle_rad(innovation(1, i))
+            this%gmm_state%components(i)%mean = this%gmm_state%components(i)%mean + matmul(K_gain(:,:, i), innovation(:, i))
             this%gmm_state%components(i)%cov = this%gmm_state%components(i)%cov - matmul(K_gain(:,:, i), &
             matmul(P_zz(:,:, i), transpose(K_gain(:,:, i))))
 
@@ -349,26 +403,74 @@ contains
             transpose(this%gmm_state%components(i)%cov))
             
             innovation(:, i) = y_meas - means_z(:, i)
+            innovation(1, i) = wrap_angle_rad(innovation(1, i))
             mahalanobis_sq(i) = dot_product(innovation(:, i), matmul(P_zz_inv(:,:, i), innovation(:, i)))
-            log_likelihood(i) = log(this%gmm_state%components(i)%weight) &
+            log_likelihood(i) = log(max(this%gmm_state%components(i)%weight, 1.0e-300_DP)) &
                               - 0.5_DP * ny * log(2.0_DP * PI) &
                               - 0.5_DP * log(det_Pzz(i)) &
                               - 0.5_DP * mahalanobis_sq(i)
         end do
 
+        ! ==========================================================
+        ! 存储测量似然诊断 (per-component) — 在权重更新之前捕获先验
+        ! ==========================================================
+        if (allocated(this%last_z_mahal_sq)) deallocate(this%last_z_mahal_sq)
+        if (allocated(this%last_loglike_noprior)) deallocate(this%last_loglike_noprior)
+        if (allocated(this%last_logweight_prior)) deallocate(this%last_logweight_prior)
+        if (allocated(this%last_logweight_posterior)) deallocate(this%last_logweight_posterior)
+        if (allocated(this%last_det_pzz)) deallocate(this%last_det_pzz)
+        if (allocated(this%last_pzz_cond)) deallocate(this%last_pzz_cond)
+        if (allocated(this%last_innov_ra_arcsec)) deallocate(this%last_innov_ra_arcsec)
+        if (allocated(this%last_innov_dec_arcsec)) deallocate(this%last_innov_dec_arcsec)
+
+        allocate(this%last_z_mahal_sq(n_comp))
+        allocate(this%last_loglike_noprior(n_comp))
+        allocate(this%last_logweight_prior(n_comp))
+        allocate(this%last_logweight_posterior(n_comp))
+        allocate(this%last_det_pzz(n_comp))
+        allocate(this%last_pzz_cond(n_comp))
+        allocate(this%last_innov_ra_arcsec(n_comp))
+        allocate(this%last_innov_dec_arcsec(n_comp))
+
+        do i = 1, n_comp
+            this%last_z_mahal_sq(i) = mahalanobis_sq(i)
+            this%last_logweight_prior(i) = log(max(this%gmm_state%components(i)%weight, 1.0e-300_DP))
+            this%last_loglike_noprior(i) = log_likelihood(i) - this%last_logweight_prior(i)
+            this%last_det_pzz(i) = det_Pzz(i)
+            tr_pzz = P_zz(1,1,i) + P_zz(2,2,i)
+            dt_pzz = P_zz(1,1,i)*P_zz(2,2,i) - P_zz(1,2,i)*P_zz(2,1,i)
+            disc_pzz = sqrt(max(tr_pzz*tr_pzz - 4.0_DP*dt_pzz, 0.0_DP))
+            lmax_pzz = 0.5_DP * (tr_pzz + disc_pzz)
+            lmin_pzz = 0.5_DP * (tr_pzz - disc_pzz)
+            if (lmin_pzz > 1.0e-300_DP) then
+                this%last_pzz_cond(i) = lmax_pzz / lmin_pzz
+            else
+                this%last_pzz_cond(i) = huge(1.0_DP)
+            end if
+            this%last_innov_ra_arcsec(i) = innovation(1,i) * 180.0_DP / PI * 3600.0_DP
+            this%last_innov_dec_arcsec(i) = innovation(2,i) * 180.0_DP / PI * 3600.0_DP
+        end do
+
         ! 权重更新：
         ! A. 找到最大似然值防止溢出
         sum_exp = maxval(log_likelihood(1:n_comp))
-        
+
         ! B. 计算平移后的指数和
         det_Pzz(1) = 0.0_DP ! 借用变量作为 LSE 的分母
         do i = 1, n_comp
             det_Pzz(1) = det_Pzz(1) + exp(log_likelihood(i) - sum_exp)
         end do
-        
+
         ! C. 最终权重更新 (注意：log_likelihood 中已含先验权重，不可再乘！)
         do i = 1, n_comp
-            this%gmm_state%components(i)%weight = exp(log_likelihood(i) - sum_exp) / det_Pzz(1)
+            updated_weights(i) = exp(log_likelihood(i) - sum_exp) / det_Pzz(1)
+        end do
+
+        call apply_gmm_weight_floor(updated_weights, config%gmm_weight_floor)
+
+        do i = 1, n_comp
+            this%gmm_state%components(i)%weight = updated_weights(i)
+            this%last_logweight_posterior(i) = log(max(updated_weights(i), 1.0e-300_DP))
         end do
 
         ! 更新全局均值
@@ -384,7 +486,8 @@ contains
         call dace_pop_to()
 
         ! 释放临时数组内存
-        deallocate(log_likelihood, particles_z, means_z, P_zz, P_xz, K_gain, P_zz_inv, innovation, det_Pzz, mahalanobis_sq)
+        deallocate(log_likelihood, updated_weights, particles_z, means_z, P_zz, P_xz, &
+                   K_gain, P_zz_inv, innovation, det_Pzz, mahalanobis_sq)
 
     end subroutine filter_measurement_update
 

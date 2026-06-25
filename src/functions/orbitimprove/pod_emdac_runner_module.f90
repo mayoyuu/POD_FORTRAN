@@ -12,7 +12,8 @@ module pod_emdac_runner_module
     use pod_basicmath_module, only: PI
     use pod_data_format_module, only: load_initial_opm, write_json_opm, &
                                        write_residual_line, write_error_line, &
-                                       write_gmm_diag_lines, write_gmm_snapshots
+                                       write_gmm_diag_lines, write_gmm_measurement_diag_lines, &
+                                       write_gmm_snapshots
     use pod_error_analysis_module, only: compute_orbit_error, &
                                        compute_covariance_condition_number
 
@@ -82,6 +83,10 @@ contains
         real(DP) :: ref_state_at_obs(6)
         integer :: prior_cov_info, posterior_cov_info
         logical :: ref_found
+        real(DP), allocatable :: like_z_mahal_sq(:), like_loglike_noprior(:)
+        real(DP), allocatable :: like_logweight_prior(:), like_logweight_posterior(:)
+        real(DP), allocatable :: like_det_pzz(:), like_pzz_cond(:)
+        real(DP), allocatable :: like_innov_ra(:), like_innov_dec(:)
 
         ! GMM 快照收集
         type(uq_gmm_state_type), allocatable :: gmm_snapshots(:)
@@ -271,8 +276,31 @@ contains
 
                     if (present(output_error_file)) then
                         call my_filter%get_current_gmm(step_gmm)
-                        call write_gmm_diag_lines(output_error_file, et_obs, "POSTERIOR", &
-                                                  step_gmm, ref_state_at_obs, is_first_gmm_diag)
+                        allocate(like_z_mahal_sq(step_gmm%n_components))
+                        allocate(like_loglike_noprior(step_gmm%n_components))
+                        allocate(like_logweight_prior(step_gmm%n_components))
+                        allocate(like_logweight_posterior(step_gmm%n_components))
+                        allocate(like_det_pzz(step_gmm%n_components))
+                        allocate(like_pzz_cond(step_gmm%n_components))
+                        allocate(like_innov_ra(step_gmm%n_components))
+                        allocate(like_innov_dec(step_gmm%n_components))
+                        call my_filter%get_last_like_diag( &
+                            z_mahal_sq=like_z_mahal_sq, &
+                            loglike_noprior=like_loglike_noprior, &
+                            logweight_prior=like_logweight_prior, &
+                            logweight_posterior=like_logweight_posterior, &
+                            det_pzz=like_det_pzz, &
+                            pzz_cond=like_pzz_cond, &
+                            innov_ra_arcsec=like_innov_ra, &
+                            innov_dec_arcsec=like_innov_dec)
+                        call write_gmm_measurement_diag_lines(output_error_file, et_obs, "POSTERIOR", &
+                            step_gmm, ref_state_at_obs, is_first_gmm_diag, &
+                            like_loglike_noprior, like_z_mahal_sq, like_pzz_cond, &
+                            like_innov_ra, like_innov_dec, &
+                            like_det_pzz, like_logweight_prior, like_logweight_posterior)
+                        deallocate(like_z_mahal_sq, like_loglike_noprior, &
+                                   like_logweight_prior, like_logweight_posterior, &
+                                   like_det_pzz, like_pzz_cond, like_innov_ra, like_innov_dec)
                         is_first_gmm_diag = .false.
                     end if
                 end if

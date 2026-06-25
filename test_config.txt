@@ -1,5 +1,5 @@
 # POD Fortran 配置文件
-# 生成时间: 2026-06-23 11:50:25             
+# 生成时间: 2026-06-25 18:43:52             
 
 # 轨道传播参数
 LU = 384400.0
@@ -73,6 +73,7 @@ measurement_noise_ra_arcsec = 0.1
 measurement_noise_dec_arcsec = 0.1
 process_noise_sigma_a = 1.0e-11
 use_process_noise = true
+gmm_weight_floor = 0.0
 
 # 文件I/O参数
 data_directory = ./data/

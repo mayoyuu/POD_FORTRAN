@@ -106,6 +106,7 @@ module pod_basicmath_module
     public :: cross_product, dot_product_3d, vector_magnitude, normalize_vector
     public :: norm_vector, norm_matrix, inverse_matrix, matrix_determinant, inverse_and_determinant,PI
     public :: eigenvalue_decomposition,dpotrf, dgeev, dgetrf, dgetri
+    public :: wrap_angle_rad
 
     real(DP), parameter :: PI = 3.14159265358979323846_DP
     
@@ -458,5 +459,12 @@ contains
         
         deallocate(work, A_tmp)
     end subroutine eigenvalue_decomposition
+
+    !> Wrap an angle difference in radians to the interval [-pi, pi].
+    elemental function wrap_angle_rad(delta) result(wrapped)
+        real(DP), intent(in) :: delta
+        real(DP) :: wrapped
+        wrapped = delta - 2.0_DP * PI * nint(delta / (2.0_DP * PI))
+    end function wrap_angle_rad
 
 end module pod_basicmath_module

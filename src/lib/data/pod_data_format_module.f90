@@ -16,7 +16,7 @@ module pod_data_format_module
     public :: load_initial_opm
     public :: write_json_opm, write_residual_line, write_error_line
     public :: format_json_real
-    public :: write_gmm_snapshots, write_gmm_diag_lines
+    public :: write_gmm_snapshots, write_gmm_diag_lines, write_gmm_measurement_diag_lines
 
 contains
 
@@ -513,6 +513,97 @@ contains
 
         close(u)
     end subroutine write_gmm_diag_lines
+
+    !> ======================================================================
+    !> Write one epoch of per-component GMM diagnostics WITH measurement-
+    !> likelihood fields to .gmm_diag. All likelihood args are REQUIRED.
+    !> ======================================================================
+    subroutine write_gmm_measurement_diag_lines(filename, et, phase, gmm_state, &
+                                                 ref_state, is_first, &
+                                                 loglike_noprior, z_mahal_sq, pzz_cond, &
+                                                 innovation_ra_arcsec, innovation_dec_arcsec, &
+                                                 det_pzz, logweight_prior, logweight_posterior)
+        character(len=*), intent(in) :: filename
+        real(DP), intent(in) :: et
+        character(len=*), intent(in) :: phase
+        type(uq_gmm_state_type), intent(in) :: gmm_state
+        real(DP), intent(in) :: ref_state(6)
+        logical, intent(in) :: is_first
+        real(DP), intent(in) :: loglike_noprior(:)
+        real(DP), intent(in) :: z_mahal_sq(:)
+        real(DP), intent(in) :: pzz_cond(:)
+        real(DP), intent(in) :: innovation_ra_arcsec(:)
+        real(DP), intent(in) :: innovation_dec_arcsec(:)
+        real(DP), intent(in) :: det_pzz(:)
+        real(DP), intent(in) :: logweight_prior(:)
+        real(DP), intent(in) :: logweight_posterior(:)
+
+        integer :: u, ios, i, cov_info
+        character(len=64) :: utc_str
+        character(len=256) :: full_filename
+        character(len=10) :: phase_text
+        real(DP) :: pos_err(3), vel_err(3)
+        real(DP) :: pos_rms, vel_rms, mahalanobis_d
+        real(DP) :: cond_p, lambda_min_p, lambda_max_p
+
+        full_filename = trim(filename) // ".gmm_diag"
+        call et2utc(et, 'ISOC', 3, utc_str)
+        phase_text = adjustl(phase)
+
+        if (is_first) then
+            open(newunit=u, file=full_filename, status='replace', action='write', iostat=ios)
+            if (ios /= 0) return
+            write(u, '(A)', advance='no') '# UTC_Time                 ET_Seconds          Phase       Comp'
+            write(u, '(A)', advance='no') '             Weight             dX(km)             dY(km)'
+            write(u, '(A)', advance='no') '             dZ(km)         dVx(km/s)         dVy(km/s)'
+            write(u, '(A)', advance='no') '         dVz(km/s)   Mean_Pos_RMS(km) Mean_Vel_RMS(km/s)'
+            write(u, '(A)', advance='no') '            Mahal_D              CondP         LambdaMinP'
+            write(u, '(A)', advance='no') '         LambdaMaxP CovInfo     Z_Mahal_Sq   LogLike_NoPrior'
+            write(u, '(A)', advance='no') ' LogWeightPrior LogWeightPosterior         DetPzz'
+            write(u, '(A)')              '         Pzz_Cond  Innov_RA_arcsec  Innov_Dec_arcsec'
+        else
+            open(newunit=u, file=full_filename, status='old', position='append', action='write', iostat=ios)
+            if (ios /= 0) then
+                open(newunit=u, file=full_filename, status='replace', action='write', iostat=ios)
+                if (ios /= 0) return
+                write(u, '(A)', advance='no') '# UTC_Time                 ET_Seconds          Phase       Comp'
+                write(u, '(A)', advance='no') '             Weight             dX(km)             dY(km)'
+                write(u, '(A)', advance='no') '             dZ(km)         dVx(km/s)         dVy(km/s)'
+                write(u, '(A)', advance='no') '         dVz(km/s)   Mean_Pos_RMS(km) Mean_Vel_RMS(km/s)'
+                write(u, '(A)', advance='no') '            Mahal_D              CondP         LambdaMinP'
+                write(u, '(A)', advance='no') '         LambdaMaxP CovInfo     Z_Mahal_Sq   LogLike_NoPrior'
+                write(u, '(A)', advance='no') ' LogWeightPrior LogWeightPosterior         DetPzz'
+                write(u, '(A)')              '         Pzz_Cond  Innov_RA_arcsec  Innov_Dec_arcsec'
+            end if
+        end if
+
+        do i = 1, gmm_state%n_components
+            call compute_orbit_error(gmm_state%components(i)%mean, &
+                                     gmm_state%components(i)%cov, &
+                                     ref_state, pos_err, vel_err, &
+                                     pos_rms, vel_rms, mahalanobis_d)
+            cond_p = -1.0_DP
+            lambda_min_p = -1.0_DP
+            lambda_max_p = -1.0_DP
+            call compute_covariance_condition_number(gmm_state%components(i)%cov, &
+                                                     cond_p, cov_info, &
+                                                     lambda_min=lambda_min_p, &
+                                                     lambda_max=lambda_max_p)
+
+            write(u, '(A24,1X,ES18.10E3,1X,A10,1X,I6,1X,13(ES18.10E3,1X),I7,1X,8(ES18.10E3,1X))') &
+                utc_str, et, phase_text, i, &
+                gmm_state%components(i)%weight, &
+                pos_err, vel_err, pos_rms, vel_rms, mahalanobis_d, &
+                cond_p, lambda_min_p, lambda_max_p, &
+                cov_info, &
+                z_mahal_sq(i), loglike_noprior(i), &
+                logweight_prior(i), logweight_posterior(i), &
+                det_pzz(i), pzz_cond(i), &
+                innovation_ra_arcsec(i), innovation_dec_arcsec(i)
+        end do
+
+        close(u)
+    end subroutine write_gmm_measurement_diag_lines
 
     !> ======================================================================
     !> Write all collected GMM snapshots to .gmms.json.

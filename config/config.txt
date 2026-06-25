@@ -75,6 +75,7 @@ measurement_noise_ra_arcsec = 1
 measurement_noise_dec_arcsec = 1
 process_noise_sigma_a = 1.0e-11
 use_process_noise = true
+gmm_weight_floor = 0.0
 
 # 文件I/O参数
 data_directory = ./data/
