@@ -17,6 +17,7 @@ pipeline_res/
 OPM/
 OBS/
 ORBITS_REF/
+scripts/
 
 # Compiled static libraries (Optional, but recommended to ignore)
 lib/*.a
