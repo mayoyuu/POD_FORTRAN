@@ -102,3 +102,8 @@ name = "test_gmm_kmeans_initialization"
 source-dir = "test"
 main = "test_gmm_kmeans_initialization.f90"
 
+
+[[test]]
+name = "test_gmm_component_diagnostics"
+source-dir = "test"
+main = "test_gmm_component_diagnostics.f90"

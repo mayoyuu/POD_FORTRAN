@@ -6,6 +6,8 @@ module pod_data_format_module
     use pod_spice, only: str2et, et2utc
 
     use pod_uq_gmm_state_module, only: uq_gmm_state_type
+    use pod_error_analysis_module, only: compute_orbit_error, &
+                                         compute_covariance_condition_number
      ! 其他必要的模块...
     
     implicit none
@@ -14,7 +16,7 @@ module pod_data_format_module
     public :: load_initial_opm
     public :: write_json_opm, write_residual_line, write_error_line
     public :: format_json_real
-    public :: write_gmm_snapshots
+    public :: write_gmm_snapshots, write_gmm_diag_lines
 
 contains
 
@@ -444,7 +446,76 @@ contains
     end subroutine write_error_line
 
     !> ======================================================================
-    !> 将所有 GMM 快照一次性写入 .gmms.json 文件
+    !> Write one epoch of per-component GMM diagnostics to .gmm_diag.
+    !> ======================================================================
+    subroutine write_gmm_diag_lines(filename, et, phase, gmm_state, ref_state, is_first)
+        character(len=*), intent(in) :: filename
+        real(DP), intent(in) :: et
+        character(len=*), intent(in) :: phase
+        type(uq_gmm_state_type), intent(in) :: gmm_state
+        real(DP), intent(in) :: ref_state(6)
+        logical, intent(in) :: is_first
+
+        integer :: u, ios, i, cov_info
+        character(len=64) :: utc_str
+        character(len=256) :: full_filename
+        character(len=10) :: phase_text
+        real(DP) :: pos_err(3), vel_err(3)
+        real(DP) :: pos_rms, vel_rms, mahalanobis_d
+        real(DP) :: cond_p, lambda_min_p, lambda_max_p
+
+        full_filename = trim(filename) // ".gmm_diag"
+        call et2utc(et, 'ISOC', 3, utc_str)
+        phase_text = adjustl(phase)
+
+        if (is_first) then
+            open(newunit=u, file=full_filename, status='replace', action='write', iostat=ios)
+            if (ios /= 0) return
+            write(u, '(A)') "# UTC_Time                 ET_Seconds          Phase       Comp" // &
+                "             Weight             dX(km)             dY(km)" // &
+                "             dZ(km)         dVx(km/s)         dVy(km/s)" // &
+                "         dVz(km/s)   Mean_Pos_RMS(km) Mean_Vel_RMS(km/s)" // &
+                "            Mahal_D              CondP         LambdaMinP" // &
+                "         LambdaMaxP CovInfo"
+        else
+            open(newunit=u, file=full_filename, status='old', position='append', action='write', iostat=ios)
+            if (ios /= 0) then
+                open(newunit=u, file=full_filename, status='replace', action='write', iostat=ios)
+                if (ios /= 0) return
+                write(u, '(A)') "# UTC_Time                 ET_Seconds          Phase       Comp" // &
+                    "             Weight             dX(km)             dY(km)" // &
+                    "             dZ(km)         dVx(km/s)         dVy(km/s)" // &
+                    "         dVz(km/s)   Mean_Pos_RMS(km) Mean_Vel_RMS(km/s)" // &
+                    "            Mahal_D              CondP         LambdaMinP" // &
+                    "         LambdaMaxP CovInfo"
+            end if
+        end if
+
+        do i = 1, gmm_state%n_components
+            call compute_orbit_error(gmm_state%components(i)%mean, &
+                                     gmm_state%components(i)%cov, &
+                                     ref_state, pos_err, vel_err, &
+                                     pos_rms, vel_rms, mahalanobis_d)
+            cond_p = -1.0_DP
+            lambda_min_p = -1.0_DP
+            lambda_max_p = -1.0_DP
+            call compute_covariance_condition_number(gmm_state%components(i)%cov, &
+                                                     cond_p, cov_info, &
+                                                     lambda_min=lambda_min_p, &
+                                                     lambda_max=lambda_max_p)
+
+            write(u, '(A24,1X,ES18.10E3,1X,A10,1X,I6,1X,13(ES18.10E3,1X),I7)') &
+                utc_str, et, phase_text, i, &
+                gmm_state%components(i)%weight, &
+                pos_err, vel_err, pos_rms, vel_rms, mahalanobis_d, &
+                cond_p, lambda_min_p, lambda_max_p, cov_info
+        end do
+
+        close(u)
+    end subroutine write_gmm_diag_lines
+
+    !> ======================================================================
+    !> Write all collected GMM snapshots to .gmms.json.
     !> ======================================================================
     subroutine write_gmm_snapshots(filename, epochs, gmms, n_steps)
         character(len=*), intent(in) :: filename

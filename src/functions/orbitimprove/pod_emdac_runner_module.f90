@@ -12,7 +12,7 @@ module pod_emdac_runner_module
     use pod_basicmath_module, only: PI
     use pod_data_format_module, only: load_initial_opm, write_json_opm, &
                                        write_residual_line, write_error_line, &
-                                       write_gmm_snapshots
+                                       write_gmm_diag_lines, write_gmm_snapshots
     use pod_error_analysis_module, only: compute_orbit_error, &
                                        compute_covariance_condition_number
 
@@ -87,6 +87,8 @@ contains
         type(uq_gmm_state_type), allocatable :: gmm_snapshots(:)
         real(DP), allocatable :: gmm_epochs(:)
         logical :: collect_gmms
+        type(uq_gmm_state_type) :: step_gmm
+        logical :: is_first_gmm_diag
         
         ! 1. 测量噪声协方差设置 (例如光学赤经赤纬，0.1角秒精度)
         noise_R = 0.0_DP
@@ -120,6 +122,7 @@ contains
         
         ! 初始化阶数控制逻辑标志
         is_first_step = .true.
+        is_first_gmm_diag = .true.
         
         ! 4. 预加载全部观测、测站与参考轨道
         call preload_observations(obs_file, obs_list)
@@ -220,6 +223,12 @@ contains
                     call compute_covariance_condition_number(final_cov, prior_cond_p, prior_cov_info, &
                                                              lambda_min=prior_lambda_min_p, &
                                                              lambda_max=prior_lambda_max_p)
+                    if (present(output_error_file)) then
+                        call my_filter%get_current_gmm(step_gmm)
+                        call write_gmm_diag_lines(output_error_file, et_obs, "PRIOR", &
+                                                  step_gmm, ref_state_at_obs, is_first_gmm_diag)
+                        is_first_gmm_diag = .false.
+                    end if
                 else
                     write(*,*) '[WARN] No reference orbit found within 1 second of observation ET: ', et_obs
                 end if
@@ -258,6 +267,13 @@ contains
                                                posterior_cond_p=posterior_cond_p, &
                                                posterior_lambda_min_p=posterior_lambda_min_p, &
                                                posterior_lambda_max_p=posterior_lambda_max_p)
+                    end if
+
+                    if (present(output_error_file)) then
+                        call my_filter%get_current_gmm(step_gmm)
+                        call write_gmm_diag_lines(output_error_file, et_obs, "POSTERIOR", &
+                                                  step_gmm, ref_state_at_obs, is_first_gmm_diag)
+                        is_first_gmm_diag = .false.
                     end if
                 end if
             end if
