@@ -13,7 +13,8 @@ module pod_uq_da_module
     use pod_uq_base_module, only: uq_propagator_base
     use pod_uq_state_module, only: uq_state_type
     use pod_dace_classes
-    use pod_da_force_model_module, only: set_propagation_epoch
+    use pod_da_force_model_module, only: set_propagation_epoch, set_srp_scale_uncertainty, &
+                                        clear_srp_scale_uncertainty
     use pod_config, only: config
     ! 引入你的底层 DA 积分器和对应的方法常量
     use pod_da_integrator_module, only: da_adaptive_step_integrate, da_rk4_integrate, &
@@ -59,13 +60,17 @@ contains
         ! type(AlgebraicVector), allocatable :: states(:)
         real(DP), allocatable :: nominal_states(:,:)
         type(CompiledDA)      :: compiled_state
-        integer :: n_steps, i, n_particles, dim
-        real(DP) :: eval_inputs(6), eval_results(6)
+        integer :: n_steps, i, n_particles, dim, flow_dim
+        real(DP), allocatable :: eval_inputs(:), eval_results(:)
         real(DP) :: t_start_nondim, t_end_nondim
-    
-
         dim = size(input_state%samples, 1)
         n_particles = size(input_state%samples, 2)
+        flow_dim = 6
+        if (dim < flow_dim) then
+            write(*,*) '[ERROR] DA Propagator: input state dimension must be at least 6.'
+            return
+        end if
+        allocate(eval_inputs(dim), eval_results(flow_dim))
         
         ! 1. 为输出分布分配内存
         call output_state%allocate_memory(dim, n_particles)
@@ -76,10 +81,16 @@ contains
         call set_propagation_epoch(this%epoch0)
 
         ! 2. 初始化 DA 中心状态并注入独立方差
-        ! call dace_initialize(this%da_order, dim)
+        call dace_initialize(this%da_order, dim)
         call dace_push_to(this%da_order) ! 设置 DA 阶数
 
-        call state_da_0%init(dim)
+        if (dim >= 7) then
+            call set_srp_scale_uncertainty(7, input_state%mean(7))
+        else
+            call clear_srp_scale_uncertainty()
+        end if
+
+        call state_da_0%init(flow_dim)
         do i = 1, 3
             ! 物理均值 + 物理摄动量，随后直接除以特征量度进行无量纲化
             state_da_0%elements(i)   = (input_state%mean(i) + da_var(i)) / config%LU
@@ -131,6 +142,7 @@ contains
         compiled_state = state_da_f%compile()
 
         eval_inputs = 0.0_DP
+        eval_results = 0.0_DP
         this%propagated_ref_orbit = state_da_f%cons() ! 【新增】缓存中心轨道的常数项，供后续分析使用
         ! 这里的 eval_inputs 是相对于中心轨道的偏差向量，因此直接使用 input_state%samples(:, i) - input_state%mean(:) 就可以了，无
         ! compiled_state%eval(eval_inputs) ! 【新增】缓存中心轨道的常数项，供后续分析使用
@@ -142,11 +154,13 @@ contains
             ! 偏差向量：当前粒子 - 均值
             eval_inputs(:) = input_state%samples(:, i) - input_state%mean(:)
             eval_results = compiled_state%eval(eval_inputs)
-            output_state%samples(:, i) = eval_results
+            output_state%samples(1:flow_dim, i) = eval_results(1:flow_dim)
+            if (dim > flow_dim) output_state%samples(flow_dim+1:dim, i) = input_state%samples(flow_dim+1:dim, i)
         end do
         !$omp end parallel do
         
         call compiled_state%destroy()
+        call clear_srp_scale_uncertainty()
 
         ! ========================================================
         ! 核心修改 2：调用封装好的 compute_moments 计算后验均值与协方差
@@ -159,6 +173,8 @@ contains
         if (allocated(nominal_states)) deallocate(nominal_states)
         ! 3. 释放时间数组
         if (allocated(times)) deallocate(times)
+        if (allocated(eval_inputs)) deallocate(eval_inputs)
+        if (allocated(eval_results)) deallocate(eval_results)
 
         call state_da_0%destroy()
         call state_da_f%destroy()

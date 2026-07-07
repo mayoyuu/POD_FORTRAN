@@ -8,7 +8,11 @@ module pod_da_force_model_module
     implicit none
 
     real(DP), public :: current_epoch0 = 0.0_DP
+    logical :: use_srp_scale_da = .false.
+    integer :: srp_scale_da_index = 0
+    real(DP) :: srp_scale_nominal = 0.0_DP
     public :: set_propagation_epoch, cleanup_gravity_network
+    public :: set_srp_scale_uncertainty, clear_srp_scale_uncertainty
 
     ! =========================================================
     ! N 体常量定义
@@ -100,6 +104,22 @@ contains
         real(DP), intent(in) :: epoch
         current_epoch0 = epoch
     end subroutine set_propagation_epoch
+
+    subroutine set_srp_scale_uncertainty(var_index, nominal_scale)
+        integer, intent(in) :: var_index
+        real(DP), intent(in), optional :: nominal_scale
+
+        use_srp_scale_da = var_index > 0
+        srp_scale_da_index = var_index
+        srp_scale_nominal = 0.0_DP
+        if (present(nominal_scale)) srp_scale_nominal = nominal_scale
+    end subroutine set_srp_scale_uncertainty
+
+    subroutine clear_srp_scale_uncertainty()
+        use_srp_scale_da = .false.
+        srp_scale_da_index = 0
+        srp_scale_nominal = 0.0_DP
+    end subroutine clear_srp_scale_uncertainty
     
     !> 计算总加速度的主函数
     subroutine da_compute_acceleration(position, velocity, time, acceleration)
@@ -395,7 +415,9 @@ contains
         real(DP), intent(in), optional :: Cr, SMR, RP   ! 新增可选参数
         
         real(DP) :: solar_distance, reflectivity, area_mass_ratio, nominal_rp
+        real(DP) :: srp_factor_real
         real(DP), dimension(3) :: sun_position, sun_velocity
+        type(DA) :: srp_scale_da, srp_factor_da
 
         ! 默认值 (与 f_SRP 对齐)
         reflectivity = 1.25_DP
@@ -416,8 +438,17 @@ contains
         
         ! 核心炮弹球模型公式
         ! acceleration = reflectivity * area_mass_ratio * nominal_rp * (AU_KM / solar_distance)**2 * solar_direction
-        call vec_mul(reflectivity * area_mass_ratio * nominal_rp * (AU_KM / solar_distance)**2, &
-                     pool%solar_direction, acceleration)
+        srp_factor_real = reflectivity * area_mass_ratio * nominal_rp * (AU_KM / solar_distance)**2
+        if (use_srp_scale_da .and. srp_scale_da_index > 0) then
+            call srp_scale_da%init_var(srp_scale_da_index)
+            call da_add(srp_scale_da, 1.0_DP + srp_scale_nominal, pool%tmp_da8)
+            call da_mul(pool%tmp_da8, srp_factor_real, srp_factor_da)
+            call vec_mul(srp_factor_da, pool%solar_direction, acceleration)
+            call srp_scale_da%destroy()
+            call srp_factor_da%destroy()
+        else
+            call vec_mul(srp_factor_real, pool%solar_direction, acceleration)
+        end if
         ! 单位转换 m/s² -> km/s²
         call vec_mul(1.0e-3_DP, acceleration, acceleration)
         

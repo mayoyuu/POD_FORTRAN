@@ -164,7 +164,15 @@ contains
         
         ! 3. 配置参考轨道与传播器参数
         ! 将 reference_orbit 作为均值注入，这是多数 DA 展开的默认基准点
-        initial_state%mean = reference_orbit 
+        if (allocated(initial_state%mean)) deallocate(initial_state%mean)
+        allocate(initial_state%mean(size(initial_state%samples, 1)))
+        initial_state%mean = 0.0_DP
+        initial_state%mean(1:6) = reference_orbit
+        if (size(initial_state%samples, 1) > 6) then
+            initial_state%mean(7:size(initial_state%samples, 1)) = &
+                sum(initial_state%samples(7:size(initial_state%samples, 1), :), dim=2) / &
+                real(size(initial_state%samples, 2), DP)
+        end if
         
         propagator%epoch0 = epoch0
         if (present(integrator_switch)) then

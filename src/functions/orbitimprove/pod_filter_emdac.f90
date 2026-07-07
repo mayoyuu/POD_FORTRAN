@@ -75,6 +75,7 @@ module pod_filter_emdac_module
         procedure :: get_current_gmm => filter_get_current_gmm
         procedure :: get_last_residual => filter_get_last_residual
         procedure :: get_last_like_diag => filter_get_last_like_diag
+        procedure :: get_propagated_particles => filter_get_propagated_particles
 
         procedure :: get_random_addos_from_noise
     end type emdac_filter
@@ -266,6 +267,17 @@ contains
         call uq_particles%deallocate_memory()
         
     end subroutine filter_time_update
+
+    !> 获取时间更新后的传播粒子（用于散点输出）
+    subroutine filter_get_propagated_particles(this, samples_out)
+        class(emdac_filter), intent(in) :: this
+        real(DP), allocatable, intent(out) :: samples_out(:,:)
+        integer :: d, n
+        d = size(this%propagated_particles%samples, 1)
+        n = size(this%propagated_particles%samples, 2)
+        allocate(samples_out(d, n))
+        samples_out = this%propagated_particles%samples
+    end subroutine filter_get_propagated_particles
 
 
     !> ======================================================================

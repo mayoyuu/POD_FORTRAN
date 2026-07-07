@@ -181,21 +181,22 @@ contains
             ! ==========================================================
             ! 智能 DA 阶数调整逻辑 (完全基于步长时间判定)
             ! ==========================================================
-           if (is_first_step) then
-                ! 1. 如果是第一步，且用户指定了 opt_da_order，无条件遵从用户输入
-                current_order = max_da_order
-            else
-                ! 2. 后续步骤 (或用户没指定的第一步)，走基于步长 dt 的智能选择逻辑
-                if (abs(dt) > 3.0_DP * 86400.0_DP) then      ! 步长大于3天 -> 最大阶数
-                    current_order = max_da_order
-                else if (abs(dt) > 86400.0_DP) then          ! 步长在1天到3天之间 -> 3阶
-                    current_order = 3
-                else if (abs(dt) < 0.5*3600.0_DP) then           ! 步长小于0.5小时 -> 1阶
-                    current_order = 1
-                else                                         ! 步长在1小时到1天之间 -> 2阶
-                    current_order = 2
-                end if
-            end if
+        !    if (is_first_step) then
+        !         ! 1. 如果是第一步，且用户指定了 opt_da_order，无条件遵从用户输入
+        !         current_order = max_da_order
+        !     else
+        !         ! 2. 后续步骤 (或用户没指定的第一步)，走基于步长 dt 的智能选择逻辑
+        !         if (abs(dt) > 3.0_DP * 86400.0_DP) then      ! 步长大于3天 -> 最大阶数
+        !             current_order = max_da_order
+        !         else if (abs(dt) > 86400.0_DP) then          ! 步长在1天到3天之间 -> 3阶
+        !             current_order = 3
+        !         else if (abs(dt) < 0.5*3600.0_DP) then           ! 步长小于0.5小时 -> 1阶
+        !             current_order = 1
+        !         else                                         ! 步长在1小时到1天之间 -> 2阶
+        !             current_order = 2
+        !         end if
+        !     end if
+            current_order = max_da_order
             ! 应用最新计算出的阶数
             call my_filter%set_da_order(current_order)
             is_first_step = .false. ! 第一步已走完，切断强制覆盖机制

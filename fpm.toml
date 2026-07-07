@@ -51,6 +51,11 @@ name = "run_radec_convert"
 source-dir = "app"
 main = "run_radec_convert.f90"
 
+[[executable]]
+name = "test_mc_non_gaussian"
+source-dir = "app"
+main = "test_mc_non_gaussian.f90"
+
 [[test]]
 name = "test_sample_particles_from_gmm"
 source-dir = "test"
@@ -127,3 +132,33 @@ main = "test_angle_innovation_wrap.f90"
 name = "test_gmm_weight_floor"
 source-dir = "test"
 main = "test_gmm_weight_floor.f90"
+
+[[test]]
+name = "test_ut_gap_propagation"
+source-dir = "test"
+main = "test_ut_gap_propagation.f90"
+
+[[test]]
+name = "test_emdac_gap_scatter"
+source-dir = "test"
+main = "test_emdac_gap_scatter.f90"
+
+[[test]]
+name = "test_ut_transform"
+source-dir = "test"
+main = "test_ut_transform.f90"
+
+[[test]]
+name = "test_export_l1halo2_first_gap_case"
+source-dir = "test"
+main = "test_export_l1halo2_first_gap_case.f90"
+
+[[test]]
+name = "test_l2halo1_gap_da_ut"
+source-dir = "test"
+main = "test_l2halo1_gap_da_ut.f90"
+
+[[test]]
+name = "test_l1pl1_gap_da_ut"
+source-dir = "test"
+main = "test_l1pl1_gap_da_ut.f90"

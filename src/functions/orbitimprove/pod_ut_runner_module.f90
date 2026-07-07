@@ -6,7 +6,7 @@ module pod_ut_runner_module
     use pod_filter_ut_module, only: ut_filter
     use pod_obs_io_module, only: obs_record, preload_observations, &
                                   station_record, preload_stations, find_station_by_id, &
-                                  ref_orbit_record, preload_reference_orbits
+                                  ref_orbit_record, preload_reference_orbits, find_reference_by_et
     use pod_measurement_base_module, only: observation_station
     use pod_basicmath_module, only: PI
     use pod_data_format_module, only: load_initial_opm, write_json_opm, &
@@ -25,7 +25,7 @@ contains
     !> ======================================================================
     subroutine run_ut_orbit_determination(obs_file, site_json_file, ref_orbit_file, &
                                           initial_json_file, output_opm_file, &
-                                          output_residual_file, output_error_file)
+                                          output_residual_file, output_error_file, alpha)
         character(len=*), intent(in) :: obs_file
         character(len=*), intent(in) :: site_json_file
         character(len=*), intent(in) :: initial_json_file
@@ -33,6 +33,7 @@ contains
         character(len=*), intent(in) :: output_residual_file
         character(len=*), intent(in), optional :: ref_orbit_file
         character(len=*), intent(in), optional :: output_error_file
+        real(DP), intent(in), optional :: alpha
 
         ! 核心对象
         type(ut_filter)       :: my_filter
@@ -51,6 +52,8 @@ contains
         real(DP) :: step_comp(2)   ! 存储最近一次计算出的预测观测值 (Lon, Lat)
         real(DP) :: pos_err(3), vel_err(3)
         real(DP) :: pos_rms, vel_rms, mahalanobis_d
+        real(DP) :: ref_state_at_obs(6)
+        logical  :: ref_found
         
 
         ! ---- 1. 测量噪声协方差（光学赤经赤纬，0.1角秒精度）----
@@ -62,7 +65,11 @@ contains
         call load_initial_opm(initial_json_file, et_current, initial_mean, initial_cov)
 
         ! ---- 3. 初始化 UT 滤波器 ----
-        call my_filter%filter_init(et_current, initial_mean, initial_cov)
+        if (present(alpha)) then
+            call my_filter%filter_init(et_current, initial_mean, initial_cov, alpha)
+        else
+            call my_filter%filter_init(et_current, initial_mean, initial_cov)
+        end if
 
         write(*,*) '  [UT Runner] 滤波器初始化完成'
         write(*,*) '    初始历元：', et_current
@@ -117,12 +124,17 @@ contains
             call my_filter%get_current_cov(final_cov)
 
             if (present(ref_orbit_file)) then
-                call compute_orbit_error(final_mean, final_cov, ref_list(obs_count)%state, &
-                                          pos_err, vel_err, pos_rms, vel_rms, mahalanobis_d)
+                call find_reference_by_et(et_obs, ref_list, ref_state_at_obs, ref_found, tolerance=1.0_DP)
+                if (ref_found) then
+                    call compute_orbit_error(final_mean, final_cov, ref_state_at_obs, &
+                                              pos_err, vel_err, pos_rms, vel_rms, mahalanobis_d)
 
-                if (present(output_error_file)) then
-                    call write_error_line(output_error_file, et_obs, pos_err, vel_err, &
-                                           pos_rms, vel_rms, mahalanobis_d, (obs_count == 1))
+                    if (present(output_error_file)) then
+                        call write_error_line(output_error_file, et_obs, pos_err, vel_err, &
+                                               pos_rms, vel_rms, mahalanobis_d, (obs_count == 1))
+                    end if
+                else
+                    write(*,*) '[WARN] 未找到匹配的参考轨道，观测历元: ', et_obs
                 end if
             end if
 

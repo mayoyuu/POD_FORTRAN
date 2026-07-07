@@ -54,15 +54,17 @@ module pod_filter_ut_module
 
 contains
 
-    subroutine filter_init(this, initial_epoch, initial_state, initial_cov)
+    subroutine filter_init(this, initial_epoch, initial_state, initial_cov, alpha)
         class(ut_filter), intent(inout) :: this
         real(DP), intent(in) :: initial_epoch
         real(DP), intent(in) :: initial_state(:)
         real(DP), intent(in) :: initial_cov(:,:)
+        real(DP), intent(in), optional :: alpha
 
         this%current_epoch = initial_epoch
         this%state_mean = initial_state
         this%state_cov = initial_cov
+        if (present(alpha)) this%alpha = alpha
     end subroutine filter_init
 
     subroutine filter_set_epoch(this, epoch)
@@ -274,6 +276,11 @@ contains
                 return
             end if
         end if
+
+        ! dpotrf('L') 只写入下三角，上三角保留原 cov 值必须清零
+        do i = 1, dimension
+            sqrt_cov(1:i-1, i) = 0.0_DP
+        end do
 
         ! 生成sigma点
         sigma_points(:,1) = mean

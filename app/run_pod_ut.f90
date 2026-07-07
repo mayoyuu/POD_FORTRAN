@@ -22,6 +22,8 @@ program run_pod_ut
     character(len=MAX_STRING_LEN) :: arg_str
     integer :: i, num_args
     integer :: ext_pos
+    real(DP) :: alpha_val
+    logical  :: has_alpha
 
     ! ===================================================================
     ! 1. 初始化路径变量 (解除硬编码)
@@ -34,6 +36,9 @@ program run_pod_ut
     output_file_name     = ''
     output_residual_file = ''
     output_error_file    = ''
+
+    has_alpha = .false.
+    alpha_val = -1.0_DP
 
     ! ===================================================================
     ! 2. 灵活解析命令行参数
@@ -76,6 +81,11 @@ program run_pod_ut
             case ('-cfg', '--config')
                 call get_command_argument(i+1, arg_str)
                 config_file = trim(arg_str)
+                i = i + 1
+            case ('-alpha', '--alpha')
+                call get_command_argument(i+1, arg_str)
+                read(arg_str, *) alpha_val
+                has_alpha = .true.
                 i = i + 1
 
             case default
@@ -147,6 +157,11 @@ program run_pod_ut
         write(*,*) '误差输出     : [未指定]'
     end if
     write(*,*) '--------------------------------------------------'
+    if (has_alpha) then
+        write(*,*) 'UKF alpha     : ', alpha_val
+    else
+        write(*,*) 'UKF alpha     : [default 1.0e-3]'
+    end if
 
     ! ===================================================================
     ! 6. 调用 UT 核心算法接口
@@ -154,21 +169,43 @@ program run_pod_ut
     write(*,*) '>>> 正在启动 UT 无迹卡尔曼滤波计算...'
 
     if (len_trim(ref_orbit_file) > 0) then
-        call run_ut_orbit_determination( &
-            obs_file             = obs_file, &
-            site_json_file       = site_json_file, &
-            ref_orbit_file       = ref_orbit_file, &
-            initial_json_file    = initial_json_file, &
-            output_opm_file      = output_file_name, &
-            output_residual_file = output_residual_file, &
-            output_error_file    = output_error_file)
+        if (has_alpha) then
+            call run_ut_orbit_determination( &
+                obs_file             = obs_file, &
+                site_json_file       = site_json_file, &
+                ref_orbit_file       = ref_orbit_file, &
+                initial_json_file    = initial_json_file, &
+                output_opm_file      = output_file_name, &
+                output_residual_file = output_residual_file, &
+                output_error_file    = output_error_file, &
+                alpha                = alpha_val)
+        else
+            call run_ut_orbit_determination( &
+                obs_file             = obs_file, &
+                site_json_file       = site_json_file, &
+                ref_orbit_file       = ref_orbit_file, &
+                initial_json_file    = initial_json_file, &
+                output_opm_file      = output_file_name, &
+                output_residual_file = output_residual_file, &
+                output_error_file    = output_error_file)
+        end if
     else
-        call run_ut_orbit_determination( &
-            obs_file             = obs_file, &
-            site_json_file       = site_json_file, &
-            initial_json_file    = initial_json_file, &
-            output_opm_file      = output_file_name, &
-            output_residual_file = output_residual_file)
+        if (has_alpha) then
+            call run_ut_orbit_determination( &
+                obs_file             = obs_file, &
+                site_json_file       = site_json_file, &
+                initial_json_file    = initial_json_file, &
+                output_opm_file      = output_file_name, &
+                output_residual_file = output_residual_file, &
+                alpha                = alpha_val)
+        else
+            call run_ut_orbit_determination( &
+                obs_file             = obs_file, &
+                site_json_file       = site_json_file, &
+                initial_json_file    = initial_json_file, &
+                output_opm_file      = output_file_name, &
+                output_residual_file = output_residual_file)
+        end if
     end if
 
     write(*,*) '✅ 该组定轨任务处理完成！'
