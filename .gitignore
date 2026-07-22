@@ -18,6 +18,7 @@ OPM/
 OBS/
 ORBITS_REF/
 scripts/
+analysis/
 
 # Compiled static libraries (Optional, but recommended to ignore)
 lib/*.a

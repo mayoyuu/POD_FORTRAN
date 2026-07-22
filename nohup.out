@@ -1,0 +1,550 @@
+✅ POD_Fortran 开发环境已激活
+   DACE:      /home/songyu/local_dace
+   OpenBLAS:  /home/songyu/local_openblas
+   Project:   /home/songyu/fortran_test/POD_Fortran
+Project is up to date
+[2026-07-14 18:33:15] HALO SRP 10day sigma=0.05 batch prepared
+run_id=20260714_183315
+out_root=output/2026_07_for_wy
+base_config=config/config.txt
+particles=100000
+da_order=4
+max_parallel=4
+srp_mean=0.0
+srp_sigma=0.05
+dt_seconds=864000
+dry_run=0
+opm_count=12
+[2026-07-14 18:33:16] START orbit=L1Halo-1 init=L1Halo-1_init srp10day
+[2026-07-14 18:33:16] START orbit=L1Halo-1 init=L1Halo-1_init2 srp10day
+[2026-07-14 18:33:16] START orbit=L1Halo-2 init=L1Halo-2_init srp10day
+[2026-07-14 18:33:16] START orbit=L1Halo-2 init=L1Halo-2_init2 srp10day
+[2026-07-14 18:36:01] DONE  orbit=L1Halo-1 init=L1Halo-1_init2 srp10day
+[2026-07-14 18:36:02] DONE  orbit=L1Halo-2 init=L1Halo-2_init2 srp10day
+[2026-07-14 18:36:02] DONE  orbit=L1Halo-2 init=L1Halo-2_init srp10day
+[2026-07-14 18:36:05] DONE  orbit=L1Halo-1 init=L1Halo-1_init srp10day
+[2026-07-14 18:36:10] START orbit=L1Halo-3 init=L1Halo-3_init srp10day
+[2026-07-14 18:36:10] START orbit=L1Halo-3 init=L1Halo-3_init2 srp10day
+[2026-07-14 18:36:10] START orbit=L2Halo-1 init=L2Halo-1_init srp10day
+[2026-07-14 18:36:10] START orbit=L2Halo-1 init=L2Halo-1_init2 srp10day
+[2026-07-14 18:39:02] DONE  orbit=L1Halo-3 init=L1Halo-3_init2 srp10day
+[2026-07-14 18:39:02] DONE  orbit=L2Halo-1 init=L2Halo-1_init srp10day
+[2026-07-14 18:39:02] DONE  orbit=L1Halo-3 init=L1Halo-3_init srp10day
+[2026-07-14 18:39:02] DONE  orbit=L2Halo-1 init=L2Halo-1_init2 srp10day
+[2026-07-14 18:39:05] START orbit=L2Halo-2 init=L2Halo-2_init srp10day
+[2026-07-14 18:39:05] START orbit=L2Halo-2 init=L2Halo-2_init2 srp10day
+[2026-07-14 18:39:05] START orbit=L2Halo-3 init=L2Halo-3_init srp10day
+[2026-07-14 18:39:05] START orbit=L2Halo-3 init=L2Halo-3_init2 srp10day
+[2026-07-14 18:41:57] DONE  orbit=L2Halo-3 init=L2Halo-3_init2 srp10day
+[2026-07-14 18:41:57] DONE  orbit=L2Halo-2 init=L2Halo-2_init2 srp10day
+[2026-07-14 18:41:57] DONE  orbit=L2Halo-2 init=L2Halo-2_init srp10day
+[2026-07-14 18:43:01] DONE  orbit=L2Halo-3 init=L2Halo-3_init srp10day
+[2026-07-14 18:43:01] HALO SRP 10day sigma=0.05 batch finished status=0 total=12 skipped=0
+✅ POD_Fortran 开发环境已激活
+   DACE:      /home/songyu/local_dace
+   OpenBLAS:  /home/songyu/local_openblas
+   Project:   /home/songyu/fortran_test/POD_Fortran
+Project is up to date
+[2026-07-14 19:50:34] HALO SRP 10day sigma=0.05 batch prepared
+run_id=20260714_195034
+out_root=output/2026_07_for_wy_nominal_srp
+base_config=config/config.txt
+particles=100000
+da_order=4
+max_parallel=4
+srp_mean=0.0
+srp_sigma=0.05
+dt_seconds=864000
+dry_run=0
+opm_count=12
+[2026-07-14 19:50:34] START orbit=L1Halo-1 init=L1Halo-1_init srp10day
+[2026-07-14 19:50:34] START orbit=L1Halo-1 init=L1Halo-1_init2 srp10day
+[2026-07-14 19:50:34] START orbit=L1Halo-2 init=L1Halo-2_init srp10day
+[2026-07-14 19:50:34] START orbit=L1Halo-2 init=L1Halo-2_init2 srp10day
+[2026-07-14 19:53:12] DONE  orbit=L1Halo-1 init=L1Halo-1_init2 srp10day
+[2026-07-14 19:53:13] DONE  orbit=L1Halo-2 init=L1Halo-2_init2 srp10day
+[2026-07-14 19:53:16] START orbit=L1Halo-3 init=L1Halo-3_init srp10day
+[2026-07-14 19:53:16] START orbit=L1Halo-3 init=L1Halo-3_init2 srp10day
+[2026-07-15 01:53:35] DONE  orbit=L1Halo-1 init=L1Halo-1_init srp10day
+[2026-07-15 09:21:26] START orbit=L2Halo-1 init=L2Halo-1_init srp10day
+[2026-07-15 09:21:31] DONE  orbit=L1Halo-2 init=L1Halo-2_init srp10day
+[2026-07-15 09:21:37] START orbit=L2Halo-1 init=L2Halo-1_init2 srp10day
+[2026-07-15 09:22:40] DONE  orbit=L1Halo-3 init=L1Halo-3_init2 srp10day
+[2026-07-15 09:22:43] START orbit=L2Halo-2 init=L2Halo-2_init srp10day
+[2026-07-15 09:22:53] DONE  orbit=L1Halo-3 init=L1Halo-3_init srp10day
+[2026-07-15 09:22:54] START orbit=L2Halo-2 init=L2Halo-2_init2 srp10day
+[2026-07-15 09:23:08] DONE  orbit=L2Halo-1 init=L2Halo-1_init2 srp10day
+[2026-07-15 09:23:12] DONE  orbit=L2Halo-1 init=L2Halo-1_init srp10day
+[2026-07-15 09:23:14] START orbit=L2Halo-3 init=L2Halo-3_init srp10day
+[2026-07-15 09:23:14] START orbit=L2Halo-3 init=L2Halo-3_init2 srp10day
+[2026-07-15 09:25:25] DONE  orbit=L2Halo-2 init=L2Halo-2_init srp10day
+[2026-07-15 09:26:07] DONE  orbit=L2Halo-3 init=L2Halo-3_init srp10day
+[2026-07-15 09:26:53] DONE  orbit=L2Halo-2 init=L2Halo-2_init2 srp10day
+[2026-07-15 09:27:12] DONE  orbit=L2Halo-3 init=L2Halo-3_init2 srp10day
+[2026-07-15 09:27:12] HALO SRP 10day sigma=0.05 batch finished status=0 total=12 skipped=0
+✅ POD_Fortran 开发环境已激活
+   DACE:      /home/songyu/local_dace
+   OpenBLAS:  /home/songyu/local_openblas
+   Project:   /home/songyu/fortran_test/POD_Fortran
+Project is up to date
+[2026-07-15 09:56:54] HALO SRP 10day sigma=0.05 batch prepared
+run_id=20260715_095654
+out_root=output/2026_07_for_wy_nominal_srp
+base_config=config/config.txt
+particles=100000
+da_order=4
+max_parallel=4
+srp_mean=0.0
+srp_sigma=0.05
+dt_seconds=864000
+dry_run=0
+opm_count=12
+[2026-07-15 09:56:54] START orbit=L1Halo-1 init=L1Halo-1_init srp10day
+[2026-07-15 09:56:54] START orbit=L1Halo-1 init=L1Halo-1_init2 srp10day
+[2026-07-15 09:56:54] START orbit=L1Halo-2 init=L1Halo-2_init srp10day
+[2026-07-15 09:56:54] START orbit=L1Halo-2 init=L1Halo-2_init2 srp10day
+Project is up to date
+Launching 12 parallel SRP-UQ tasks...
+run_id=srp_10day_sigma005
+out_root=output/2026_07_for_wy
+dt=864000 sigma=0.05 particles=100000 da_order=4
+Waiting for all tasks to complete...
+[2026-07-15 10:00:56] DONE  orbit=L1Halo-1 init=L1Halo-1_init2 srp10day
+[2026-07-15 10:01:00] DONE  orbit=L1Halo-2 init=L1Halo-2_init2 srp10day
+[2026-07-15 10:01:04] START orbit=L1Halo-3 init=L1Halo-3_init srp10day
+[2026-07-15 10:01:04] START orbit=L1Halo-3 init=L1Halo-3_init2 srp10day
+[2026-07-15 10:01:07] DONE  orbit=L1Halo-2 init=L1Halo-2_init srp10day
+[2026-07-15 10:01:14] START orbit=L2Halo-1 init=L2Halo-1_init srp10day
+[2026-07-15 10:01:23] DONE  orbit=L1Halo-1 init=L1Halo-1_init srp10day
+[2026-07-15 10:01:24] START orbit=L2Halo-1 init=L2Halo-1_init2 srp10day
+[OK] L1Halo-1/L1Halo-1_init
+[OK] L1Halo-1/L1Halo-1_init2
+[OK] L1Halo-2/L1Halo-2_init
+[OK] L1Halo-2/L1Halo-2_init2
+[OK] L1Halo-3/L1Halo-3_init
+[OK] L1Halo-3/L1Halo-3_init2
+[OK] L2Halo-1/L2Halo-1_init
+[OK] L2Halo-1/L2Halo-1_init2
+[OK] L2Halo-2/L2Halo-2_init
+[OK] L2Halo-2/L2Halo-2_init2
+[OK] L2Halo-3/L2Halo-3_init
+[OK] L2Halo-3/L2Halo-3_init2
+
+SRP 10day sigma=0.05 complete: 12/12 passed, 0 failed, skipped: 0
+[2026-07-15 10:04:54] DONE  orbit=L1Halo-3 init=L1Halo-3_init2 srp10day
+[2026-07-15 10:04:55] START orbit=L2Halo-2 init=L2Halo-2_init srp10day
+[2026-07-15 10:04:56] DONE  orbit=L1Halo-3 init=L1Halo-3_init srp10day
+[2026-07-15 10:04:59] DONE  orbit=L2Halo-1 init=L2Halo-1_init srp10day
+[2026-07-15 10:05:05] START orbit=L2Halo-2 init=L2Halo-2_init2 srp10day
+[2026-07-15 10:05:05] START orbit=L2Halo-3 init=L2Halo-3_init srp10day
+[2026-07-15 10:06:02] DONE  orbit=L2Halo-1 init=L2Halo-1_init2 srp10day
+[2026-07-15 10:06:05] START orbit=L2Halo-3 init=L2Halo-3_init2 srp10day
+[2026-07-15 10:08:20] DONE  orbit=L2Halo-3 init=L2Halo-3_init srp10day
+[2026-07-15 10:08:21] DONE  orbit=L2Halo-2 init=L2Halo-2_init srp10day
+[2026-07-15 10:08:21] DONE  orbit=L2Halo-2 init=L2Halo-2_init2 srp10day
+[2026-07-15 10:09:08] DONE  orbit=L2Halo-3 init=L2Halo-3_init2 srp10day
+[2026-07-15 10:09:08] HALO SRP 10day sigma=0.05 batch finished status=0 total=12 skipped=0
+Project is up to date
+Launching 12 parallel SRP-UQ tasks...
+run_id=srp_10day_sigma005
+out_root=output/2026_07_for_wy
+dt=864000 sigma=0.05 particles=100000 da_order=4
+Waiting for all tasks to complete...
+[OK] L1Halo-1/L1Halo-1_init
+[OK] L1Halo-1/L1Halo-1_init2
+[OK] L1Halo-2/L1Halo-2_init
+[OK] L1Halo-2/L1Halo-2_init2
+[OK] L1Halo-3/L1Halo-3_init
+[OK] L1Halo-3/L1Halo-3_init2
+[OK] L2Halo-1/L2Halo-1_init
+[OK] L2Halo-1/L2Halo-1_init2
+[OK] L2Halo-2/L2Halo-2_init
+[OK] L2Halo-2/L2Halo-2_init2
+[OK] L2Halo-3/L2Halo-3_init
+[OK] L2Halo-3/L2Halo-3_init2
+
+SRP 10day sigma=0.05 complete: 12/12 passed, 0 failed, skipped: 0
+Project is up to date
+Launching 12 parallel SRP-UQ tasks...
+run_id=srp_10day_sigma005
+out_root=output/2026_07_for_wy
+dt=864000 sigma=0.05 particles=100000 da_order=4
+Waiting for all tasks to complete...
+✅ POD_Fortran 开发环境已激活
+   DACE:      /home/songyu/local_dace
+   OpenBLAS:  /home/songyu/local_openblas
+   Project:   /home/songyu/fortran_test/POD_Fortran
+Project is up to date
+[2026-07-15 14:28:32] HALO nominal SRP 10day batch prepared
+run_id=20260715_142831
+out_root=output/2026_07_for_wy_nominal_srp
+base_config=config/config.txt
+particles=100000
+da_order=4
+max_parallel=20
+dt_seconds=864000
+dry_run=0
+opm_count=12
+[2026-07-15 14:28:32] START orbit=L1Halo-1 init=L1Halo-1_init2 nominalSrp10day
+[2026-07-15 14:28:32] START orbit=L1Halo-1 init=L1Halo-1_init nominalSrp10day
+[2026-07-15 14:28:32] START orbit=L1Halo-2 init=L1Halo-2_init nominalSrp10day
+[2026-07-15 14:28:32] START orbit=L1Halo-2 init=L1Halo-2_init2 nominalSrp10day
+[2026-07-15 14:28:32] START orbit=L1Halo-3 init=L1Halo-3_init nominalSrp10day
+[2026-07-15 14:28:32] START orbit=L2Halo-1 init=L2Halo-1_init nominalSrp10day
+[2026-07-15 14:28:32] START orbit=L1Halo-3 init=L1Halo-3_init2 nominalSrp10day
+[2026-07-15 14:28:32] START orbit=L2Halo-2 init=L2Halo-2_init nominalSrp10day
+[2026-07-15 14:28:32] START orbit=L2Halo-1 init=L2Halo-1_init2 nominalSrp10day
+[2026-07-15 14:28:32] START orbit=L2Halo-2 init=L2Halo-2_init2 nominalSrp10day
+[2026-07-15 14:28:32] START orbit=L2Halo-3 init=L2Halo-3_init nominalSrp10day
+[2026-07-15 14:28:32] START orbit=L2Halo-3 init=L2Halo-3_init2 nominalSrp10day
+[2026-07-15 14:33:05] DONE  orbit=L1Halo-3 init=L1Halo-3_init2 nominalSrp10day
+[2026-07-15 14:33:15] DONE  orbit=L2Halo-1 init=L2Halo-1_init nominalSrp10day
+[2026-07-15 14:33:18] DONE  orbit=L1Halo-1 init=L1Halo-1_init nominalSrp10day
+[2026-07-15 14:33:19] DONE  orbit=L1Halo-1 init=L1Halo-1_init2 nominalSrp10day
+[2026-07-15 14:33:21] DONE  orbit=L1Halo-2 init=L1Halo-2_init2 nominalSrp10day
+[2026-07-15 14:33:22] DONE  orbit=L2Halo-3 init=L2Halo-3_init2 nominalSrp10day
+[2026-07-15 14:33:29] DONE  orbit=L2Halo-2 init=L2Halo-2_init nominalSrp10day
+[2026-07-15 14:33:36] DONE  orbit=L2Halo-3 init=L2Halo-3_init nominalSrp10day
+[2026-07-15 14:33:40] DONE  orbit=L2Halo-2 init=L2Halo-2_init2 nominalSrp10day
+[2026-07-15 14:33:43] DONE  orbit=L1Halo-2 init=L1Halo-2_init nominalSrp10day
+[2026-07-15 14:33:45] DONE  orbit=L1Halo-3 init=L1Halo-3_init nominalSrp10day
+[2026-07-15 14:33:45] DONE  orbit=L2Halo-1 init=L2Halo-1_init2 nominalSrp10day
+[2026-07-15 14:33:45] HALO nominal SRP 10day batch finished status=0 total=12 skipped=0
+[OK] L1Halo-1/L1Halo-1_init
+[OK] L1Halo-1/L1Halo-1_init2
+[OK] L1Halo-2/L1Halo-2_init
+[OK] L1Halo-2/L1Halo-2_init2
+[OK] L1Halo-3/L1Halo-3_init
+[OK] L1Halo-3/L1Halo-3_init2
+[OK] L2Halo-1/L2Halo-1_init
+[OK] L2Halo-1/L2Halo-1_init2
+[OK] L2Halo-2/L2Halo-2_init
+[OK] L2Halo-2/L2Halo-2_init2
+[OK] L2Halo-3/L2Halo-3_init
+[OK] L2Halo-3/L2Halo-3_init2
+
+SRP 10day sigma=0.05 complete: 12/12 passed, 0 failed, skipped: 0
+✅ POD_Fortran 开发环境已激活
+   DACE:      /home/songyu/local_dace
+   OpenBLAS:  /home/songyu/local_openblas
+   Project:   /home/songyu/fortran_test/POD_Fortran
+[2026-07-15 19:05:18] HALO init-only nominal SRP sweep prepared
+run_id=20260715_190518
+out_root=output/2026_07_for_wy_nominal_srp_sweep
+base_config=config/config.txt
+particles=100000
+da_order=4
+max_parallel=20
+dt_list=432000 864000 1296000 1728000
+opm_count=6
+case_count=24
+dry_run=0
+Project is up to date
+[2026-07-15 19:05:18] START orbit=L1Halo-1 init=L1Halo-1_init dt=432000 nominalSrp
+[2026-07-15 19:05:18] START orbit=L1Halo-1 init=L1Halo-1_init dt=864000 nominalSrp
+[2026-07-15 19:05:18] START orbit=L1Halo-1 init=L1Halo-1_init dt=1296000 nominalSrp
+[2026-07-15 19:05:18] START orbit=L1Halo-1 init=L1Halo-1_init dt=1728000 nominalSrp
+[2026-07-15 19:05:18] START orbit=L1Halo-2 init=L1Halo-2_init dt=432000 nominalSrp
+[2026-07-15 19:05:18] START orbit=L1Halo-2 init=L1Halo-2_init dt=864000 nominalSrp
+[2026-07-15 19:05:18] START orbit=L1Halo-2 init=L1Halo-2_init dt=1296000 nominalSrp
+[2026-07-15 19:05:18] START orbit=L1Halo-2 init=L1Halo-2_init dt=1728000 nominalSrp
+[2026-07-15 19:05:18] START orbit=L1Halo-3 init=L1Halo-3_init dt=432000 nominalSrp
+[2026-07-15 19:05:18] START orbit=L1Halo-3 init=L1Halo-3_init dt=864000 nominalSrp
+[2026-07-15 19:05:18] START orbit=L1Halo-3 init=L1Halo-3_init dt=1296000 nominalSrp
+[2026-07-15 19:05:18] START orbit=L1Halo-3 init=L1Halo-3_init dt=1728000 nominalSrp
+[2026-07-15 19:05:18] START orbit=L2Halo-1 init=L2Halo-1_init dt=432000 nominalSrp
+[2026-07-15 19:05:18] START orbit=L2Halo-1 init=L2Halo-1_init dt=864000 nominalSrp
+[2026-07-15 19:05:18] START orbit=L2Halo-1 init=L2Halo-1_init dt=1296000 nominalSrp
+[2026-07-15 19:05:18] START orbit=L2Halo-2 init=L2Halo-2_init dt=864000 nominalSrp
+[2026-07-15 19:05:18] START orbit=L2Halo-1 init=L2Halo-1_init dt=1728000 nominalSrp
+[2026-07-15 19:05:18] START orbit=L2Halo-2 init=L2Halo-2_init dt=432000 nominalSrp
+[2026-07-15 19:05:18] START orbit=L2Halo-2 init=L2Halo-2_init dt=1296000 nominalSrp
+[2026-07-15 19:05:18] START orbit=L2Halo-2 init=L2Halo-2_init dt=1728000 nominalSrp
+[2026-07-15 19:06:57] DONE  orbit=L2Halo-1 init=L2Halo-1_init dt=432000 nominalSrp
+[2026-07-15 19:07:00] START orbit=L2Halo-3 init=L2Halo-3_init dt=432000 nominalSrp
+[2026-07-15 19:07:05] DONE  orbit=L1Halo-2 init=L1Halo-2_init dt=432000 nominalSrp
+[2026-07-15 19:07:10] START orbit=L2Halo-3 init=L2Halo-3_init dt=864000 nominalSrp
+[2026-07-15 19:07:30] DONE  orbit=L2Halo-2 init=L2Halo-2_init dt=432000 nominalSrp
+[2026-07-15 19:07:30] START orbit=L2Halo-3 init=L2Halo-3_init dt=1296000 nominalSrp
+[2026-07-15 19:07:42] DONE  orbit=L1Halo-3 init=L1Halo-3_init dt=432000 nominalSrp
+[2026-07-15 19:07:47] DONE  orbit=L1Halo-1 init=L1Halo-1_init dt=432000 nominalSrp
+[2026-07-15 19:07:51] START orbit=L2Halo-3 init=L2Halo-3_init dt=1728000 nominalSrp
+[2026-07-15 19:08:32] DONE  orbit=L2Halo-2 init=L2Halo-2_init dt=864000 nominalSrp
+[2026-07-15 19:08:45] DONE  orbit=L1Halo-2 init=L1Halo-2_init dt=864000 nominalSrp
+[2026-07-15 19:08:46] DONE  orbit=L2Halo-3 init=L2Halo-3_init dt=432000 nominalSrp
+[2026-07-15 19:08:49] DONE  orbit=L1Halo-3 init=L1Halo-3_init dt=864000 nominalSrp
+[2026-07-15 19:08:54] DONE  orbit=L1Halo-1 init=L1Halo-1_init dt=864000 nominalSrp
+[2026-07-15 19:09:08] DONE  orbit=L2Halo-1 init=L2Halo-1_init dt=864000 nominalSrp
+[2026-07-15 19:09:55] DONE  orbit=L1Halo-1 init=L1Halo-1_init dt=1296000 nominalSrp
+[2026-07-15 19:10:13] DONE  orbit=L1Halo-3 init=L1Halo-3_init dt=1296000 nominalSrp
+[2026-07-15 19:10:15] DONE  orbit=L1Halo-2 init=L1Halo-2_init dt=1296000 nominalSrp
+[2026-07-15 19:10:19] DONE  orbit=L2Halo-3 init=L2Halo-3_init dt=864000 nominalSrp
+[2026-07-15 19:10:46] DONE  orbit=L2Halo-1 init=L2Halo-1_init dt=1296000 nominalSrp
+[2026-07-15 19:10:46] DONE  orbit=L2Halo-2 init=L2Halo-2_init dt=1296000 nominalSrp
+[2026-07-15 19:11:03] DONE  orbit=L1Halo-2 init=L1Halo-2_init dt=1728000 nominalSrp
+[2026-07-15 19:11:21] DONE  orbit=L1Halo-1 init=L1Halo-1_init dt=1728000 nominalSrp
+[2026-07-15 19:11:25] DONE  orbit=L2Halo-2 init=L2Halo-2_init dt=1728000 nominalSrp
+[2026-07-15 19:11:33] DONE  orbit=L2Halo-3 init=L2Halo-3_init dt=1296000 nominalSrp
+[2026-07-15 19:11:47] DONE  orbit=L2Halo-1 init=L2Halo-1_init dt=1728000 nominalSrp
+[2026-07-15 19:12:14] DONE  orbit=L1Halo-3 init=L1Halo-3_init dt=1728000 nominalSrp
+[2026-07-15 19:12:41] DONE  orbit=L2Halo-3 init=L2Halo-3_init dt=1728000 nominalSrp
+[2026-07-15 19:12:41] HALO init-only nominal SRP sweep finished status=0 cases=24
+✅ POD_Fortran 开发环境已激活
+   DACE:      /home/songyu/local_dace
+   OpenBLAS:  /home/songyu/local_openblas
+   Project:   /home/songyu/fortran_test/POD_Fortran
+[2026-07-15 19:32:35] HALO RADEC batch prepared
+run_id=20260715_193228
+input_roots=output/2026_07_for_wy_srp_sweep output/2026_07_for_wy_nominal_srp_sweep
+batch_root=output/2026_07_for_wy_radec_batch
+station_id=R91
+site_json=config/site-used.json
+base_config=config/config.txt
+max_parallel=20
+use_degrees=1
+particles_count=120
+case_count=120
+skipped=0
+dry_run=0
+Project is up to date
+[2026-07-15 19:32:36] START radec orbit=L1Halo-1 dt=1296000 input=output/2026_07_for_wy_nominal_srp_sweep/L1Halo-1/L1Halo-1_init_nominalSrp_dt_1296000_n100000_o4_particles.csv
+[2026-07-15 19:32:36] START radec orbit=L1Halo-1 dt=1728000 input=output/2026_07_for_wy_nominal_srp_sweep/L1Halo-1/L1Halo-1_init_nominalSrp_dt_1728000_n100000_o4_particles.csv
+[2026-07-15 19:32:36] START radec orbit=L1Halo-1 dt=432000 input=output/2026_07_for_wy_nominal_srp_sweep/L1Halo-1/L1Halo-1_init_nominalSrp_dt_432000_n100000_o4_particles.csv
+[2026-07-15 19:32:36] START radec orbit=L1Halo-1 dt=864000 input=output/2026_07_for_wy_nominal_srp_sweep/L1Halo-1/L1Halo-1_init_nominalSrp_dt_864000_n100000_o4_particles.csv
+[2026-07-15 19:32:36] START radec orbit=L1Halo-2 dt=1296000 input=output/2026_07_for_wy_nominal_srp_sweep/L1Halo-2/L1Halo-2_init_nominalSrp_dt_1296000_n100000_o4_particles.csv
+[2026-07-15 19:32:36] START radec orbit=L1Halo-2 dt=1728000 input=output/2026_07_for_wy_nominal_srp_sweep/L1Halo-2/L1Halo-2_init_nominalSrp_dt_1728000_n100000_o4_particles.csv
+[2026-07-15 19:32:36] START radec orbit=L1Halo-2 dt=432000 input=output/2026_07_for_wy_nominal_srp_sweep/L1Halo-2/L1Halo-2_init_nominalSrp_dt_432000_n100000_o4_particles.csv
+[2026-07-15 19:32:36] START radec orbit=L1Halo-2 dt=864000 input=output/2026_07_for_wy_nominal_srp_sweep/L1Halo-2/L1Halo-2_init_nominalSrp_dt_864000_n100000_o4_particles.csv
+[2026-07-15 19:32:36] START radec orbit=L1Halo-3 dt=1296000 input=output/2026_07_for_wy_nominal_srp_sweep/L1Halo-3/L1Halo-3_init_nominalSrp_dt_1296000_n100000_o4_particles.csv
+[2026-07-15 19:32:36] START radec orbit=L1Halo-3 dt=1728000 input=output/2026_07_for_wy_nominal_srp_sweep/L1Halo-3/L1Halo-3_init_nominalSrp_dt_1728000_n100000_o4_particles.csv
+[2026-07-15 19:32:36] START radec orbit=L1Halo-3 dt=432000 input=output/2026_07_for_wy_nominal_srp_sweep/L1Halo-3/L1Halo-3_init_nominalSrp_dt_432000_n100000_o4_particles.csv
+[2026-07-15 19:32:36] START radec orbit=L1Halo-3 dt=864000 input=output/2026_07_for_wy_nominal_srp_sweep/L1Halo-3/L1Halo-3_init_nominalSrp_dt_864000_n100000_o4_particles.csv
+[2026-07-15 19:32:36] START radec orbit=L2Halo-1 dt=1296000 input=output/2026_07_for_wy_nominal_srp_sweep/L2Halo-1/L2Halo-1_init_nominalSrp_dt_1296000_n100000_o4_particles.csv
+[2026-07-15 19:32:36] START radec orbit=L2Halo-1 dt=1728000 input=output/2026_07_for_wy_nominal_srp_sweep/L2Halo-1/L2Halo-1_init_nominalSrp_dt_1728000_n100000_o4_particles.csv
+[2026-07-15 19:32:36] START radec orbit=L2Halo-1 dt=432000 input=output/2026_07_for_wy_nominal_srp_sweep/L2Halo-1/L2Halo-1_init_nominalSrp_dt_432000_n100000_o4_particles.csv
+[2026-07-15 19:32:36] START radec orbit=L2Halo-2 dt=1296000 input=output/2026_07_for_wy_nominal_srp_sweep/L2Halo-2/L2Halo-2_init_nominalSrp_dt_1296000_n100000_o4_particles.csv
+[2026-07-15 19:32:36] START radec orbit=L2Halo-1 dt=864000 input=output/2026_07_for_wy_nominal_srp_sweep/L2Halo-1/L2Halo-1_init_nominalSrp_dt_864000_n100000_o4_particles.csv
+[2026-07-15 19:32:36] START radec orbit=L2Halo-2 dt=1728000 input=output/2026_07_for_wy_nominal_srp_sweep/L2Halo-2/L2Halo-2_init_nominalSrp_dt_1728000_n100000_o4_particles.csv
+[2026-07-15 19:32:36] START radec orbit=L2Halo-2 dt=432000 input=output/2026_07_for_wy_nominal_srp_sweep/L2Halo-2/L2Halo-2_init_nominalSrp_dt_432000_n100000_o4_particles.csv
+[2026-07-15 19:32:36] START radec orbit=L2Halo-2 dt=864000 input=output/2026_07_for_wy_nominal_srp_sweep/L2Halo-2/L2Halo-2_init_nominalSrp_dt_864000_n100000_o4_particles.csv
+[2026-07-15 19:32:40] DONE  radec orbit=L1Halo-3 dt=432000 output=output/2026_07_for_wy_nominal_srp_sweep/L1Halo-3/L1Halo-3_init_nominalSrp_dt_432000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:40] DONE  radec orbit=L2Halo-1 dt=1728000 output=output/2026_07_for_wy_nominal_srp_sweep/L2Halo-1/L2Halo-1_init_nominalSrp_dt_1728000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:40] DONE  radec orbit=L2Halo-1 dt=432000 output=output/2026_07_for_wy_nominal_srp_sweep/L2Halo-1/L2Halo-1_init_nominalSrp_dt_432000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:40] DONE  radec orbit=L1Halo-3 dt=1728000 output=output/2026_07_for_wy_nominal_srp_sweep/L1Halo-3/L1Halo-3_init_nominalSrp_dt_1728000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:40] DONE  radec orbit=L1Halo-1 dt=432000 output=output/2026_07_for_wy_nominal_srp_sweep/L1Halo-1/L1Halo-1_init_nominalSrp_dt_432000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:40] DONE  radec orbit=L2Halo-1 dt=864000 output=output/2026_07_for_wy_nominal_srp_sweep/L2Halo-1/L2Halo-1_init_nominalSrp_dt_864000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:40] DONE  radec orbit=L1Halo-2 dt=1728000 output=output/2026_07_for_wy_nominal_srp_sweep/L1Halo-2/L1Halo-2_init_nominalSrp_dt_1728000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:40] DONE  radec orbit=L1Halo-2 dt=1296000 output=output/2026_07_for_wy_nominal_srp_sweep/L1Halo-2/L1Halo-2_init_nominalSrp_dt_1296000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:40] DONE  radec orbit=L2Halo-1 dt=1296000 output=output/2026_07_for_wy_nominal_srp_sweep/L2Halo-1/L2Halo-1_init_nominalSrp_dt_1296000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:40] DONE  radec orbit=L1Halo-1 dt=1296000 output=output/2026_07_for_wy_nominal_srp_sweep/L1Halo-1/L1Halo-1_init_nominalSrp_dt_1296000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:40] DONE  radec orbit=L2Halo-2 dt=432000 output=output/2026_07_for_wy_nominal_srp_sweep/L2Halo-2/L2Halo-2_init_nominalSrp_dt_432000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:40] DONE  radec orbit=L2Halo-2 dt=864000 output=output/2026_07_for_wy_nominal_srp_sweep/L2Halo-2/L2Halo-2_init_nominalSrp_dt_864000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:41] DONE  radec orbit=L1Halo-1 dt=1728000 output=output/2026_07_for_wy_nominal_srp_sweep/L1Halo-1/L1Halo-1_init_nominalSrp_dt_1728000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:41] DONE  radec orbit=L1Halo-3 dt=864000 output=output/2026_07_for_wy_nominal_srp_sweep/L1Halo-3/L1Halo-3_init_nominalSrp_dt_864000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:41] DONE  radec orbit=L1Halo-2 dt=432000 output=output/2026_07_for_wy_nominal_srp_sweep/L1Halo-2/L1Halo-2_init_nominalSrp_dt_432000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:41] DONE  radec orbit=L1Halo-1 dt=864000 output=output/2026_07_for_wy_nominal_srp_sweep/L1Halo-1/L1Halo-1_init_nominalSrp_dt_864000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:41] DONE  radec orbit=L1Halo-2 dt=864000 output=output/2026_07_for_wy_nominal_srp_sweep/L1Halo-2/L1Halo-2_init_nominalSrp_dt_864000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:41] DONE  radec orbit=L1Halo-3 dt=1296000 output=output/2026_07_for_wy_nominal_srp_sweep/L1Halo-3/L1Halo-3_init_nominalSrp_dt_1296000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:41] DONE  radec orbit=L2Halo-2 dt=1296000 output=output/2026_07_for_wy_nominal_srp_sweep/L2Halo-2/L2Halo-2_init_nominalSrp_dt_1296000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:41] DONE  radec orbit=L2Halo-2 dt=1728000 output=output/2026_07_for_wy_nominal_srp_sweep/L2Halo-2/L2Halo-2_init_nominalSrp_dt_1728000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:46] START radec orbit=L2Halo-3 dt=1296000 input=output/2026_07_for_wy_nominal_srp_sweep/L2Halo-3/L2Halo-3_init_nominalSrp_dt_1296000_n100000_o4_particles.csv
+[2026-07-15 19:32:46] START radec orbit=L2Halo-3 dt=1728000 input=output/2026_07_for_wy_nominal_srp_sweep/L2Halo-3/L2Halo-3_init_nominalSrp_dt_1728000_n100000_o4_particles.csv
+[2026-07-15 19:32:46] START radec orbit=L2Halo-3 dt=432000 input=output/2026_07_for_wy_nominal_srp_sweep/L2Halo-3/L2Halo-3_init_nominalSrp_dt_432000_n100000_o4_particles.csv
+[2026-07-15 19:32:46] START radec orbit=L2Halo-3 dt=864000 input=output/2026_07_for_wy_nominal_srp_sweep/L2Halo-3/L2Halo-3_init_nominalSrp_dt_864000_n100000_o4_particles.csv
+[2026-07-15 19:32:46] START radec orbit=L1Halo-1 dt=1296000 input=output/2026_07_for_wy_srp_sweep/L1Halo-1/L1Halo-1_init_srpMean_0p0_srpSigma_0p01_dt_1296000_n100000_o4_particles.csv
+[2026-07-15 19:32:46] START radec orbit=L1Halo-1 dt=1728000 input=output/2026_07_for_wy_srp_sweep/L1Halo-1/L1Halo-1_init_srpMean_0p0_srpSigma_0p01_dt_1728000_n100000_o4_particles.csv
+[2026-07-15 19:32:46] START radec orbit=L1Halo-1 dt=432000 input=output/2026_07_for_wy_srp_sweep/L1Halo-1/L1Halo-1_init_srpMean_0p0_srpSigma_0p01_dt_432000_n100000_o4_particles.csv
+[2026-07-15 19:32:46] START radec orbit=L1Halo-1 dt=864000 input=output/2026_07_for_wy_srp_sweep/L1Halo-1/L1Halo-1_init_srpMean_0p0_srpSigma_0p01_dt_864000_n100000_o4_particles.csv
+[2026-07-15 19:32:46] START radec orbit=L1Halo-1 dt=1296000 input=output/2026_07_for_wy_srp_sweep/L1Halo-1/L1Halo-1_init_srpMean_0p0_srpSigma_0p05_dt_1296000_n100000_o4_particles.csv
+[2026-07-15 19:32:46] START radec orbit=L1Halo-1 dt=1728000 input=output/2026_07_for_wy_srp_sweep/L1Halo-1/L1Halo-1_init_srpMean_0p0_srpSigma_0p05_dt_1728000_n100000_o4_particles.csv
+[2026-07-15 19:32:46] START radec orbit=L1Halo-1 dt=432000 input=output/2026_07_for_wy_srp_sweep/L1Halo-1/L1Halo-1_init_srpMean_0p0_srpSigma_0p05_dt_432000_n100000_o4_particles.csv
+[2026-07-15 19:32:46] START radec orbit=L1Halo-1 dt=864000 input=output/2026_07_for_wy_srp_sweep/L1Halo-1/L1Halo-1_init_srpMean_0p0_srpSigma_0p05_dt_864000_n100000_o4_particles.csv
+[2026-07-15 19:32:46] START radec orbit=L1Halo-1 dt=1296000 input=output/2026_07_for_wy_srp_sweep/L1Halo-1/L1Halo-1_init_srpMean_0p0_srpSigma_0p10_dt_1296000_n100000_o4_particles.csv
+[2026-07-15 19:32:46] START radec orbit=L1Halo-1 dt=1728000 input=output/2026_07_for_wy_srp_sweep/L1Halo-1/L1Halo-1_init_srpMean_0p0_srpSigma_0p10_dt_1728000_n100000_o4_particles.csv
+[2026-07-15 19:32:46] START radec orbit=L1Halo-1 dt=432000 input=output/2026_07_for_wy_srp_sweep/L1Halo-1/L1Halo-1_init_srpMean_0p0_srpSigma_0p10_dt_432000_n100000_o4_particles.csv
+[2026-07-15 19:32:46] START radec orbit=L1Halo-1 dt=864000 input=output/2026_07_for_wy_srp_sweep/L1Halo-1/L1Halo-1_init_srpMean_0p0_srpSigma_0p10_dt_864000_n100000_o4_particles.csv
+[2026-07-15 19:32:46] START radec orbit=L1Halo-1 dt=1296000 input=output/2026_07_for_wy_srp_sweep/L1Halo-1/L1Halo-1_init_srpMean_0p0_srpSigma_0p20_dt_1296000_n100000_o4_particles.csv
+[2026-07-15 19:32:46] START radec orbit=L1Halo-1 dt=1728000 input=output/2026_07_for_wy_srp_sweep/L1Halo-1/L1Halo-1_init_srpMean_0p0_srpSigma_0p20_dt_1728000_n100000_o4_particles.csv
+[2026-07-15 19:32:46] START radec orbit=L1Halo-1 dt=432000 input=output/2026_07_for_wy_srp_sweep/L1Halo-1/L1Halo-1_init_srpMean_0p0_srpSigma_0p20_dt_432000_n100000_o4_particles.csv
+[2026-07-15 19:32:46] START radec orbit=L1Halo-1 dt=864000 input=output/2026_07_for_wy_srp_sweep/L1Halo-1/L1Halo-1_init_srpMean_0p0_srpSigma_0p20_dt_864000_n100000_o4_particles.csv
+[2026-07-15 19:32:50] DONE  radec orbit=L1Halo-1 dt=1728000 output=output/2026_07_for_wy_srp_sweep/L1Halo-1/L1Halo-1_init_srpMean_0p0_srpSigma_0p01_dt_1728000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:50] DONE  radec orbit=L1Halo-1 dt=1296000 output=output/2026_07_for_wy_srp_sweep/L1Halo-1/L1Halo-1_init_srpMean_0p0_srpSigma_0p05_dt_1296000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:50] DONE  radec orbit=L1Halo-1 dt=864000 output=output/2026_07_for_wy_srp_sweep/L1Halo-1/L1Halo-1_init_srpMean_0p0_srpSigma_0p01_dt_864000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:51] DONE  radec orbit=L1Halo-1 dt=864000 output=output/2026_07_for_wy_srp_sweep/L1Halo-1/L1Halo-1_init_srpMean_0p0_srpSigma_0p20_dt_864000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:51] DONE  radec orbit=L1Halo-1 dt=1296000 output=output/2026_07_for_wy_srp_sweep/L1Halo-1/L1Halo-1_init_srpMean_0p0_srpSigma_0p20_dt_1296000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:51] DONE  radec orbit=L1Halo-1 dt=1728000 output=output/2026_07_for_wy_srp_sweep/L1Halo-1/L1Halo-1_init_srpMean_0p0_srpSigma_0p20_dt_1728000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:51] DONE  radec orbit=L1Halo-1 dt=432000 output=output/2026_07_for_wy_srp_sweep/L1Halo-1/L1Halo-1_init_srpMean_0p0_srpSigma_0p05_dt_432000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:51] DONE  radec orbit=L1Halo-1 dt=1728000 output=output/2026_07_for_wy_srp_sweep/L1Halo-1/L1Halo-1_init_srpMean_0p0_srpSigma_0p10_dt_1728000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:51] DONE  radec orbit=L2Halo-3 dt=1296000 output=output/2026_07_for_wy_nominal_srp_sweep/L2Halo-3/L2Halo-3_init_nominalSrp_dt_1296000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:51] DONE  radec orbit=L1Halo-1 dt=864000 output=output/2026_07_for_wy_srp_sweep/L1Halo-1/L1Halo-1_init_srpMean_0p0_srpSigma_0p05_dt_864000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:51] DONE  radec orbit=L1Halo-1 dt=1296000 output=output/2026_07_for_wy_srp_sweep/L1Halo-1/L1Halo-1_init_srpMean_0p0_srpSigma_0p10_dt_1296000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:51] DONE  radec orbit=L1Halo-1 dt=432000 output=output/2026_07_for_wy_srp_sweep/L1Halo-1/L1Halo-1_init_srpMean_0p0_srpSigma_0p20_dt_432000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:51] DONE  radec orbit=L2Halo-3 dt=432000 output=output/2026_07_for_wy_nominal_srp_sweep/L2Halo-3/L2Halo-3_init_nominalSrp_dt_432000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:51] DONE  radec orbit=L2Halo-3 dt=1728000 output=output/2026_07_for_wy_nominal_srp_sweep/L2Halo-3/L2Halo-3_init_nominalSrp_dt_1728000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:51] DONE  radec orbit=L1Halo-1 dt=432000 output=output/2026_07_for_wy_srp_sweep/L1Halo-1/L1Halo-1_init_srpMean_0p0_srpSigma_0p10_dt_432000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:51] DONE  radec orbit=L1Halo-1 dt=1296000 output=output/2026_07_for_wy_srp_sweep/L1Halo-1/L1Halo-1_init_srpMean_0p0_srpSigma_0p01_dt_1296000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:51] DONE  radec orbit=L1Halo-1 dt=1728000 output=output/2026_07_for_wy_srp_sweep/L1Halo-1/L1Halo-1_init_srpMean_0p0_srpSigma_0p05_dt_1728000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:52] DONE  radec orbit=L2Halo-3 dt=864000 output=output/2026_07_for_wy_nominal_srp_sweep/L2Halo-3/L2Halo-3_init_nominalSrp_dt_864000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:52] DONE  radec orbit=L1Halo-1 dt=864000 output=output/2026_07_for_wy_srp_sweep/L1Halo-1/L1Halo-1_init_srpMean_0p0_srpSigma_0p10_dt_864000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:52] DONE  radec orbit=L1Halo-1 dt=432000 output=output/2026_07_for_wy_srp_sweep/L1Halo-1/L1Halo-1_init_srpMean_0p0_srpSigma_0p01_dt_432000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:32:57] START radec orbit=L1Halo-2 dt=1296000 input=output/2026_07_for_wy_srp_sweep/L1Halo-2/L1Halo-2_init_srpMean_0p0_srpSigma_0p01_dt_1296000_n100000_o4_particles.csv
+[2026-07-15 19:32:57] START radec orbit=L1Halo-2 dt=1728000 input=output/2026_07_for_wy_srp_sweep/L1Halo-2/L1Halo-2_init_srpMean_0p0_srpSigma_0p01_dt_1728000_n100000_o4_particles.csv
+[2026-07-15 19:32:57] START radec orbit=L1Halo-2 dt=432000 input=output/2026_07_for_wy_srp_sweep/L1Halo-2/L1Halo-2_init_srpMean_0p0_srpSigma_0p01_dt_432000_n100000_o4_particles.csv
+[2026-07-15 19:32:57] START radec orbit=L1Halo-2 dt=864000 input=output/2026_07_for_wy_srp_sweep/L1Halo-2/L1Halo-2_init_srpMean_0p0_srpSigma_0p01_dt_864000_n100000_o4_particles.csv
+[2026-07-15 19:32:57] START radec orbit=L1Halo-2 dt=1296000 input=output/2026_07_for_wy_srp_sweep/L1Halo-2/L1Halo-2_init_srpMean_0p0_srpSigma_0p05_dt_1296000_n100000_o4_particles.csv
+[2026-07-15 19:32:57] START radec orbit=L1Halo-2 dt=1728000 input=output/2026_07_for_wy_srp_sweep/L1Halo-2/L1Halo-2_init_srpMean_0p0_srpSigma_0p05_dt_1728000_n100000_o4_particles.csv
+[2026-07-15 19:32:57] START radec orbit=L1Halo-2 dt=432000 input=output/2026_07_for_wy_srp_sweep/L1Halo-2/L1Halo-2_init_srpMean_0p0_srpSigma_0p05_dt_432000_n100000_o4_particles.csv
+[2026-07-15 19:32:57] START radec orbit=L1Halo-2 dt=864000 input=output/2026_07_for_wy_srp_sweep/L1Halo-2/L1Halo-2_init_srpMean_0p0_srpSigma_0p05_dt_864000_n100000_o4_particles.csv
+[2026-07-15 19:32:57] START radec orbit=L1Halo-2 dt=1296000 input=output/2026_07_for_wy_srp_sweep/L1Halo-2/L1Halo-2_init_srpMean_0p0_srpSigma_0p10_dt_1296000_n100000_o4_particles.csv
+[2026-07-15 19:32:57] START radec orbit=L1Halo-2 dt=1728000 input=output/2026_07_for_wy_srp_sweep/L1Halo-2/L1Halo-2_init_srpMean_0p0_srpSigma_0p10_dt_1728000_n100000_o4_particles.csv
+[2026-07-15 19:32:57] START radec orbit=L1Halo-2 dt=432000 input=output/2026_07_for_wy_srp_sweep/L1Halo-2/L1Halo-2_init_srpMean_0p0_srpSigma_0p10_dt_432000_n100000_o4_particles.csv
+[2026-07-15 19:32:57] START radec orbit=L1Halo-2 dt=864000 input=output/2026_07_for_wy_srp_sweep/L1Halo-2/L1Halo-2_init_srpMean_0p0_srpSigma_0p10_dt_864000_n100000_o4_particles.csv
+[2026-07-15 19:32:57] START radec orbit=L1Halo-2 dt=1296000 input=output/2026_07_for_wy_srp_sweep/L1Halo-2/L1Halo-2_init_srpMean_0p0_srpSigma_0p20_dt_1296000_n100000_o4_particles.csv
+[2026-07-15 19:32:57] START radec orbit=L1Halo-2 dt=1728000 input=output/2026_07_for_wy_srp_sweep/L1Halo-2/L1Halo-2_init_srpMean_0p0_srpSigma_0p20_dt_1728000_n100000_o4_particles.csv
+[2026-07-15 19:32:57] START radec orbit=L1Halo-2 dt=432000 input=output/2026_07_for_wy_srp_sweep/L1Halo-2/L1Halo-2_init_srpMean_0p0_srpSigma_0p20_dt_432000_n100000_o4_particles.csv
+[2026-07-15 19:32:57] START radec orbit=L1Halo-3 dt=1296000 input=output/2026_07_for_wy_srp_sweep/L1Halo-3/L1Halo-3_init_srpMean_0p0_srpSigma_0p01_dt_1296000_n100000_o4_particles.csv
+[2026-07-15 19:32:57] START radec orbit=L1Halo-2 dt=864000 input=output/2026_07_for_wy_srp_sweep/L1Halo-2/L1Halo-2_init_srpMean_0p0_srpSigma_0p20_dt_864000_n100000_o4_particles.csv
+[2026-07-15 19:32:57] START radec orbit=L1Halo-3 dt=1728000 input=output/2026_07_for_wy_srp_sweep/L1Halo-3/L1Halo-3_init_srpMean_0p0_srpSigma_0p01_dt_1728000_n100000_o4_particles.csv
+[2026-07-15 19:32:57] START radec orbit=L1Halo-3 dt=432000 input=output/2026_07_for_wy_srp_sweep/L1Halo-3/L1Halo-3_init_srpMean_0p0_srpSigma_0p01_dt_432000_n100000_o4_particles.csv
+[2026-07-15 19:32:57] START radec orbit=L1Halo-3 dt=864000 input=output/2026_07_for_wy_srp_sweep/L1Halo-3/L1Halo-3_init_srpMean_0p0_srpSigma_0p01_dt_864000_n100000_o4_particles.csv
+[2026-07-15 19:33:02] DONE  radec orbit=L1Halo-2 dt=1728000 output=output/2026_07_for_wy_srp_sweep/L1Halo-2/L1Halo-2_init_srpMean_0p0_srpSigma_0p20_dt_1728000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:02] DONE  radec orbit=L1Halo-2 dt=432000 output=output/2026_07_for_wy_srp_sweep/L1Halo-2/L1Halo-2_init_srpMean_0p0_srpSigma_0p05_dt_432000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:02] DONE  radec orbit=L1Halo-2 dt=432000 output=output/2026_07_for_wy_srp_sweep/L1Halo-2/L1Halo-2_init_srpMean_0p0_srpSigma_0p10_dt_432000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:02] DONE  radec orbit=L1Halo-2 dt=864000 output=output/2026_07_for_wy_srp_sweep/L1Halo-2/L1Halo-2_init_srpMean_0p0_srpSigma_0p05_dt_864000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:02] DONE  radec orbit=L1Halo-3 dt=432000 output=output/2026_07_for_wy_srp_sweep/L1Halo-3/L1Halo-3_init_srpMean_0p0_srpSigma_0p01_dt_432000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:02] DONE  radec orbit=L1Halo-2 dt=864000 output=output/2026_07_for_wy_srp_sweep/L1Halo-2/L1Halo-2_init_srpMean_0p0_srpSigma_0p01_dt_864000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:02] DONE  radec orbit=L1Halo-2 dt=432000 output=output/2026_07_for_wy_srp_sweep/L1Halo-2/L1Halo-2_init_srpMean_0p0_srpSigma_0p01_dt_432000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:02] DONE  radec orbit=L1Halo-3 dt=864000 output=output/2026_07_for_wy_srp_sweep/L1Halo-3/L1Halo-3_init_srpMean_0p0_srpSigma_0p01_dt_864000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:02] DONE  radec orbit=L1Halo-2 dt=1728000 output=output/2026_07_for_wy_srp_sweep/L1Halo-2/L1Halo-2_init_srpMean_0p0_srpSigma_0p01_dt_1728000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:02] DONE  radec orbit=L1Halo-2 dt=864000 output=output/2026_07_for_wy_srp_sweep/L1Halo-2/L1Halo-2_init_srpMean_0p0_srpSigma_0p20_dt_864000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:03] DONE  radec orbit=L1Halo-2 dt=1296000 output=output/2026_07_for_wy_srp_sweep/L1Halo-2/L1Halo-2_init_srpMean_0p0_srpSigma_0p01_dt_1296000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:03] DONE  radec orbit=L1Halo-3 dt=1296000 output=output/2026_07_for_wy_srp_sweep/L1Halo-3/L1Halo-3_init_srpMean_0p0_srpSigma_0p01_dt_1296000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:03] DONE  radec orbit=L1Halo-2 dt=1728000 output=output/2026_07_for_wy_srp_sweep/L1Halo-2/L1Halo-2_init_srpMean_0p0_srpSigma_0p10_dt_1728000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:03] DONE  radec orbit=L1Halo-2 dt=1296000 output=output/2026_07_for_wy_srp_sweep/L1Halo-2/L1Halo-2_init_srpMean_0p0_srpSigma_0p05_dt_1296000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:03] DONE  radec orbit=L1Halo-2 dt=1296000 output=output/2026_07_for_wy_srp_sweep/L1Halo-2/L1Halo-2_init_srpMean_0p0_srpSigma_0p20_dt_1296000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:03] DONE  radec orbit=L1Halo-2 dt=864000 output=output/2026_07_for_wy_srp_sweep/L1Halo-2/L1Halo-2_init_srpMean_0p0_srpSigma_0p10_dt_864000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:03] DONE  radec orbit=L1Halo-2 dt=1296000 output=output/2026_07_for_wy_srp_sweep/L1Halo-2/L1Halo-2_init_srpMean_0p0_srpSigma_0p10_dt_1296000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:03] DONE  radec orbit=L1Halo-2 dt=1728000 output=output/2026_07_for_wy_srp_sweep/L1Halo-2/L1Halo-2_init_srpMean_0p0_srpSigma_0p05_dt_1728000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:03] DONE  radec orbit=L1Halo-2 dt=432000 output=output/2026_07_for_wy_srp_sweep/L1Halo-2/L1Halo-2_init_srpMean_0p0_srpSigma_0p20_dt_432000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:03] DONE  radec orbit=L1Halo-3 dt=1728000 output=output/2026_07_for_wy_srp_sweep/L1Halo-3/L1Halo-3_init_srpMean_0p0_srpSigma_0p01_dt_1728000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:07] START radec orbit=L1Halo-3 dt=1296000 input=output/2026_07_for_wy_srp_sweep/L1Halo-3/L1Halo-3_init_srpMean_0p0_srpSigma_0p05_dt_1296000_n100000_o4_particles.csv
+[2026-07-15 19:33:07] START radec orbit=L1Halo-3 dt=1728000 input=output/2026_07_for_wy_srp_sweep/L1Halo-3/L1Halo-3_init_srpMean_0p0_srpSigma_0p05_dt_1728000_n100000_o4_particles.csv
+[2026-07-15 19:33:07] START radec orbit=L1Halo-3 dt=432000 input=output/2026_07_for_wy_srp_sweep/L1Halo-3/L1Halo-3_init_srpMean_0p0_srpSigma_0p05_dt_432000_n100000_o4_particles.csv
+[2026-07-15 19:33:07] START radec orbit=L1Halo-3 dt=864000 input=output/2026_07_for_wy_srp_sweep/L1Halo-3/L1Halo-3_init_srpMean_0p0_srpSigma_0p05_dt_864000_n100000_o4_particles.csv
+[2026-07-15 19:33:07] START radec orbit=L1Halo-3 dt=1296000 input=output/2026_07_for_wy_srp_sweep/L1Halo-3/L1Halo-3_init_srpMean_0p0_srpSigma_0p10_dt_1296000_n100000_o4_particles.csv
+[2026-07-15 19:33:07] START radec orbit=L1Halo-3 dt=1728000 input=output/2026_07_for_wy_srp_sweep/L1Halo-3/L1Halo-3_init_srpMean_0p0_srpSigma_0p10_dt_1728000_n100000_o4_particles.csv
+[2026-07-15 19:33:07] START radec orbit=L1Halo-3 dt=432000 input=output/2026_07_for_wy_srp_sweep/L1Halo-3/L1Halo-3_init_srpMean_0p0_srpSigma_0p10_dt_432000_n100000_o4_particles.csv
+[2026-07-15 19:33:07] START radec orbit=L1Halo-3 dt=864000 input=output/2026_07_for_wy_srp_sweep/L1Halo-3/L1Halo-3_init_srpMean_0p0_srpSigma_0p10_dt_864000_n100000_o4_particles.csv
+[2026-07-15 19:33:07] START radec orbit=L1Halo-3 dt=1296000 input=output/2026_07_for_wy_srp_sweep/L1Halo-3/L1Halo-3_init_srpMean_0p0_srpSigma_0p20_dt_1296000_n100000_o4_particles.csv
+[2026-07-15 19:33:07] START radec orbit=L1Halo-3 dt=1728000 input=output/2026_07_for_wy_srp_sweep/L1Halo-3/L1Halo-3_init_srpMean_0p0_srpSigma_0p20_dt_1728000_n100000_o4_particles.csv
+[2026-07-15 19:33:07] START radec orbit=L1Halo-3 dt=432000 input=output/2026_07_for_wy_srp_sweep/L1Halo-3/L1Halo-3_init_srpMean_0p0_srpSigma_0p20_dt_432000_n100000_o4_particles.csv
+[2026-07-15 19:33:07] START radec orbit=L1Halo-3 dt=864000 input=output/2026_07_for_wy_srp_sweep/L1Halo-3/L1Halo-3_init_srpMean_0p0_srpSigma_0p20_dt_864000_n100000_o4_particles.csv
+[2026-07-15 19:33:07] START radec orbit=L2Halo-1 dt=1296000 input=output/2026_07_for_wy_srp_sweep/L2Halo-1/L2Halo-1_init_srpMean_0p0_srpSigma_0p01_dt_1296000_n100000_o4_particles.csv
+[2026-07-15 19:33:07] START radec orbit=L2Halo-1 dt=1728000 input=output/2026_07_for_wy_srp_sweep/L2Halo-1/L2Halo-1_init_srpMean_0p0_srpSigma_0p01_dt_1728000_n100000_o4_particles.csv
+[2026-07-15 19:33:07] START radec orbit=L2Halo-1 dt=432000 input=output/2026_07_for_wy_srp_sweep/L2Halo-1/L2Halo-1_init_srpMean_0p0_srpSigma_0p01_dt_432000_n100000_o4_particles.csv
+[2026-07-15 19:33:07] START radec orbit=L2Halo-1 dt=864000 input=output/2026_07_for_wy_srp_sweep/L2Halo-1/L2Halo-1_init_srpMean_0p0_srpSigma_0p01_dt_864000_n100000_o4_particles.csv
+[2026-07-15 19:33:07] START radec orbit=L2Halo-1 dt=1296000 input=output/2026_07_for_wy_srp_sweep/L2Halo-1/L2Halo-1_init_srpMean_0p0_srpSigma_0p05_dt_1296000_n100000_o4_particles.csv
+[2026-07-15 19:33:07] START radec orbit=L2Halo-1 dt=1728000 input=output/2026_07_for_wy_srp_sweep/L2Halo-1/L2Halo-1_init_srpMean_0p0_srpSigma_0p05_dt_1728000_n100000_o4_particles.csv
+[2026-07-15 19:33:07] START radec orbit=L2Halo-1 dt=864000 input=output/2026_07_for_wy_srp_sweep/L2Halo-1/L2Halo-1_init_srpMean_0p0_srpSigma_0p05_dt_864000_n100000_o4_particles.csv
+[2026-07-15 19:33:07] START radec orbit=L2Halo-1 dt=432000 input=output/2026_07_for_wy_srp_sweep/L2Halo-1/L2Halo-1_init_srpMean_0p0_srpSigma_0p05_dt_432000_n100000_o4_particles.csv
+[2026-07-15 19:33:12] DONE  radec orbit=L1Halo-3 dt=432000 output=output/2026_07_for_wy_srp_sweep/L1Halo-3/L1Halo-3_init_srpMean_0p0_srpSigma_0p05_dt_432000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:12] DONE  radec orbit=L1Halo-3 dt=864000 output=output/2026_07_for_wy_srp_sweep/L1Halo-3/L1Halo-3_init_srpMean_0p0_srpSigma_0p10_dt_864000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:12] DONE  radec orbit=L1Halo-3 dt=1296000 output=output/2026_07_for_wy_srp_sweep/L1Halo-3/L1Halo-3_init_srpMean_0p0_srpSigma_0p20_dt_1296000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:12] DONE  radec orbit=L1Halo-3 dt=1296000 output=output/2026_07_for_wy_srp_sweep/L1Halo-3/L1Halo-3_init_srpMean_0p0_srpSigma_0p10_dt_1296000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:12] DONE  radec orbit=L2Halo-1 dt=432000 output=output/2026_07_for_wy_srp_sweep/L2Halo-1/L2Halo-1_init_srpMean_0p0_srpSigma_0p01_dt_432000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:12] DONE  radec orbit=L2Halo-1 dt=1296000 output=output/2026_07_for_wy_srp_sweep/L2Halo-1/L2Halo-1_init_srpMean_0p0_srpSigma_0p01_dt_1296000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:12] DONE  radec orbit=L1Halo-3 dt=432000 output=output/2026_07_for_wy_srp_sweep/L1Halo-3/L1Halo-3_init_srpMean_0p0_srpSigma_0p20_dt_432000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:12] DONE  radec orbit=L2Halo-1 dt=432000 output=output/2026_07_for_wy_srp_sweep/L2Halo-1/L2Halo-1_init_srpMean_0p0_srpSigma_0p05_dt_432000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:12] DONE  radec orbit=L2Halo-1 dt=864000 output=output/2026_07_for_wy_srp_sweep/L2Halo-1/L2Halo-1_init_srpMean_0p0_srpSigma_0p05_dt_864000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:12] DONE  radec orbit=L2Halo-1 dt=1728000 output=output/2026_07_for_wy_srp_sweep/L2Halo-1/L2Halo-1_init_srpMean_0p0_srpSigma_0p01_dt_1728000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:13] DONE  radec orbit=L1Halo-3 dt=864000 output=output/2026_07_for_wy_srp_sweep/L1Halo-3/L1Halo-3_init_srpMean_0p0_srpSigma_0p05_dt_864000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:13] DONE  radec orbit=L2Halo-1 dt=864000 output=output/2026_07_for_wy_srp_sweep/L2Halo-1/L2Halo-1_init_srpMean_0p0_srpSigma_0p01_dt_864000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:13] DONE  radec orbit=L1Halo-3 dt=864000 output=output/2026_07_for_wy_srp_sweep/L1Halo-3/L1Halo-3_init_srpMean_0p0_srpSigma_0p20_dt_864000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:13] DONE  radec orbit=L1Halo-3 dt=432000 output=output/2026_07_for_wy_srp_sweep/L1Halo-3/L1Halo-3_init_srpMean_0p0_srpSigma_0p10_dt_432000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:13] DONE  radec orbit=L1Halo-3 dt=1728000 output=output/2026_07_for_wy_srp_sweep/L1Halo-3/L1Halo-3_init_srpMean_0p0_srpSigma_0p05_dt_1728000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:13] DONE  radec orbit=L1Halo-3 dt=1728000 output=output/2026_07_for_wy_srp_sweep/L1Halo-3/L1Halo-3_init_srpMean_0p0_srpSigma_0p20_dt_1728000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:13] DONE  radec orbit=L1Halo-3 dt=1296000 output=output/2026_07_for_wy_srp_sweep/L1Halo-3/L1Halo-3_init_srpMean_0p0_srpSigma_0p05_dt_1296000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:14] DONE  radec orbit=L1Halo-3 dt=1728000 output=output/2026_07_for_wy_srp_sweep/L1Halo-3/L1Halo-3_init_srpMean_0p0_srpSigma_0p10_dt_1728000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:14] DONE  radec orbit=L2Halo-1 dt=1296000 output=output/2026_07_for_wy_srp_sweep/L2Halo-1/L2Halo-1_init_srpMean_0p0_srpSigma_0p05_dt_1296000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:14] DONE  radec orbit=L2Halo-1 dt=1728000 output=output/2026_07_for_wy_srp_sweep/L2Halo-1/L2Halo-1_init_srpMean_0p0_srpSigma_0p05_dt_1728000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:17] START radec orbit=L2Halo-1 dt=1296000 input=output/2026_07_for_wy_srp_sweep/L2Halo-1/L2Halo-1_init_srpMean_0p0_srpSigma_0p10_dt_1296000_n100000_o4_particles.csv
+[2026-07-15 19:33:17] START radec orbit=L2Halo-1 dt=1728000 input=output/2026_07_for_wy_srp_sweep/L2Halo-1/L2Halo-1_init_srpMean_0p0_srpSigma_0p10_dt_1728000_n100000_o4_particles.csv
+[2026-07-15 19:33:17] START radec orbit=L2Halo-1 dt=432000 input=output/2026_07_for_wy_srp_sweep/L2Halo-1/L2Halo-1_init_srpMean_0p0_srpSigma_0p10_dt_432000_n100000_o4_particles.csv
+[2026-07-15 19:33:17] START radec orbit=L2Halo-1 dt=864000 input=output/2026_07_for_wy_srp_sweep/L2Halo-1/L2Halo-1_init_srpMean_0p0_srpSigma_0p10_dt_864000_n100000_o4_particles.csv
+[2026-07-15 19:33:17] START radec orbit=L2Halo-1 dt=1296000 input=output/2026_07_for_wy_srp_sweep/L2Halo-1/L2Halo-1_init_srpMean_0p0_srpSigma_0p20_dt_1296000_n100000_o4_particles.csv
+[2026-07-15 19:33:17] START radec orbit=L2Halo-1 dt=1728000 input=output/2026_07_for_wy_srp_sweep/L2Halo-1/L2Halo-1_init_srpMean_0p0_srpSigma_0p20_dt_1728000_n100000_o4_particles.csv
+[2026-07-15 19:33:17] START radec orbit=L2Halo-1 dt=432000 input=output/2026_07_for_wy_srp_sweep/L2Halo-1/L2Halo-1_init_srpMean_0p0_srpSigma_0p20_dt_432000_n100000_o4_particles.csv
+[2026-07-15 19:33:17] START radec orbit=L2Halo-1 dt=864000 input=output/2026_07_for_wy_srp_sweep/L2Halo-1/L2Halo-1_init_srpMean_0p0_srpSigma_0p20_dt_864000_n100000_o4_particles.csv
+[2026-07-15 19:33:17] START radec orbit=L2Halo-2 dt=1296000 input=output/2026_07_for_wy_srp_sweep/L2Halo-2/L2Halo-2_init_srpMean_0p0_srpSigma_0p01_dt_1296000_n100000_o4_particles.csv
+[2026-07-15 19:33:17] START radec orbit=L2Halo-2 dt=1728000 input=output/2026_07_for_wy_srp_sweep/L2Halo-2/L2Halo-2_init_srpMean_0p0_srpSigma_0p01_dt_1728000_n100000_o4_particles.csv
+[2026-07-15 19:33:17] START radec orbit=L2Halo-2 dt=432000 input=output/2026_07_for_wy_srp_sweep/L2Halo-2/L2Halo-2_init_srpMean_0p0_srpSigma_0p01_dt_432000_n100000_o4_particles.csv
+[2026-07-15 19:33:17] START radec orbit=L2Halo-2 dt=864000 input=output/2026_07_for_wy_srp_sweep/L2Halo-2/L2Halo-2_init_srpMean_0p0_srpSigma_0p01_dt_864000_n100000_o4_particles.csv
+[2026-07-15 19:33:17] START radec orbit=L2Halo-2 dt=1296000 input=output/2026_07_for_wy_srp_sweep/L2Halo-2/L2Halo-2_init_srpMean_0p0_srpSigma_0p05_dt_1296000_n100000_o4_particles.csv
+[2026-07-15 19:33:17] START radec orbit=L2Halo-2 dt=1728000 input=output/2026_07_for_wy_srp_sweep/L2Halo-2/L2Halo-2_init_srpMean_0p0_srpSigma_0p05_dt_1728000_n100000_o4_particles.csv
+[2026-07-15 19:33:17] START radec orbit=L2Halo-2 dt=432000 input=output/2026_07_for_wy_srp_sweep/L2Halo-2/L2Halo-2_init_srpMean_0p0_srpSigma_0p05_dt_432000_n100000_o4_particles.csv
+[2026-07-15 19:33:17] START radec orbit=L2Halo-2 dt=864000 input=output/2026_07_for_wy_srp_sweep/L2Halo-2/L2Halo-2_init_srpMean_0p0_srpSigma_0p05_dt_864000_n100000_o4_particles.csv
+[2026-07-15 19:33:17] START radec orbit=L2Halo-2 dt=1296000 input=output/2026_07_for_wy_srp_sweep/L2Halo-2/L2Halo-2_init_srpMean_0p0_srpSigma_0p10_dt_1296000_n100000_o4_particles.csv
+[2026-07-15 19:33:17] START radec orbit=L2Halo-2 dt=1728000 input=output/2026_07_for_wy_srp_sweep/L2Halo-2/L2Halo-2_init_srpMean_0p0_srpSigma_0p10_dt_1728000_n100000_o4_particles.csv
+[2026-07-15 19:33:17] START radec orbit=L2Halo-2 dt=432000 input=output/2026_07_for_wy_srp_sweep/L2Halo-2/L2Halo-2_init_srpMean_0p0_srpSigma_0p10_dt_432000_n100000_o4_particles.csv
+[2026-07-15 19:33:17] START radec orbit=L2Halo-2 dt=864000 input=output/2026_07_for_wy_srp_sweep/L2Halo-2/L2Halo-2_init_srpMean_0p0_srpSigma_0p10_dt_864000_n100000_o4_particles.csv
+[2026-07-15 19:33:22] DONE  radec orbit=L2Halo-1 dt=864000 output=output/2026_07_for_wy_srp_sweep/L2Halo-1/L2Halo-1_init_srpMean_0p0_srpSigma_0p20_dt_864000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:22] DONE  radec orbit=L2Halo-2 dt=1296000 output=output/2026_07_for_wy_srp_sweep/L2Halo-2/L2Halo-2_init_srpMean_0p0_srpSigma_0p10_dt_1296000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:22] DONE  radec orbit=L2Halo-1 dt=1728000 output=output/2026_07_for_wy_srp_sweep/L2Halo-1/L2Halo-1_init_srpMean_0p0_srpSigma_0p20_dt_1728000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:22] DONE  radec orbit=L2Halo-2 dt=432000 output=output/2026_07_for_wy_srp_sweep/L2Halo-2/L2Halo-2_init_srpMean_0p0_srpSigma_0p01_dt_432000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:22] DONE  radec orbit=L2Halo-1 dt=1296000 output=output/2026_07_for_wy_srp_sweep/L2Halo-1/L2Halo-1_init_srpMean_0p0_srpSigma_0p20_dt_1296000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:22] DONE  radec orbit=L2Halo-2 dt=1728000 output=output/2026_07_for_wy_srp_sweep/L2Halo-2/L2Halo-2_init_srpMean_0p0_srpSigma_0p10_dt_1728000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:22] DONE  radec orbit=L2Halo-1 dt=432000 output=output/2026_07_for_wy_srp_sweep/L2Halo-1/L2Halo-1_init_srpMean_0p0_srpSigma_0p10_dt_432000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:22] DONE  radec orbit=L2Halo-1 dt=864000 output=output/2026_07_for_wy_srp_sweep/L2Halo-1/L2Halo-1_init_srpMean_0p0_srpSigma_0p10_dt_864000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:22] DONE  radec orbit=L2Halo-2 dt=864000 output=output/2026_07_for_wy_srp_sweep/L2Halo-2/L2Halo-2_init_srpMean_0p0_srpSigma_0p01_dt_864000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:22] DONE  radec orbit=L2Halo-2 dt=864000 output=output/2026_07_for_wy_srp_sweep/L2Halo-2/L2Halo-2_init_srpMean_0p0_srpSigma_0p05_dt_864000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:22] DONE  radec orbit=L2Halo-2 dt=1296000 output=output/2026_07_for_wy_srp_sweep/L2Halo-2/L2Halo-2_init_srpMean_0p0_srpSigma_0p05_dt_1296000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:22] DONE  radec orbit=L2Halo-2 dt=1728000 output=output/2026_07_for_wy_srp_sweep/L2Halo-2/L2Halo-2_init_srpMean_0p0_srpSigma_0p01_dt_1728000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:23] DONE  radec orbit=L2Halo-1 dt=432000 output=output/2026_07_for_wy_srp_sweep/L2Halo-1/L2Halo-1_init_srpMean_0p0_srpSigma_0p20_dt_432000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:23] DONE  radec orbit=L2Halo-1 dt=1728000 output=output/2026_07_for_wy_srp_sweep/L2Halo-1/L2Halo-1_init_srpMean_0p0_srpSigma_0p10_dt_1728000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:23] DONE  radec orbit=L2Halo-2 dt=1296000 output=output/2026_07_for_wy_srp_sweep/L2Halo-2/L2Halo-2_init_srpMean_0p0_srpSigma_0p01_dt_1296000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:23] DONE  radec orbit=L2Halo-1 dt=1296000 output=output/2026_07_for_wy_srp_sweep/L2Halo-1/L2Halo-1_init_srpMean_0p0_srpSigma_0p10_dt_1296000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:23] DONE  radec orbit=L2Halo-2 dt=432000 output=output/2026_07_for_wy_srp_sweep/L2Halo-2/L2Halo-2_init_srpMean_0p0_srpSigma_0p05_dt_432000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:23] DONE  radec orbit=L2Halo-2 dt=864000 output=output/2026_07_for_wy_srp_sweep/L2Halo-2/L2Halo-2_init_srpMean_0p0_srpSigma_0p10_dt_864000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:23] DONE  radec orbit=L2Halo-2 dt=1728000 output=output/2026_07_for_wy_srp_sweep/L2Halo-2/L2Halo-2_init_srpMean_0p0_srpSigma_0p05_dt_1728000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:23] DONE  radec orbit=L2Halo-2 dt=432000 output=output/2026_07_for_wy_srp_sweep/L2Halo-2/L2Halo-2_init_srpMean_0p0_srpSigma_0p10_dt_432000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:28] START radec orbit=L2Halo-2 dt=1296000 input=output/2026_07_for_wy_srp_sweep/L2Halo-2/L2Halo-2_init_srpMean_0p0_srpSigma_0p20_dt_1296000_n100000_o4_particles.csv
+[2026-07-15 19:33:28] START radec orbit=L2Halo-2 dt=1728000 input=output/2026_07_for_wy_srp_sweep/L2Halo-2/L2Halo-2_init_srpMean_0p0_srpSigma_0p20_dt_1728000_n100000_o4_particles.csv
+[2026-07-15 19:33:28] START radec orbit=L2Halo-2 dt=432000 input=output/2026_07_for_wy_srp_sweep/L2Halo-2/L2Halo-2_init_srpMean_0p0_srpSigma_0p20_dt_432000_n100000_o4_particles.csv
+[2026-07-15 19:33:28] START radec orbit=L2Halo-2 dt=864000 input=output/2026_07_for_wy_srp_sweep/L2Halo-2/L2Halo-2_init_srpMean_0p0_srpSigma_0p20_dt_864000_n100000_o4_particles.csv
+[2026-07-15 19:33:28] START radec orbit=L2Halo-3 dt=1296000 input=output/2026_07_for_wy_srp_sweep/L2Halo-3/L2Halo-3_init_srpMean_0p0_srpSigma_0p01_dt_1296000_n100000_o4_particles.csv
+[2026-07-15 19:33:28] START radec orbit=L2Halo-3 dt=1728000 input=output/2026_07_for_wy_srp_sweep/L2Halo-3/L2Halo-3_init_srpMean_0p0_srpSigma_0p01_dt_1728000_n100000_o4_particles.csv
+[2026-07-15 19:33:28] START radec orbit=L2Halo-3 dt=432000 input=output/2026_07_for_wy_srp_sweep/L2Halo-3/L2Halo-3_init_srpMean_0p0_srpSigma_0p01_dt_432000_n100000_o4_particles.csv
+[2026-07-15 19:33:28] START radec orbit=L2Halo-3 dt=864000 input=output/2026_07_for_wy_srp_sweep/L2Halo-3/L2Halo-3_init_srpMean_0p0_srpSigma_0p01_dt_864000_n100000_o4_particles.csv
+[2026-07-15 19:33:28] START radec orbit=L2Halo-3 dt=1296000 input=output/2026_07_for_wy_srp_sweep/L2Halo-3/L2Halo-3_init_srpMean_0p0_srpSigma_0p05_dt_1296000_n100000_o4_particles.csv
+[2026-07-15 19:33:28] START radec orbit=L2Halo-3 dt=1728000 input=output/2026_07_for_wy_srp_sweep/L2Halo-3/L2Halo-3_init_srpMean_0p0_srpSigma_0p05_dt_1728000_n100000_o4_particles.csv
+[2026-07-15 19:33:28] START radec orbit=L2Halo-3 dt=432000 input=output/2026_07_for_wy_srp_sweep/L2Halo-3/L2Halo-3_init_srpMean_0p0_srpSigma_0p05_dt_432000_n100000_o4_particles.csv
+[2026-07-15 19:33:28] START radec orbit=L2Halo-3 dt=864000 input=output/2026_07_for_wy_srp_sweep/L2Halo-3/L2Halo-3_init_srpMean_0p0_srpSigma_0p05_dt_864000_n100000_o4_particles.csv
+[2026-07-15 19:33:28] START radec orbit=L2Halo-3 dt=1296000 input=output/2026_07_for_wy_srp_sweep/L2Halo-3/L2Halo-3_init_srpMean_0p0_srpSigma_0p10_dt_1296000_n100000_o4_particles.csv
+[2026-07-15 19:33:28] START radec orbit=L2Halo-3 dt=1728000 input=output/2026_07_for_wy_srp_sweep/L2Halo-3/L2Halo-3_init_srpMean_0p0_srpSigma_0p10_dt_1728000_n100000_o4_particles.csv
+[2026-07-15 19:33:28] START radec orbit=L2Halo-3 dt=432000 input=output/2026_07_for_wy_srp_sweep/L2Halo-3/L2Halo-3_init_srpMean_0p0_srpSigma_0p10_dt_432000_n100000_o4_particles.csv
+[2026-07-15 19:33:28] START radec orbit=L2Halo-3 dt=864000 input=output/2026_07_for_wy_srp_sweep/L2Halo-3/L2Halo-3_init_srpMean_0p0_srpSigma_0p10_dt_864000_n100000_o4_particles.csv
+[2026-07-15 19:33:28] START radec orbit=L2Halo-3 dt=1296000 input=output/2026_07_for_wy_srp_sweep/L2Halo-3/L2Halo-3_init_srpMean_0p0_srpSigma_0p20_dt_1296000_n100000_o4_particles.csv
+[2026-07-15 19:33:28] START radec orbit=L2Halo-3 dt=1728000 input=output/2026_07_for_wy_srp_sweep/L2Halo-3/L2Halo-3_init_srpMean_0p0_srpSigma_0p20_dt_1728000_n100000_o4_particles.csv
+[2026-07-15 19:33:28] START radec orbit=L2Halo-3 dt=432000 input=output/2026_07_for_wy_srp_sweep/L2Halo-3/L2Halo-3_init_srpMean_0p0_srpSigma_0p20_dt_432000_n100000_o4_particles.csv
+[2026-07-15 19:33:28] START radec orbit=L2Halo-3 dt=864000 input=output/2026_07_for_wy_srp_sweep/L2Halo-3/L2Halo-3_init_srpMean_0p0_srpSigma_0p20_dt_864000_n100000_o4_particles.csv
+[2026-07-15 19:33:33] DONE  radec orbit=L2Halo-2 dt=1728000 output=output/2026_07_for_wy_srp_sweep/L2Halo-2/L2Halo-2_init_srpMean_0p0_srpSigma_0p20_dt_1728000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:33] DONE  radec orbit=L2Halo-3 dt=864000 output=output/2026_07_for_wy_srp_sweep/L2Halo-3/L2Halo-3_init_srpMean_0p0_srpSigma_0p10_dt_864000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:33] DONE  radec orbit=L2Halo-3 dt=1728000 output=output/2026_07_for_wy_srp_sweep/L2Halo-3/L2Halo-3_init_srpMean_0p0_srpSigma_0p01_dt_1728000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:33] DONE  radec orbit=L2Halo-3 dt=864000 output=output/2026_07_for_wy_srp_sweep/L2Halo-3/L2Halo-3_init_srpMean_0p0_srpSigma_0p05_dt_864000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:33] DONE  radec orbit=L2Halo-3 dt=1728000 output=output/2026_07_for_wy_srp_sweep/L2Halo-3/L2Halo-3_init_srpMean_0p0_srpSigma_0p10_dt_1728000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:33] DONE  radec orbit=L2Halo-3 dt=432000 output=output/2026_07_for_wy_srp_sweep/L2Halo-3/L2Halo-3_init_srpMean_0p0_srpSigma_0p10_dt_432000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:33] DONE  radec orbit=L2Halo-3 dt=432000 output=output/2026_07_for_wy_srp_sweep/L2Halo-3/L2Halo-3_init_srpMean_0p0_srpSigma_0p01_dt_432000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:33] DONE  radec orbit=L2Halo-3 dt=864000 output=output/2026_07_for_wy_srp_sweep/L2Halo-3/L2Halo-3_init_srpMean_0p0_srpSigma_0p01_dt_864000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:33] DONE  radec orbit=L2Halo-3 dt=1296000 output=output/2026_07_for_wy_srp_sweep/L2Halo-3/L2Halo-3_init_srpMean_0p0_srpSigma_0p05_dt_1296000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:33] DONE  radec orbit=L2Halo-3 dt=432000 output=output/2026_07_for_wy_srp_sweep/L2Halo-3/L2Halo-3_init_srpMean_0p0_srpSigma_0p20_dt_432000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:33] DONE  radec orbit=L2Halo-3 dt=432000 output=output/2026_07_for_wy_srp_sweep/L2Halo-3/L2Halo-3_init_srpMean_0p0_srpSigma_0p05_dt_432000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:33] DONE  radec orbit=L2Halo-3 dt=1728000 output=output/2026_07_for_wy_srp_sweep/L2Halo-3/L2Halo-3_init_srpMean_0p0_srpSigma_0p20_dt_1728000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:34] DONE  radec orbit=L2Halo-2 dt=432000 output=output/2026_07_for_wy_srp_sweep/L2Halo-2/L2Halo-2_init_srpMean_0p0_srpSigma_0p20_dt_432000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:34] DONE  radec orbit=L2Halo-3 dt=1296000 output=output/2026_07_for_wy_srp_sweep/L2Halo-3/L2Halo-3_init_srpMean_0p0_srpSigma_0p10_dt_1296000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:34] DONE  radec orbit=L2Halo-2 dt=1296000 output=output/2026_07_for_wy_srp_sweep/L2Halo-2/L2Halo-2_init_srpMean_0p0_srpSigma_0p20_dt_1296000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:34] DONE  radec orbit=L2Halo-2 dt=864000 output=output/2026_07_for_wy_srp_sweep/L2Halo-2/L2Halo-2_init_srpMean_0p0_srpSigma_0p20_dt_864000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:34] DONE  radec orbit=L2Halo-3 dt=864000 output=output/2026_07_for_wy_srp_sweep/L2Halo-3/L2Halo-3_init_srpMean_0p0_srpSigma_0p20_dt_864000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:34] DONE  radec orbit=L2Halo-3 dt=1296000 output=output/2026_07_for_wy_srp_sweep/L2Halo-3/L2Halo-3_init_srpMean_0p0_srpSigma_0p20_dt_1296000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:34] DONE  radec orbit=L2Halo-3 dt=1728000 output=output/2026_07_for_wy_srp_sweep/L2Halo-3/L2Halo-3_init_srpMean_0p0_srpSigma_0p05_dt_1728000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:34] DONE  radec orbit=L2Halo-3 dt=1296000 output=output/2026_07_for_wy_srp_sweep/L2Halo-3/L2Halo-3_init_srpMean_0p0_srpSigma_0p01_dt_1296000_n100000_o4_radec_R91_deg.csv
+[2026-07-15 19:33:35] HALO RADEC batch finished status=0 cases=120 skipped=0

@@ -11,8 +11,12 @@ module pod_da_force_model_module
     logical :: use_srp_scale_da = .false.
     integer :: srp_scale_da_index = 0
     real(DP) :: srp_scale_nominal = 0.0_DP
+    real(DP) :: srp_reflectivity_default = 1.25_DP
+    real(DP) :: srp_area_mass_default = 7.5e-3_DP
+    real(DP) :: srp_pressure_default = -1.0_DP
     public :: set_propagation_epoch, cleanup_gravity_network
     public :: set_srp_scale_uncertainty, clear_srp_scale_uncertainty
+    public :: set_srp_ballistic_parameters
 
     ! =========================================================
     ! N 体常量定义
@@ -120,6 +124,14 @@ contains
         srp_scale_da_index = 0
         srp_scale_nominal = 0.0_DP
     end subroutine clear_srp_scale_uncertainty
+
+    subroutine set_srp_ballistic_parameters(Cr, SMR, RP)
+        real(DP), intent(in), optional :: Cr, SMR, RP
+
+        if (present(Cr)) srp_reflectivity_default = Cr
+        if (present(SMR)) srp_area_mass_default = SMR
+        if (present(RP)) srp_pressure_default = RP
+    end subroutine set_srp_ballistic_parameters
     
     !> 计算总加速度的主函数
     subroutine da_compute_acceleration(position, velocity, time, acceleration)
@@ -420,9 +432,10 @@ contains
         type(DA) :: srp_scale_da, srp_factor_da
 
         ! 默认值 (与 f_SRP 对齐)
-        reflectivity = 1.25_DP
-        area_mass_ratio = 7.5e-3_DP
-        nominal_rp = SOLAR_CONSTANT / SPEED_OF_LIGHT   ! ≈ 4.56e-6 N/m²
+        reflectivity = srp_reflectivity_default
+        area_mass_ratio = srp_area_mass_default
+        nominal_rp = SOLAR_CONSTANT / SPEED_OF_LIGHT
+        if (srp_pressure_default > 0.0_DP) nominal_rp = srp_pressure_default   ! ≈ 4.56e-6 N/m²
         
         if (present(Cr)) reflectivity = Cr
         if (present(SMR)) area_mass_ratio = SMR
