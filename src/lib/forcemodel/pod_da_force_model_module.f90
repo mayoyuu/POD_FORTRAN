@@ -377,28 +377,37 @@ contains
         type(AlgebraicVector), intent(inout) :: acceleration
         type(ForceModelTempPool), intent(inout) :: pool
         
-        real(DP) :: altitude, density, velocity_mag, drag_coefficient, area_mass_ratio
-        real(DP) :: drag_factor
+        real(DP) :: drag_coefficient, area_mass_ratio
+        real(DP), parameter :: H0 = 8.5_DP
+        real(DP), parameter :: RHO0 = 1.225e-3_DP
 
         
         ! 计算高度
-        altitude = norm2(position%cons()) - EARTH_RADIUS
+        call vector_norm2_sub(position, pool%r_mag)
+        call da_sub(pool%r_mag, EARTH_RADIUS, pool%tmp_da1)
         
         ! 计算大气密度 (简化模型)
-        call compute_atmospheric_density(altitude, density)
+        if (pool%tmp_da1%cons() < 100.0_DP) then
+            call da_mul(pool%tmp_da1, -1.0_DP / H0, pool%tmp_da2)
+            call da_exp_sub(pool%tmp_da2, pool%tmp_da3)
+            call da_mul(pool%tmp_da3, RHO0, pool%tmp_da4)
+        else
+            call da_mul(pool%tmp_da1, 0.0_DP, pool%tmp_da4)
+        end if
         
         ! 计算相对速度大小
-        velocity_mag = norm2(velocity%cons())
+        call vector_norm2_sub(velocity, pool%tmp_da5)
         
         ! 阻力系数和面积质量比 (需要根据具体卫星参数设置)
         drag_coefficient = 2.2_DP  ! 典型值
         area_mass_ratio = 0.01_DP  ! m²/kg
         
         ! 阻力因子
-        drag_factor = -0.5_DP * density * drag_coefficient * area_mass_ratio * velocity_mag
+        call da_mul(pool%tmp_da4, pool%tmp_da5, pool%tmp_da6)
+        call da_mul(pool%tmp_da6, -0.5_DP * drag_coefficient * area_mass_ratio, pool%tmp_da7)
         
         ! 阻力加速度: acceleration = drag_factor * velocity
-        call vec_mul(drag_factor, velocity, acceleration)
+        call vec_mul(pool%tmp_da7, velocity, acceleration)
     end subroutine da_compute_atmospheric_drag
     
     subroutine compute_atmospheric_density(altitude, density)
@@ -426,8 +435,7 @@ contains
         type(ForceModelTempPool), intent(inout) :: pool
         real(DP), intent(in), optional :: Cr, SMR, RP   ! 新增可选参数
         
-        real(DP) :: solar_distance, reflectivity, area_mass_ratio, nominal_rp
-        real(DP) :: srp_factor_real
+        real(DP) :: reflectivity, area_mass_ratio, nominal_rp, srp_coefficient
         real(DP), dimension(3) :: sun_position, sun_velocity
         type(DA) :: srp_scale_da, srp_factor_da
 
@@ -445,22 +453,23 @@ contains
         call get_body_state('SUN', time, 'EARTH', sun_position, sun_velocity)
         ! relative_pos = position - sun_position
         call vec_sub(position, sun_position, pool%relative_pos)
-        solar_distance = norm2(pool%relative_pos%cons())
-        ! solar_direction = relative_pos / solar_distance
-        call vec_div(pool%relative_pos, solar_distance, pool%solar_direction)
+        call vector_norm2_sub(pool%relative_pos, pool%r_rel_mag)
+        call vec_div(pool%relative_pos, pool%r_rel_mag, pool%solar_direction)
         
         ! 核心炮弹球模型公式
         ! acceleration = reflectivity * area_mass_ratio * nominal_rp * (AU_KM / solar_distance)**2 * solar_direction
-        srp_factor_real = reflectivity * area_mass_ratio * nominal_rp * (AU_KM / solar_distance)**2
+        srp_coefficient = reflectivity * area_mass_ratio * nominal_rp * AU_KM**2
+        call da_mul(pool%r_rel_mag, pool%r_rel_mag, pool%tmp_da1)
+        call real_div_da_sub(srp_coefficient, pool%tmp_da1, pool%tmp_da2)
         if (use_srp_scale_da .and. srp_scale_da_index > 0) then
             call srp_scale_da%init_var(srp_scale_da_index)
             call da_add(srp_scale_da, 1.0_DP + srp_scale_nominal, pool%tmp_da8)
-            call da_mul(pool%tmp_da8, srp_factor_real, srp_factor_da)
+            call da_mul(pool%tmp_da8, pool%tmp_da2, srp_factor_da)
             call vec_mul(srp_factor_da, pool%solar_direction, acceleration)
             call srp_scale_da%destroy()
             call srp_factor_da%destroy()
         else
-            call vec_mul(srp_factor_real, pool%solar_direction, acceleration)
+            call vec_mul(pool%tmp_da2, pool%solar_direction, acceleration)
         end if
         ! 单位转换 m/s² -> km/s²
         call vec_mul(1.0e-3_DP, acceleration, acceleration)

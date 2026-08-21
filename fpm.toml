@@ -42,6 +42,11 @@ source-dir = "app"
 main = "run_HFEM_uprop.f90"
 
 [[executable]]
+name = "run_hfem_mc7d_timing"
+source-dir = "app"
+main = "run_hfem_mc7d_timing.f90"
+
+[[executable]]
 name = "test_ut_first_step"
 source-dir = "app"
 main = "test_ut_first_step.f90"
@@ -91,6 +96,11 @@ main = "test_orbit_error_mahalanobis.f90"
 name = "test_covariance_condition_number"
 source-dir = "test"
 main = "test_covariance_condition_number.f90"
+
+[[test]]
+name = "test_hfem_uq_timing_table"
+source-dir = "test"
+main = "test_hfem_uq_timing_table.f90"
 
 [[test]]
 name = "test_mahalanobis_prepost_diagnostics"
@@ -162,3 +172,4 @@ main = "test_l2halo1_gap_da_ut.f90"
 name = "test_l1pl1_gap_da_ut"
 source-dir = "test"
 main = "test_l1pl1_gap_da_ut.f90"
+

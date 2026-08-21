@@ -19,7 +19,7 @@ module pod_dace_classes
     public :: da_add, da_sub, da_mul, da_div
     public :: vec_add, vec_sub, vec_mul, vec_div
     public :: real_mul_vector_sub, real_div_da_sub
-    public :: da_sin_sub, da_cos_sub, da_atan2_sub, da_asin_sub
+    public :: da_sin_sub, da_cos_sub, da_exp_sub, da_atan2_sub, da_asin_sub
     public :: da_sqrt_sub, da_pow_int_sub, da_pow_real_sub
     public :: vector_norm2_sub, vector_dot_vector_sub
     public :: da_estim_norm, da_translate_variable

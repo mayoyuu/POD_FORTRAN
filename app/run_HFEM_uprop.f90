@@ -6,6 +6,10 @@
 !> Usage:
 !>   fpm run run_HFEM_uprop -- -opm <file> -m <MC|DA|UT> -dt <seconds> -o <prefix>
 !>   fpm run run_HFEM_uprop -- -opm <file> -m <MC|DA|UT> -et <epoch> -n 5000 -o <prefix>
+!>   Covariance override (isotropic diagonal):
+!>     -pr <km>   3D position RMS in km  -> cov_ii = PR^2/3 for i=1..3
+!>     -vr <m/s>  3D velocity RMS in m/s -> cov_ii = (VR/1000)^2/3 for i=4..6
+!>     Must be used together (-pr and -vr).
 !> fpm run run_HFEM_uprop -- -opm input/TD1_2604_2_times_100.opm -m DA -et 2026-06-12T12:00:00 -o output/TD1_2604_2_TO_260612_times_100
 !> Output:
 !>   MC/DA: <prefix>_particles.csv + <prefix>_moments.json (mean/cov/skewness/kurtosis)
@@ -24,9 +28,9 @@ program run_HFEM_uprop
     character(len=MAX_STRING_LEN) :: opm_file, method_str, output_prefix, config_file
     character(len=MAX_STRING_LEN) :: epoch_str, arg_str
     character(len=MAX_STRING_LEN) :: json_path, csv_path
-    real(DP) :: dt_seconds, t_end_et, epoch0, dt
+    real(DP) :: pr_km, vr_ms, dt_seconds, t_end_et, epoch0, dt
     integer  :: method_switch, n_particles, da_order, i, num_args, ext_pos
-    logical  :: has_dt, has_et, has_opm, has_method, has_output
+    logical  :: has_dt, has_et, has_opm, has_method, has_output, has_pr, has_vr
 
     type(uq_state_type) :: initial_state, final_state
     real(DP), allocatable :: skewness(:), kurtosis(:)
@@ -42,8 +46,12 @@ program run_HFEM_uprop
     has_opm      = .false.
     has_method   = .false.
     has_output   = .false.
+    has_pr       = .false.
+    has_vr       = .false.
     dt_seconds   = 0.0_DP
     t_end_et     = 0.0_DP
+    pr_km        = 0.0_DP
+    vr_ms        = 0.0_DP
     epoch_str    = ''
     output_prefix = ''
 
@@ -92,6 +100,18 @@ program run_HFEM_uprop
                 call get_command_argument(i+1, arg_str)
                 output_prefix = trim(arg_str)
                 has_output = .true.
+                i = i + 1
+
+            case ('-pr')
+                call get_command_argument(i+1, arg_str)
+                read(arg_str, *) pr_km
+                has_pr = .true.
+                i = i + 1
+
+            case ('-vr')
+                call get_command_argument(i+1, arg_str)
+                read(arg_str, *) vr_ms
+                has_vr = .true.
                 i = i + 1
 
             case ('-cfg', '--config')
@@ -162,6 +182,15 @@ program run_HFEM_uprop
     write(*,*) '>>> Loading OPM file: ', trim(opm_file)
     call load_initial_opm(trim(opm_file), epoch0, state, cov)
 
+    ! Override covariance from -pr / -vr if provided
+    if (has_pr .and. has_vr) then
+        call build_isotropic_cov(pr_km, vr_ms, cov)
+        write(*,*) '>>> Covariance overridden by -pr / -vr'
+    else if (has_pr .neqv. has_vr) then
+        write(*,*) 'Error: -pr and -vr must be used together.'
+        stop 1
+    end if
+
     ! Compute dt
     if (has_dt) then
         dt = dt_seconds
@@ -186,6 +215,10 @@ program run_HFEM_uprop
     write(*,*) 'n_particles   : ', n_particles
     if (method_switch == METHOD_DA) then
         write(*,*) 'DA order      : ', da_order
+    end if
+    if (has_pr .and. has_vr) then
+        write(*,*) 'PR (3D RMS km): ', pr_km
+        write(*,*) 'VR (3D RMS m/s): ', vr_ms
     end if
     write(*,*) 'Output prefix : ', trim(output_prefix)
     write(*,*) '----------------------------------------'
@@ -279,5 +312,22 @@ contains
         write(u, '(A)') '}'
         close(u)
     end subroutine write_mc_da_json
+
+    subroutine build_isotropic_cov(pr_km, vr_ms, cov)
+        real(DP), intent(in)  :: pr_km, vr_ms
+        real(DP), intent(out) :: cov(6,6)
+        real(DP) :: vr_kms, pos_var, vel_var
+        integer  :: k
+
+        vr_kms = vr_ms / 1000.0_DP
+        pos_var = (pr_km ** 2) / 3.0_DP
+        vel_var = (vr_kms ** 2) / 3.0_DP
+
+        cov = 0.0_DP
+        do k = 1, 3
+            cov(k, k) = pos_var
+            cov(k+3, k+3) = vel_var
+        end do
+    end subroutine build_isotropic_cov
 
 end program run_HFEM_uprop
