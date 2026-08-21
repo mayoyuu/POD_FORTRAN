@@ -6,7 +6,7 @@ module pod_dace_classes
     private
     
     public :: da_registry_size, active_da_count
-    public :: dace_initialize
+    public :: dace_initialize, dace_max_variables
     public :: da_var !! 直接暴露一个 da_var 函数，简化独立变量的创建
     public :: DA, AlgebraicVector,CompiledDA
     public :: operator(+), operator(-), operator(*), operator(/)
@@ -590,6 +590,12 @@ contains
         integer :: cnt
         cnt = c_fdace_get_active_da_count()
     end function active_da_count
+
+    !> Return the independent-variable count of the active DACE engine.
+    integer function dace_max_variables() result(nvars)
+        nvars = int(c_fdace_get_max_variables())
+    end function dace_max_variables
+
     ! [新增] 全局初始化子程序
     subroutine dace_initialize(order, vars)
         integer, intent(in) :: order, vars

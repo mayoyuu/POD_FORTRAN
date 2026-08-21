@@ -76,6 +76,16 @@ name = "test_uq_crtbp_comparison"
 source-dir = "test"
 main = "test_uq_crtbp_comparison.f90"
 
+[[test]]
+name = "test_ads_core_dynamic_dimensions"
+source-dir = "test"
+main = "test_ads_core_dynamic_dimensions.f90"
+
+[[test]]
+name = "test_hfem_ads_propagation"
+source-dir = "test"
+main = "test_hfem_ads_propagation.f90"
+
 
 [[test]]
 name = "test_json_real_format"

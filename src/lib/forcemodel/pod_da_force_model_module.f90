@@ -11,6 +11,7 @@ module pod_da_force_model_module
     logical :: use_srp_scale_da = .false.
     integer :: srp_scale_da_index = 0
     real(DP) :: srp_scale_nominal = 0.0_DP
+    real(DP) :: srp_scale_da_span = 1.0_DP
     real(DP) :: srp_reflectivity_default = 1.25_DP
     real(DP) :: srp_area_mass_default = 7.5e-3_DP
     real(DP) :: srp_pressure_default = -1.0_DP
@@ -109,20 +110,23 @@ contains
         current_epoch0 = epoch
     end subroutine set_propagation_epoch
 
-    subroutine set_srp_scale_uncertainty(var_index, nominal_scale)
+    subroutine set_srp_scale_uncertainty(var_index, nominal_scale, da_span)
         integer, intent(in) :: var_index
-        real(DP), intent(in), optional :: nominal_scale
+        real(DP), intent(in), optional :: nominal_scale, da_span
 
         use_srp_scale_da = var_index > 0
         srp_scale_da_index = var_index
         srp_scale_nominal = 0.0_DP
+        srp_scale_da_span = 1.0_DP
         if (present(nominal_scale)) srp_scale_nominal = nominal_scale
+        if (present(da_span)) srp_scale_da_span = da_span
     end subroutine set_srp_scale_uncertainty
 
     subroutine clear_srp_scale_uncertainty()
         use_srp_scale_da = .false.
         srp_scale_da_index = 0
         srp_scale_nominal = 0.0_DP
+        srp_scale_da_span = 1.0_DP
     end subroutine clear_srp_scale_uncertainty
 
     subroutine set_srp_ballistic_parameters(Cr, SMR, RP)
@@ -437,7 +441,7 @@ contains
         
         real(DP) :: reflectivity, area_mass_ratio, nominal_rp, srp_coefficient
         real(DP), dimension(3) :: sun_position, sun_velocity
-        type(DA) :: srp_scale_da, srp_factor_da
+        type(DA) :: srp_scale_da, srp_multiplier_da, srp_factor_da
 
         ! 默认值 (与 f_SRP 对齐)
         reflectivity = srp_reflectivity_default
@@ -463,10 +467,12 @@ contains
         call real_div_da_sub(srp_coefficient, pool%tmp_da1, pool%tmp_da2)
         if (use_srp_scale_da .and. srp_scale_da_index > 0) then
             call srp_scale_da%init_var(srp_scale_da_index)
-            call da_add(srp_scale_da, 1.0_DP + srp_scale_nominal, pool%tmp_da8)
+            call da_mul(srp_scale_da, srp_scale_da_span, srp_multiplier_da)
+            call da_add(srp_multiplier_da, 1.0_DP + srp_scale_nominal, pool%tmp_da8)
             call da_mul(pool%tmp_da8, pool%tmp_da2, srp_factor_da)
             call vec_mul(srp_factor_da, pool%solar_direction, acceleration)
             call srp_scale_da%destroy()
+            call srp_multiplier_da%destroy()
             call srp_factor_da%destroy()
         else
             call vec_mul(pool%tmp_da2, pool%solar_direction, acceleration)

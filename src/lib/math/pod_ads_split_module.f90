@@ -4,7 +4,7 @@
 module pod_ads_split_module
     use pod_global, only: DP
     use pod_dace_classes, only: AlgebraicVector, DA, da_var, da_estim_norm, &
-        da_translate_variable, operator(+), operator(*), assignment(=)
+        da_translate_variable, dace_max_variables, operator(+), operator(*), assignment(=)
     use iso_c_binding, only: c_int
     implicit none
     private
@@ -94,10 +94,12 @@ contains
     ! =========================================================================
     function sh_center(history) result(c)
         type(splitting_history_type), intent(in) :: history
-        real(DP) :: c(6)
-        real(DP) :: w(6)
-        integer :: i, n, sgn
+        real(DP), allocatable :: c(:)
+        real(DP), allocatable :: w(:)
+        integer :: i, n, sgn, nvars
         real(DP) :: half_w
+        nvars = dace_max_variables()
+        allocate(c(nvars), w(nvars))
         w = 2.0_DP
         c = 0.0_DP
         if (.not. allocated(history%entries)) return
@@ -115,8 +117,10 @@ contains
     ! =========================================================================
     function sh_width(history) result(w)
         type(splitting_history_type), intent(in) :: history
-        real(DP) :: w(6)
-        integer :: i, n
+        real(DP), allocatable :: w(:)
+        integer :: i, n, nvars
+        nvars = dace_max_variables()
+        allocate(w(nvars))
         w = 2.0_DP
         if (.not. allocated(history%entries)) return
         do i = 1, size(history%entries)
@@ -130,13 +134,18 @@ contains
     ! =========================================================================
     logical function sh_contain(history, pt) result(ok)
         type(splitting_history_type), intent(in) :: history
-        real(DP), intent(in) :: pt(6)
-        real(DP) :: c(6), w(6)
-        integer :: i
+        real(DP), intent(in) :: pt(:)
+        real(DP), allocatable :: c(:), w(:)
+        integer :: i, nvars
+        nvars = dace_max_variables()
+        if (size(pt) /= nvars) then
+            ok = .false.
+            return
+        end if
         c = sh_center(history)
         w = sh_width(history)
         ok = .true.
-        do i = 1, 6
+        do i = 1, nvars
             if (abs(pt(i) - c(i)) > 0.5_DP * w(i)) then
                 ok = .false.
                 return
@@ -149,8 +158,9 @@ contains
     ! =========================================================================
     subroutine sh_map_point(history, pt)
         type(splitting_history_type), intent(in) :: history
-        real(DP), intent(inout) :: pt(6)
+        real(DP), intent(inout) :: pt(:)
         integer :: i, n
+        if (size(pt) /= dace_max_variables()) return
         if (.not. allocated(history%entries)) return
         do i = 1, size(history%entries)
             n = abs(history%entries(i))
@@ -184,7 +194,7 @@ contains
         integer :: i, n, nvars, sgn
         real(DP) :: sign_val
 
-        nvars = 6
+        nvars = dace_max_variables()
 
         ! Build identity DA vector x(i) = da_var(i)
         call x%init(nvars)
@@ -192,7 +202,10 @@ contains
             x%elements(i) = da_var(i)
         end do
 
-        if (.not. allocated(history%entries)) return
+        if (.not. allocated(history%entries)) then
+            call x%destroy()
+            return
+        end if
 
         do i = 1, size(history%entries)
             n = abs(history%entries(i)) - 1
@@ -225,13 +238,14 @@ contains
         type(AlgebraicVector), intent(inout) :: da_vec
         type(splitting_history_type), intent(in), optional :: history
         type(splitting_history_type) :: hist_copy
-        integer :: i
+        integer :: i, n_components
 
         if (present(history)) hist_copy = history
 
+        n_components = da_vec%size
         call p%da_vec%destroy()
-        call p%da_vec%init(6)
-        do i = 1, 6
+        call p%da_vec%init(n_components)
+        do i = 1, n_components
             p%da_vec%elements(i)%handle = da_vec%elements(i)%handle
             da_vec%elements(i)%handle = -1
         end do
@@ -255,9 +269,13 @@ contains
     subroutine patch_get_trunc_err(p, order, errors)
         type(patch_type), intent(in) :: p
         integer, intent(in) :: order
-        real(DP), intent(out) :: errors(6)
+        real(DP), intent(out) :: errors(:)
         integer :: i
-        do i = 1, 6
+        errors = 0.0_DP
+        if (size(errors) < p%da_vec%size) then
+            error stop 'patch_get_trunc_err: errors array is smaller than Patch output size'
+        end if
+        do i = 1, p%da_vec%size
             call da_estim_norm(p%da_vec%elements(i)%handle, 0, order, errors(i))
         end do
     end subroutine patch_get_trunc_err
@@ -269,10 +287,11 @@ contains
         type(patch_type), intent(in) :: p
         integer, intent(in) :: comp, order
         real(DP) :: err_m, top_norm
-        integer :: i
+        integer :: i, nvars
         dir = 1
         err_m = 0.0_DP
-        do i = 1, 6
+        nvars = dace_max_variables()
+        do i = 1, nvars
             call da_estim_norm(p%da_vec%elements(comp)%handle, i, order, top_norm)
             if (top_norm > err_m) then
                 err_m = top_norm
@@ -299,9 +318,10 @@ contains
         type(AlgebraicVector) :: temp_vec
         type(splitting_history_type) :: saved_hist
         integer(c_int) :: new_handle
-        integer :: i
+        integer :: i, n_components
         logical, parameter :: DIAGNOSTIC_SPLIT = .false.
 
+        n_components = p%da_vec%size
         if (DIAGNOSTIC_SPLIT) then
             ! === DIAGNOSTIC: deep-copy original DA, no affine transform ===
             write(*,'(A,I0,A)') '[DIAG] patch_split called, dir=', dir, &
@@ -309,8 +329,8 @@ contains
 
             left%history = p%history
             call sh_push(left%history, -dir)
-            call temp_vec%init(6)
-            do i = 1, 6
+            call temp_vec%init(n_components)
+            do i = 1, n_components
                 temp_vec%elements(i) = p%da_vec%elements(i)
             end do
             saved_hist = left%history  ! break aliasing before patch_init
@@ -319,8 +339,8 @@ contains
 
             right%history = p%history
             call sh_push(right%history, dir)
-            call temp_vec%init(6)
-            do i = 1, 6
+            call temp_vec%init(n_components)
+            do i = 1, n_components
                 temp_vec%elements(i) = p%da_vec%elements(i)
             end do
             saved_hist = right%history  ! break aliasing before patch_init
@@ -333,8 +353,8 @@ contains
         left%history = p%history
         call sh_push(left%history, -dir)
 
-        call temp_vec%init(6)
-        do i = 1, 6
+        call temp_vec%init(n_components)
+        do i = 1, n_components
             call da_translate_variable( &
                 p%da_vec%elements(i)%handle, dir, 0.5_DP, -0.5_DP, new_handle)
             temp_vec%elements(i)%handle = new_handle
@@ -347,8 +367,8 @@ contains
         right%history = p%history
         call sh_push(right%history, dir)
 
-        call temp_vec%init(6)
-        do i = 1, 6
+        call temp_vec%init(n_components)
+        do i = 1, n_components
             call da_translate_variable( &
                 p%da_vec%elements(i)%handle, dir, 0.5_DP, 0.5_DP, new_handle)
             temp_vec%elements(i)%handle = new_handle
