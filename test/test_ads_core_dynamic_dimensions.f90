@@ -1,33 +1,38 @@
 program test_ads_core_dynamic_dimensions
     use pod_global, only: DP
-    use pod_dace_classes, only: AlgebraicVector, da_var, dace_initialize, &
-        operator(*), assignment(=)
+    use pod_dace_classes, only: AlgebraicVector, DA, dace_initialize, &
+        da_exp_sub, active_da_count, assignment(=)
     use pod_ads_split_module, only: patch_type, patch_init, patch_destroy, &
         patch_get_trunc_err, patch_get_split_dir, patch_split, sh_center, sh_width, sh_contain, &
         sh_map_point
     implicit none
 
     type(AlgebraicVector) :: source
+    type(DA) :: x7
     type(patch_type) :: parent, left, right
     real(DP), allocatable :: center(:), width(:), values(:)
     real(DP) :: point(7), errors(3)
-    integer :: n_fail, direction
+    integer :: n_fail, direction, active_before
 
     n_fail = 0
     call dace_initialize(2, 7)
+    active_before = active_da_count()
 
-    ! Three flow-map components depending on seven independent DA variables.
+    ! Use the no-temporary DA API so finalizable function temporaries cannot
+    ! interfere with this ADS ownership regression test.
     call source%init(3)
-    source%elements(1) = da_var(7) * da_var(7)
-    source%elements(2) = 2.0_DP * da_var(2)
+    call x7%init_var(7)
+    call da_exp_sub(x7, source%elements(1))
+    source%elements(2) = 2.0_DP
     source%elements(3) = -3.0_DP
     call patch_init(parent, source)
+    call x7%destroy()
 
     call assert_equal_int(parent%da_vec%size, 3, &
+        'Patch preserves its three output components', n_fail)
     call patch_get_trunc_err(parent, 2, errors)
     call assert_true(errors(1) > 0.0_DP, &
         'truncation error accepts the three-component output shape', n_fail)
-        'Patch preserves its three output components', n_fail)
 
     direction = patch_get_split_dir(parent, 1, 2)
     call assert_equal_int(direction, 7, &
@@ -61,7 +66,7 @@ program test_ads_core_dynamic_dimensions
         'global point maps to the left local coordinate', n_fail)
 
     values = left%da_vec%eval(point)
-    call assert_close(values(1), 0.75_DP**2, 1.0e-13_DP, &
+    call assert_close(values(1), 1.0_DP - 0.75_DP + 0.5_DP * 0.75_DP**2, 1.0e-13_DP, &
         'translated left polynomial retains the global value', n_fail)
 
     point = 0.0_DP
@@ -71,6 +76,9 @@ program test_ads_core_dynamic_dimensions
     call sh_map_point(right%history, point)
     call assert_close(point(7), 0.5_DP, 1.0e-14_DP, &
         'global point maps to the right local coordinate', n_fail)
+    values = right%da_vec%eval(point)
+    call assert_close(values(1), 1.0_DP + 0.75_DP + 0.5_DP * 0.75_DP**2, 1.0e-13_DP, &
+        'translated right polynomial retains the global value', n_fail)
 
     if (allocated(center)) deallocate(center)
     if (allocated(width)) deallocate(width)
@@ -79,6 +87,8 @@ program test_ads_core_dynamic_dimensions
     call patch_destroy(left)
     call patch_destroy(right)
     call source%destroy()
+    call assert_equal_int(active_da_count(), active_before, &
+        'ADS split releases every temporary and Patch DA handle', n_fail)
 
     if (n_fail /= 0) then
         write(*,'(A,I0)') 'FAIL: ADS Core dynamic-dimension checks failed: ', n_fail

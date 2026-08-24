@@ -4,8 +4,8 @@
 module pod_ads_split_module
     use pod_global, only: DP
     use pod_dace_classes, only: AlgebraicVector, DA, da_var, da_estim_norm, &
-        da_translate_variable, dace_max_variables, operator(+), operator(*), assignment(=)
-    use iso_c_binding, only: c_int
+        dace_max_variables, da_add, da_mul, vector_eval_da_vec_sub, &
+        operator(+), operator(*), assignment(=)
     implicit none
     private
 
@@ -229,8 +229,8 @@ contains
     ! =========================================================================
     ! Patch: patch_init
     !
-    ! Moves DA handle ownership from da_vec into p. After the call, da_vec
-    ! elements have handle = -1 (safe to destroy as a no-op).
+    ! Transfers DA storage ownership from da_vec into p without allocating or
+    ! overwriting handles. After the call, da_vec has no allocated elements.
     ! To preserve the source, deep-copy into a temporary first.
     ! =========================================================================
     subroutine patch_init(p, da_vec, history)
@@ -238,17 +238,28 @@ contains
         type(AlgebraicVector), intent(inout) :: da_vec
         type(splitting_history_type), intent(in), optional :: history
         type(splitting_history_type) :: hist_copy
-        integer :: i, n_components
+        integer :: n_components
 
         if (present(history)) hist_copy = history
 
-        n_components = da_vec%size
+        if (allocated(da_vec%elements)) then
+            n_components = size(da_vec%elements)
+        else
+            n_components = 0
+        end if
+        ! The allocated container is authoritative, matching C++ vector::size().
         call p%da_vec%destroy()
-        call p%da_vec%init(n_components)
-        do i = 1, n_components
-            p%da_vec%elements(i)%handle = da_vec%elements(i)%handle
-            da_vec%elements(i)%handle = -1
-        end do
+        if (allocated(p%da_vec%h_list)) deallocate(p%da_vec%h_list)
+
+        if (allocated(da_vec%elements)) then
+            call move_alloc(da_vec%elements, p%da_vec%elements)
+        end if
+        if (allocated(da_vec%h_list)) then
+            call move_alloc(da_vec%h_list, p%da_vec%h_list)
+        end if
+
+        p%da_vec%size = n_components
+        da_vec%size = 0
         if (present(history)) then
             p%history = hist_copy
         end if
@@ -303,79 +314,49 @@ contains
     ! =========================================================================
     ! Patch: patch_split
     !
-    ! Splits patch p along direction dir using DACE translateVariable to
-    ! perform the affine transformation v_dir -> 0.5*v_dir ± 0.5 on each
-    ! component of the DA vector. This avoids the generic DA-to-DA eval path.
-    !
-    ! DIAGNOSTIC MODE: Set DIAGNOSTIC_SPLIT = .true. to bypass the affine
-    ! transformation and simply deep-copy the original DA into both children.
-    ! This isolates whether the corruption is in translateVariable or downstream.
+    ! Matches C++ Patch::split: construct an identity DA map, replace the split
+    ! coordinate with 0.5*x +/- 0.5, then compose every Patch output with it.
     ! =========================================================================
     subroutine patch_split(p, dir, left, right)
         type(patch_type), intent(inout) :: p
         integer, intent(in) :: dir
         type(patch_type), intent(out) :: left, right
-        type(AlgebraicVector) :: temp_vec
-        type(splitting_history_type) :: saved_hist
-        integer(c_int) :: new_handle
-        integer :: i, n_components
-        logical, parameter :: DIAGNOSTIC_SPLIT = .false.
+        type(AlgebraicVector) :: map_vec
+        type(DA) :: affine_da
+        integer :: i, nvars
 
-        n_components = p%da_vec%size
-        if (DIAGNOSTIC_SPLIT) then
-            ! === DIAGNOSTIC: deep-copy original DA, no affine transform ===
-            write(*,'(A,I0,A)') '[DIAG] patch_split called, dir=', dir, &
-                ' -- BYPASSING translateVariable, deep-copying instead'
+        if (.not. allocated(p%da_vec%elements)) &
+            error stop 'patch_split: parent Patch has no DA vector'
+        nvars = dace_max_variables()
+        if (dir < 1 .or. dir > nvars) &
+            error stop 'patch_split: split direction is outside the active DACE variables'
 
-            left%history = p%history
-            call sh_push(left%history, -dir)
-            call temp_vec%init(n_components)
-            do i = 1, n_components
-                temp_vec%elements(i) = p%da_vec%elements(i)
-            end do
-            saved_hist = left%history  ! break aliasing before patch_init
-            call patch_init(left, temp_vec, saved_hist)
-            call temp_vec%destroy()
-
-            right%history = p%history
-            call sh_push(right%history, dir)
-            call temp_vec%init(n_components)
-            do i = 1, n_components
-                temp_vec%elements(i) = p%da_vec%elements(i)
-            end do
-            saved_hist = right%history  ! break aliasing before patch_init
-            call patch_init(right, temp_vec, saved_hist)
-            call temp_vec%destroy()
-            return
-        end if
+        call map_vec%init(nvars)
+        do i = 1, nvars
+            call map_vec%elements(i)%destroy()
+            call map_vec%elements(i)%init_var(i)
+        end do
+        call affine_da%init()
 
         ! ---- Left half: v_dir -> 0.5*v_dir - 0.5 ----
         left%history = p%history
         call sh_push(left%history, -dir)
+        call da_mul(map_vec%elements(dir), 0.5_DP, affine_da)
+        call da_add(affine_da, -0.5_DP, map_vec%elements(dir))
+        call vector_eval_da_vec_sub(p%da_vec, map_vec, left%da_vec)
 
-        call temp_vec%init(n_components)
-        do i = 1, n_components
-            call da_translate_variable( &
-                p%da_vec%elements(i)%handle, dir, 0.5_DP, -0.5_DP, new_handle)
-            temp_vec%elements(i)%handle = new_handle
-        end do
-        saved_hist = left%history  ! break aliasing: left%history undefined when patch_init intent(out) fires
-        call patch_init(left, temp_vec, saved_hist)
-        call temp_vec%destroy()
+        call map_vec%elements(dir)%destroy()
+        call map_vec%elements(dir)%init_var(dir)
 
         ! ---- Right half: v_dir -> 0.5*v_dir + 0.5 ----
         right%history = p%history
         call sh_push(right%history, dir)
+        call da_mul(map_vec%elements(dir), 0.5_DP, affine_da)
+        call da_add(affine_da, 0.5_DP, map_vec%elements(dir))
+        call vector_eval_da_vec_sub(p%da_vec, map_vec, right%da_vec)
 
-        call temp_vec%init(n_components)
-        do i = 1, n_components
-            call da_translate_variable( &
-                p%da_vec%elements(i)%handle, dir, 0.5_DP, 0.5_DP, new_handle)
-            temp_vec%elements(i)%handle = new_handle
-        end do
-        saved_hist = right%history  ! break aliasing before patch_init
-        call patch_init(right, temp_vec, saved_hist)
-        call temp_vec%destroy()
+        call affine_da%destroy()
+        call map_vec%destroy()
     end subroutine patch_split
 
     ! =========================================================================

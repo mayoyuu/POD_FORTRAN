@@ -24,6 +24,7 @@ module pod_dace_classes
     public :: vector_norm2_sub, vector_dot_vector_sub
     public :: da_estim_norm, da_translate_variable
     public :: vec_matmul, vec_add_scaled_inplace, da_add_da_sub
+    public :: vector_eval_da_vec_sub
 
 
     ! =========================================================
@@ -1288,6 +1289,33 @@ contains
             res%elements(i) = this%elements(i)%eval(h_map)
         end do
     end function vector_eval_da_vec
+
+    subroutine vector_eval_da_vec_sub(this, map_vec, res)
+        class(AlgebraicVector), intent(in) :: this, map_vec
+        type(AlgebraicVector), intent(inout) :: res
+        integer(c_int), allocatable :: h_map(:)
+        integer :: i
+
+        if (.not. allocated(this%elements)) &
+            error stop 'vector_eval_da_vec_sub: source vector is not allocated'
+        if (.not. allocated(map_vec%elements)) &
+            error stop 'vector_eval_da_vec_sub: DA map is not allocated'
+
+        allocate(h_map(map_vec%size))
+        do i = 1, map_vec%size
+            h_map(i) = map_vec%elements(i)%handle
+        end do
+
+        if (.not. allocated(res%elements) .or. res%size /= this%size) then
+            call res%destroy()
+            call res%init(this%size)
+        end if
+
+        do i = 1, this%size
+            call c_fdace_eval_da_vec(this%elements(i)%handle, h_map, &
+                int(map_vec%size, c_int), res%elements(i)%handle)
+        end do
+    end subroutine vector_eval_da_vec_sub
 
     ! ==========================================
     ! DA 的自动析构实现
