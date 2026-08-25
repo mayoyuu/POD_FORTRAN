@@ -8,7 +8,6 @@ program test_run_srp_uq_propagation_io
     character(len=*), parameter :: JSON_FILE = PREFIX // '_moments.json'
     character(len=*), parameter :: SUCCESS_LOG = PREFIX // '_success.log'
     integer, parameter :: N_PARTICLES = 4
-    real(DP), parameter :: ETA_MEAN = 0.125_DP
     integer :: n_fail
 
     n_fail = 0
@@ -52,7 +51,8 @@ contains
                   '-smr 8.1e-3 ' // &
                   '-rp 4.2e-6 ' // &
                   '-srp-mean 0.125 ' // &
-                  '-srp-sigma 0.0 ' // &
+                  '--zero-init-cov ' // &
+                  '-srp-sigma 0.05 ' // &
                   '> ' // SUCCESS_LOG // ' 2>&1'
 
         call execute_command_line(trim(command), wait=.true., exitstat=exit_status, cmdstat=cmd_status)
@@ -62,6 +62,10 @@ contains
         call assert_file_exists(JSON_FILE, 'moments JSON output', n_fail)
         call assert_particles_csv(CSV_FILE, n_fail)
         call assert_json_output(JSON_FILE, n_fail)
+        call assert_file_contains(SUCCESS_LOG, 'Initial orbit covariance: ZERO', &
+                                  'zero initial covariance log', n_fail)
+        call assert_file_contains(JSON_FILE, '5.000000000000000E-002', &
+                                  'nonzero eta sigma retained', n_fail)
     end subroutine test_successful_run
 
     subroutine test_invalid_particle_count_fails(n_fail)
@@ -135,7 +139,7 @@ contains
         character(len=*), intent(in) :: path
         integer, intent(inout) :: n_fail
         character(len=1024) :: line
-        real(DP) :: values(7)
+        real(DP) :: values(7), eta_min, eta_max
         integer :: unit, io_status, read_status, row_count
 
         open(newunit=unit, file=path, status='old', action='read', iostat=io_status)
@@ -152,6 +156,8 @@ contains
         end if
 
         row_count = 0
+        eta_min = huge(1.0_DP)
+        eta_max = -huge(1.0_DP)
         do
             read(unit, '(A)', iostat=io_status) line
             if (io_status /= 0) exit
@@ -162,10 +168,9 @@ contains
             if (read_status /= 0) then
                 write(*,*) 'FAIL: CSV row is not seven real values: ', trim(line)
                 n_fail = n_fail + 1
-            else if (abs(values(7) - ETA_MEAN) > 1.0e-12_DP) then
-                write(*,*) 'FAIL: eta_srp CSV value does not match input mean'
-                write(*,*) '  got=', values(7), ' expected=', ETA_MEAN
-                n_fail = n_fail + 1
+            else
+                eta_min = min(eta_min, values(7))
+                eta_max = max(eta_max, values(7))
             end if
             row_count = row_count + 1
         end do
@@ -174,6 +179,11 @@ contains
 
         if (row_count /= N_PARTICLES) then
             write(*,*) 'FAIL: CSV row count mismatch, got ', row_count, ' expected ', N_PARTICLES
+            n_fail = n_fail + 1
+        end if
+
+        if (eta_max <= eta_min) then
+            write(*,*) 'FAIL: nonzero eta sigma did not produce sample variation'
             n_fail = n_fail + 1
         end if
     end subroutine assert_particles_csv

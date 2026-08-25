@@ -10,6 +10,7 @@
 !>     -pr <km>   3D position RMS in km  -> cov_ii = PR^2/3 for i=1..3
 !>     -vr <m/s>  3D velocity RMS in m/s -> cov_ii = (VR/1000)^2/3 for i=4..6
 !>     Must be used together (-pr and -vr).
+!>   --zero-init-cov sets the 6D initial orbit covariance to exactly zero.
 !> fpm run run_HFEM_uprop -- -opm input/TD1_2604_2_times_100.opm -m DA -et 2026-06-12T12:00:00 -o output/TD1_2604_2_TO_260612_times_100
 !> Output:
 !>   MC/DA: <prefix>_particles.csv + <prefix>_moments.json (mean/cov/skewness/kurtosis)
@@ -30,7 +31,7 @@ program run_HFEM_uprop
     character(len=MAX_STRING_LEN) :: json_path, csv_path
     real(DP) :: pr_km, vr_ms, dt_seconds, t_end_et, epoch0, dt
     integer  :: method_switch, n_particles, da_order, i, num_args, ext_pos
-    logical  :: has_dt, has_et, has_opm, has_method, has_output, has_pr, has_vr
+    logical  :: has_dt, has_et, has_opm, has_method, has_output, has_pr, has_vr, zero_init_cov
 
     type(uq_state_type) :: initial_state, final_state
     real(DP), allocatable :: skewness(:), kurtosis(:)
@@ -48,6 +49,7 @@ program run_HFEM_uprop
     has_output   = .false.
     has_pr       = .false.
     has_vr       = .false.
+    zero_init_cov = .false.
     dt_seconds   = 0.0_DP
     t_end_et     = 0.0_DP
     pr_km        = 0.0_DP
@@ -113,6 +115,9 @@ program run_HFEM_uprop
                 read(arg_str, *) vr_ms
                 has_vr = .true.
                 i = i + 1
+
+            case ('--zero-init-cov')
+                zero_init_cov = .true.
 
             case ('-cfg', '--config')
                 call get_command_argument(i+1, arg_str)
@@ -189,6 +194,11 @@ program run_HFEM_uprop
     else if (has_pr .neqv. has_vr) then
         write(*,*) 'Error: -pr and -vr must be used together.'
         stop 1
+    end if
+
+    if (zero_init_cov) then
+        cov = 0.0_DP
+        write(*,*) 'Initial orbit covariance: ZERO'
     end if
 
     ! Compute dt

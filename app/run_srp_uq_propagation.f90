@@ -16,7 +16,7 @@ program run_srp_uq_propagation
     real(DP) :: state6(6), cov6(6,6), ref_out(6)
     real(DP) :: srp_cr, srp_smr, srp_rp, srp_eta_mean, srp_eta_sigma
     integer :: n_particles, da_order, num_args, i, j, ext_pos, unit_csv
-    logical :: has_opm, has_dt, has_et, has_output
+    logical :: has_opm, has_dt, has_et, has_output, zero_init_cov
     type(uq_state_type) :: initial_state, final_state
     real(DP), allocatable :: orbit_samples(:,:)
 
@@ -37,6 +37,7 @@ program run_srp_uq_propagation
     has_dt = .false.
     has_et = .false.
     has_output = .false.
+    zero_init_cov = .false.
 
     num_args = command_argument_count()
     i = 1
@@ -91,6 +92,8 @@ program run_srp_uq_propagation
         case ('-cfg', '--config')
             call get_command_argument(i+1, config_file)
             i = i + 1
+        case ('--zero-init-cov')
+            zero_init_cov = .true.
         case ('-h', '--help')
             call print_usage()
             stop
@@ -139,6 +142,10 @@ program run_srp_uq_propagation
 
     write(*,*) '>>> Loading OPM: ', trim(opm_file)
     call load_initial_opm(trim(opm_file), epoch0, state6, cov6)
+    if (zero_init_cov) then
+        cov6 = 0.0_DP
+        write(*,*) 'Initial orbit covariance: ZERO'
+    end if
 
     if (has_dt) then
         dt = dt_seconds
@@ -224,6 +231,7 @@ contains
         write(*,*) '  -rp <pressure>       Solar radiation pressure at 1 AU in N/m^2'
         write(*,*) '  -srp-mean <eta>      Mean of eta_srp, default 0'
         write(*,*) '  -srp-sigma <sigma>   1-sigma of eta_srp, default 0'
+        write(*,*) '  --zero-init-cov      Set the 6D initial orbit covariance to zero'
     end subroutine print_usage
 
     subroutine write_moments_json(filename, mean_vec, cov_mat, cr, smr, rp, eta_mean, eta_sigma, &

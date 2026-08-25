@@ -56,6 +56,13 @@ contains
         dim = size(mean)
         n_particles = size(samples, 2)
 
+        if (all(cov == 0.0_DP)) then
+            do j = 1, n_particles
+                samples(:, j) = mean
+            end do
+            return
+        end if
+
         ! 1. 复制协方差矩阵 (因为 dpotrf 会覆盖输入矩阵)
         allocate(L(dim, dim))
         L = cov

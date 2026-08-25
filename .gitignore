@@ -20,6 +20,7 @@ ORBITS_REF/
 scripts/
 analysis/
 SRP/
+docs/
 
 # Compiled static libraries (Optional, but recommended to ignore)
 lib/*.a
