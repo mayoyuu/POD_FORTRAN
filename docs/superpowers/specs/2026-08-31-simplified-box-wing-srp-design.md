@@ -48,7 +48,8 @@
 - 惯性系记为 I，第一版固定 J2000；卫星本体系记为 B。
 - C_I_B 从本体系旋转到惯性系：v_I = C_I_B v_B。
 - C_I_B 的三列是 +X_B、+Y_B、+Z_B 在惯性系中的坐标。
-- srp_pointing_axis_body 指定对准目标的本体系轴，默认 +Z_B=[0,0,1]^T。
+- srp_primary_axis_body 指定对准唯一所选目标的本体系主轴，默认 +Z_B=[0,0,1]^T。
+- srp_secondary_axis_body 与滚转参考仅用于消除绕主轴的一自由度，不代表同时严格对准另一目标；算法先移除其次轴在主轴上的投影再构造正交基。
 - 卫星到太阳单位方向：
 
 ~~~text
@@ -237,8 +238,8 @@ call geometry%compute_srp_with_attitude_da(position_da, et, attitude_da, da_map,
 srp_model                       = cannonball | box_wing
 srp_attitude_mode               = sun | earth | moon
 srp_roll_reference             = orbit_normal | inertial_z | inertial_x | sun | earth | moon
-srp_pointing_axis_body          = x y z
-srp_roll_axis_body              = x y z
+srp_primary_axis_body           = x y z
+srp_secondary_axis_body         = x y z
 srp_mass_kg                     = positive
 srp_box_dimensions_m            = Lx Ly Lz
 srp_box_optical                 = alpha rho_specular rho_diffuse

@@ -65,6 +65,27 @@ earth_degree = 10
 moon_degree = 10
 active_planets = 3,10,11
 
+# 简化 box-wing SRP 参数；srp_model=cannonball 时几何占位值不参与计算
+srp_model = cannonball
+srp_attitude_mode = sun
+srp_roll_reference = orbit_normal
+srp_primary_axis_body = 0.0 0.0 1.0
+srp_secondary_axis_body = 0.0 1.0 0.0
+srp_mass_kg = -1.0
+srp_box_dimensions_m = -1.0 -1.0 -1.0
+srp_box_optical = -1.0 -1.0 -1.0
+srp_array_total_area_m2 = -1.0
+srp_array_tracking_mode = single_axis
+srp_array_hinge_axis_body = 0.0 1.0 0.0
+srp_array_reference_normal_body = 1.0 0.0 0.0
+srp_array_front_optical = -1.0 -1.0 -1.0
+srp_array_back_optical = -1.0 -1.0 -1.0
+srp_pressure_1au_n_m2 = -1.0
+srp_geometry_tolerance = 1.0e-12
+srp_scale_da_span = 1.0
+srp_attitude_bias_span_arcsec = 0.0 0.0 0.0
+srp_array_angle_span_deg = 0.0
+
 # 测量模型参数
 measurement_noise_std = 1.0e-3
 use_measurement_weights = true

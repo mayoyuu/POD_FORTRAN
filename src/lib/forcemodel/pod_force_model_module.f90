@@ -3,6 +3,7 @@ module pod_force_model_module
     use pod_config, only: config
     use pod_spice, only: get_body_state, pxform, bodvrd, bodvcd,get_frame_transform
     use pod_gravity_model_module, only: gravity_field
+    use pod_spacecraft_geometry, only: spacecraft_geometry_type
     
     implicit none
 
@@ -66,7 +67,7 @@ contains
 
         ! 2.2 太阳辐射压 (SRP)
         if (config%use_srp) then
-            call compute_solar_radiation_pressure(position, time, acc_srp)
+            call compute_solar_radiation_pressure(position, time, acc_srp, velocity=velocity)
         else
             acc_srp = 0.0_DP
         end if
@@ -274,15 +275,45 @@ contains
     ! 计算太阳辐射压 (SRP) —— 整合为标准炮弹球模型，并暴露可选参数
     ! 与提供代码中的 f_SRP 功能完全一致
     ! ======================================================================
-    subroutine compute_solar_radiation_pressure(position, time, acceleration, Cr, SMR, RP)
+    subroutine compute_solar_radiation_pressure(position, time, acceleration, Cr, SMR, RP, velocity)
         real(DP), dimension(3), intent(in) :: position
         real(DP), intent(in) :: time
         real(DP), dimension(3), intent(out) :: acceleration
         real(DP), intent(in), optional :: Cr, SMR, RP
+        real(DP), dimension(3), intent(in), optional :: velocity
         
         real(DP) :: solar_distance, reflectivity, area_mass_ratio, nominal_rp
         real(DP), dimension(3) :: sun_position, sun_velocity
         real(DP), dimension(3) :: relative_pos, solar_direction
+        real(DP), dimension(3) :: moon_position, moon_velocity, earth_position, earth_velocity
+        type(spacecraft_geometry_type) :: geometry
+        integer :: status
+        character(len=256) :: message
+
+        if (trim(config%srp_model) == 'box_wing') then
+            if (.not. present(velocity)) then
+                error stop 'box-wing SRP requires spacecraft velocity for analytic attitude'
+            end if
+            call geometry%initialize_from_config(config, status, message)
+            if (status < 0) then
+                write(*,*) 'invalid box-wing geometry: ', trim(message)
+                error stop 'invalid box-wing geometry'
+            end if
+            call get_body_state('SUN', time, 'EARTH', sun_position, sun_velocity)
+            call get_body_state('MOON', time, 'EARTH', moon_position, moon_velocity)
+            earth_position = 0.0_DP
+            earth_velocity = 0.0_DP
+            call geometry%compute_srp_from_ephemerides_real(position, velocity, sun_position, &
+                                                             earth_position, moon_position, acceleration, &
+                                                             status, message, sun_velocity=sun_velocity, &
+                                                             earth_velocity=earth_velocity, &
+                                                             moon_velocity=moon_velocity)
+            if (status < 0) then
+                write(*,*) 'box-wing SRP computation failed: ', trim(message)
+                error stop 'box-wing SRP computation failed'
+            end if
+            return
+        end if
         
         ! 默认值 (与 f_SRP 完全对齐)
         reflectivity = 1.25_DP

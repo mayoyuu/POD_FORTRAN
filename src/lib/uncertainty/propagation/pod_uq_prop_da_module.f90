@@ -85,7 +85,7 @@ contains
         call dace_push_to(this%da_order) ! 设置 DA 阶数
 
         if (dim >= 7) then
-            call set_srp_scale_uncertainty(7, input_state%mean(7))
+            call set_srp_scale_uncertainty(7, input_state%mean(7), config%srp_scale_da_span)
         else
             call clear_srp_scale_uncertainty()
         end if

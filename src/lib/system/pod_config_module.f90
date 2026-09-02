@@ -127,6 +127,27 @@ module pod_config
         logical :: use_srp            = .true.
         logical :: use_drag           = .false.
         logical :: use_relativity     = .false.
+
+        ! Simplified box-wing SRP geometry and uncertainty configuration.
+        character(len=MAX_STRING_LEN) :: srp_model = 'cannonball'
+        character(len=MAX_STRING_LEN) :: srp_attitude_mode = 'sun'
+        character(len=MAX_STRING_LEN) :: srp_roll_reference = 'orbit_normal'
+        real(DP) :: srp_primary_axis_body(3) = [0.0_DP, 0.0_DP, 1.0_DP]
+        real(DP) :: srp_secondary_axis_body(3) = [0.0_DP, 1.0_DP, 0.0_DP]
+        real(DP) :: srp_mass_kg = -1.0_DP
+        real(DP) :: srp_box_dimensions_m(3) = -1.0_DP
+        real(DP) :: srp_box_optical(3) = -1.0_DP
+        real(DP) :: srp_array_total_area_m2 = -1.0_DP
+        character(len=MAX_STRING_LEN) :: srp_array_tracking_mode = 'single_axis'
+        real(DP) :: srp_array_hinge_axis_body(3) = [0.0_DP, 1.0_DP, 0.0_DP]
+        real(DP) :: srp_array_reference_normal_body(3) = [1.0_DP, 0.0_DP, 0.0_DP]
+        real(DP) :: srp_array_front_optical(3) = -1.0_DP
+        real(DP) :: srp_array_back_optical(3) = -1.0_DP
+        real(DP) :: srp_pressure_1au_n_m2 = -1.0_DP
+        real(DP) :: srp_geometry_tolerance = 1.0e-12_DP
+        real(DP) :: srp_scale_da_span = 1.0_DP
+        real(DP) :: srp_attitude_bias_span_arcsec(3) = 0.0_DP
+        real(DP) :: srp_array_angle_span_deg = 0.0_DP
         
         integer :: earth_degree = 10
         integer :: moon_degree  = 10
@@ -285,6 +306,25 @@ contains
         config%use_srp = .true.
         config%use_drag = .false.
         config%use_relativity = .true.
+        config%srp_model = 'cannonball'
+        config%srp_attitude_mode = 'sun'
+        config%srp_roll_reference = 'orbit_normal'
+        config%srp_primary_axis_body = [0.0_DP, 0.0_DP, 1.0_DP]
+        config%srp_secondary_axis_body = [0.0_DP, 1.0_DP, 0.0_DP]
+        config%srp_mass_kg = -1.0_DP
+        config%srp_box_dimensions_m = -1.0_DP
+        config%srp_box_optical = -1.0_DP
+        config%srp_array_total_area_m2 = -1.0_DP
+        config%srp_array_tracking_mode = 'single_axis'
+        config%srp_array_hinge_axis_body = [0.0_DP, 1.0_DP, 0.0_DP]
+        config%srp_array_reference_normal_body = [1.0_DP, 0.0_DP, 0.0_DP]
+        config%srp_array_front_optical = -1.0_DP
+        config%srp_array_back_optical = -1.0_DP
+        config%srp_pressure_1au_n_m2 = -1.0_DP
+        config%srp_geometry_tolerance = 1.0e-12_DP
+        config%srp_scale_da_span = 1.0_DP
+        config%srp_attitude_bias_span_arcsec = 0.0_DP
+        config%srp_array_angle_span_deg = 0.0_DP
         config%earth_degree = 10
         config%moon_degree = 10
         config%use_planet = .false.
@@ -425,6 +465,25 @@ contains
         write(unit, '(A)') 'earth_degree = 10'
         write(unit, '(A)') 'moon_degree = 10'
         write(unit, '(A)') 'active_planets = 3, 10, 11'
+        write(unit, '(A)') 'srp_model = cannonball'
+        write(unit, '(A)') 'srp_attitude_mode = sun'
+        write(unit, '(A)') 'srp_roll_reference = orbit_normal'
+        write(unit, '(A)') 'srp_primary_axis_body = 0.0 0.0 1.0'
+        write(unit, '(A)') 'srp_secondary_axis_body = 0.0 1.0 0.0'
+        write(unit, '(A)') 'srp_mass_kg = -1.0'
+        write(unit, '(A)') 'srp_box_dimensions_m = -1.0 -1.0 -1.0'
+        write(unit, '(A)') 'srp_box_optical = -1.0 -1.0 -1.0'
+        write(unit, '(A)') 'srp_array_total_area_m2 = -1.0'
+        write(unit, '(A)') 'srp_array_tracking_mode = single_axis'
+        write(unit, '(A)') 'srp_array_hinge_axis_body = 0.0 1.0 0.0'
+        write(unit, '(A)') 'srp_array_reference_normal_body = 1.0 0.0 0.0'
+        write(unit, '(A)') 'srp_array_front_optical = -1.0 -1.0 -1.0'
+        write(unit, '(A)') 'srp_array_back_optical = -1.0 -1.0 -1.0'
+        write(unit, '(A)') 'srp_pressure_1au_n_m2 = -1.0'
+        write(unit, '(A)') 'srp_geometry_tolerance = 1.0e-12'
+        write(unit, '(A)') 'srp_scale_da_span = 1.0'
+        write(unit, '(A)') 'srp_attitude_bias_span_arcsec = 0.0 0.0 0.0'
+        write(unit, '(A)') 'srp_array_angle_span_deg = 0.0'
         write(unit, '(A)') ''
         
         write(unit, '(A)') '# 测量模型参数'
@@ -485,6 +544,10 @@ contains
     subroutine set_config_value(key, value)
         character(len=*), intent(in) :: key, value
         integer :: ios
+
+        ! Character and logical branches below do not execute a READ statement.
+        ! Initialise ios so their successful parsing is not affected by stale data.
+        ios = 0
         
         select case (trim(key))
             ! 轨道传播参数
@@ -604,6 +667,44 @@ contains
             case ('active_planets')
                 ! 读取天体ID列表 (支持逗号或空格分隔，如 "3, 10, 11")
                 call parse_active_planets(value)
+            case ('srp_model')
+                config%srp_model = trim(value)
+            case ('srp_attitude_mode')
+                config%srp_attitude_mode = trim(value)
+            case ('srp_roll_reference')
+                config%srp_roll_reference = trim(value)
+            case ('srp_primary_axis_body')
+                read(value, *, iostat=ios) config%srp_primary_axis_body
+            case ('srp_secondary_axis_body')
+                read(value, *, iostat=ios) config%srp_secondary_axis_body
+            case ('srp_mass_kg')
+                read(value, *, iostat=ios) config%srp_mass_kg
+            case ('srp_box_dimensions_m')
+                read(value, *, iostat=ios) config%srp_box_dimensions_m
+            case ('srp_box_optical')
+                read(value, *, iostat=ios) config%srp_box_optical
+            case ('srp_array_total_area_m2')
+                read(value, *, iostat=ios) config%srp_array_total_area_m2
+            case ('srp_array_tracking_mode')
+                config%srp_array_tracking_mode = trim(value)
+            case ('srp_array_hinge_axis_body')
+                read(value, *, iostat=ios) config%srp_array_hinge_axis_body
+            case ('srp_array_reference_normal_body')
+                read(value, *, iostat=ios) config%srp_array_reference_normal_body
+            case ('srp_array_front_optical')
+                read(value, *, iostat=ios) config%srp_array_front_optical
+            case ('srp_array_back_optical')
+                read(value, *, iostat=ios) config%srp_array_back_optical
+            case ('srp_pressure_1au_n_m2')
+                read(value, *, iostat=ios) config%srp_pressure_1au_n_m2
+            case ('srp_geometry_tolerance')
+                read(value, *, iostat=ios) config%srp_geometry_tolerance
+            case ('srp_scale_da_span')
+                read(value, *, iostat=ios) config%srp_scale_da_span
+            case ('srp_attitude_bias_span_arcsec')
+                read(value, *, iostat=ios) config%srp_attitude_bias_span_arcsec
+            case ('srp_array_angle_span_deg')
+                read(value, *, iostat=ios) config%srp_array_angle_span_deg
             
             ! 测量模型参数
             case ('measurement_noise_std')
@@ -775,6 +876,14 @@ contains
         end if
         write(*, *) '  第三体摄动: ', config%use_third_body
         write(*, *) '  太阳辐射压: ', config%use_srp
+        write(*, *) '  SRP 模型: ', trim(config%srp_model)
+        if (trim(config%srp_model) == 'box_wing') then
+            write(*, *) '  SRP 定姿模式: ', trim(config%srp_attitude_mode)
+            write(*, *) '  SRP 滚转参考: ', trim(config%srp_roll_reference)
+            write(*, *) '  星体质量 (kg): ', config%srp_mass_kg
+            write(*, *) '  箱体尺寸 (m): ', config%srp_box_dimensions_m
+            write(*, *) '  太阳翼总面积 (m^2): ', config%srp_array_total_area_m2
+        end if
         write(*, *) '  大气阻力: ', config%use_drag
         write(*, *) '  相对论效应: ', config%use_relativity
         write(*, "(A)", advance='no') '  已激活的引力网络节点 (ID): '
@@ -811,6 +920,9 @@ contains
     
     ! 配置验证函数
     logical function validate_config()
+        real(DP) :: primary_norm, secondary_norm
+        real(DP) :: hinge_norm, reference_norm
+
         validate_config = .true.
         
         ! 验证轨道传播参数
@@ -923,6 +1035,102 @@ contains
             write(*, *) '错误: 月球重力场阶数设置不合理 (通常在 2-300 之间)'
             validate_config = .false.
         end if
+
+        ! Simplified box-wing SRP validation. Cannonball mode intentionally keeps
+        ! the legacy configuration valid without requiring geometry parameters.
+        if (trim(config%srp_model) /= 'cannonball' .and. trim(config%srp_model) /= 'box_wing') then
+            write(*, *) '错误: srp_model 必须为 cannonball 或 box_wing'
+            validate_config = .false.
+        else if (trim(config%srp_model) == 'box_wing') then
+            if (trim(config%srp_attitude_mode) /= 'sun' .and. &
+                trim(config%srp_attitude_mode) /= 'earth' .and. &
+                trim(config%srp_attitude_mode) /= 'moon') then
+                write(*, *) '错误: srp_attitude_mode 必须为 sun、earth 或 moon'
+                validate_config = .false.
+            end if
+
+            if (trim(config%srp_roll_reference) /= 'orbit_normal' .and. &
+                trim(config%srp_roll_reference) /= 'inertial_x' .and. &
+                trim(config%srp_roll_reference) /= 'inertial_z' .and. &
+                trim(config%srp_roll_reference) /= 'sun' .and. &
+                trim(config%srp_roll_reference) /= 'earth' .and. &
+                trim(config%srp_roll_reference) /= 'moon') then
+                write(*, *) '错误: srp_roll_reference 设置无效'
+                validate_config = .false.
+            end if
+
+            if (config%srp_mass_kg <= 0.0_DP) then
+                write(*, *) '错误: srp_mass_kg 必须大于0'
+                validate_config = .false.
+            end if
+            if (any(config%srp_box_dimensions_m <= 0.0_DP)) then
+                write(*, *) '错误: srp_box_dimensions_m 三个分量必须大于0'
+                validate_config = .false.
+            end if
+            if (config%srp_array_total_area_m2 < 0.0_DP) then
+                write(*, *) '错误: srp_array_total_area_m2 不能为负'
+                validate_config = .false.
+            end if
+            if (.not. valid_srp_optical(config%srp_box_optical)) then
+                write(*, *) '错误: srp_box_optical 必须位于[0,1]且三项之和为1'
+                validate_config = .false.
+            end if
+
+            primary_norm = sqrt(sum(config%srp_primary_axis_body**2))
+            secondary_norm = sqrt(sum(config%srp_secondary_axis_body**2))
+            if (primary_norm <= config%srp_geometry_tolerance .or. &
+                secondary_norm <= config%srp_geometry_tolerance) then
+                write(*, *) '错误: SRP 主轴和次轴不能为零向量'
+                validate_config = .false.
+            else if (abs(dot_product(config%srp_primary_axis_body, &
+                                     config%srp_secondary_axis_body)) >= &
+                     (1.0_DP - config%srp_geometry_tolerance) * primary_norm * secondary_norm) then
+                write(*, *) '错误: SRP 主轴和次轴不能平行'
+                validate_config = .false.
+            end if
+
+            if (trim(config%srp_array_tracking_mode) /= 'fixed' .and. &
+                trim(config%srp_array_tracking_mode) /= 'single_axis') then
+                write(*, *) '错误: srp_array_tracking_mode 必须为 fixed 或 single_axis'
+                validate_config = .false.
+            end if
+
+            if (config%srp_array_total_area_m2 > 0.0_DP) then
+                hinge_norm = sqrt(sum(config%srp_array_hinge_axis_body**2))
+                reference_norm = sqrt(sum(config%srp_array_reference_normal_body**2))
+                if (hinge_norm <= config%srp_geometry_tolerance .or. &
+                    reference_norm <= config%srp_geometry_tolerance) then
+                    write(*, *) '错误: 太阳翼铰链轴和参考法向不能为零向量'
+                    validate_config = .false.
+                else if (abs(dot_product(config%srp_array_hinge_axis_body, &
+                                         config%srp_array_reference_normal_body)) >= &
+                         (1.0_DP - config%srp_geometry_tolerance) * hinge_norm * reference_norm) then
+                    write(*, *) '错误: 太阳翼铰链轴和参考法向不能平行'
+                    validate_config = .false.
+                end if
+                if (.not. valid_srp_optical(config%srp_array_front_optical) .or. &
+                    .not. valid_srp_optical(config%srp_array_back_optical)) then
+                    write(*, *) '错误: 太阳翼光学系数必须位于[0,1]且三项之和为1'
+                    validate_config = .false.
+                end if
+            end if
+
+            if (config%srp_pressure_1au_n_m2 <= 0.0_DP .and. &
+                config%srp_pressure_1au_n_m2 /= -1.0_DP) then
+                write(*, *) '错误: srp_pressure_1au_n_m2 必须为-1(使用内置值)或正数'
+                validate_config = .false.
+            end if
+            if (config%srp_geometry_tolerance <= 0.0_DP) then
+                write(*, *) '错误: srp_geometry_tolerance 必须大于0'
+                validate_config = .false.
+            end if
+            if (config%srp_scale_da_span < 0.0_DP .or. &
+                any(config%srp_attitude_bias_span_arcsec < 0.0_DP) .or. &
+                config%srp_array_angle_span_deg < 0.0_DP) then
+                write(*, *) '错误: SRP 的 DA 不确定性跨度不能为负'
+                validate_config = .false.
+            end if
+        end if
         
         ! 校验多体引力网
         if (.not. any(config%use_planet)) then
@@ -969,6 +1177,14 @@ contains
             write(*, *) '配置验证失败'
         end if
     end function validate_config
+
+    logical function valid_srp_optical(coefficients)
+        real(DP), intent(in) :: coefficients(3)
+
+        valid_srp_optical = all(coefficients >= 0.0_DP) .and. &
+                            all(coefficients <= 1.0_DP) .and. &
+                            abs(sum(coefficients) - 1.0_DP) <= 1.0e-12_DP
+    end function valid_srp_optical
     
     ! 配置范围检查
     subroutine check_config_ranges()

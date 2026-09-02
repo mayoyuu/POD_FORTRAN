@@ -27,11 +27,6 @@ source-dir = "app"
 main = "run_pod_ut.f90"
 
 [[executable]]
-name = "test_gmm_first_step"
-source-dir = "app"
-main = "test_gmm_first_step.f90"
-
-[[executable]]
 name = "run_CRTBP_uprop"
 source-dir = "app"
 main = "run_CRTBP_uprop.f90"
@@ -47,19 +42,10 @@ source-dir = "app"
 main = "run_hfem_mc7d_timing.f90"
 
 [[executable]]
-name = "test_ut_first_step"
-source-dir = "app"
-main = "test_ut_first_step.f90"
-
-[[executable]]
 name = "run_radec_convert"
 source-dir = "app"
 main = "run_radec_convert.f90"
 
-[[executable]]
-name = "test_mc_non_gaussian"
-source-dir = "app"
-main = "test_mc_non_gaussian.f90"
 
 [[test]]
 name = "test_sample_particles_from_gmm"

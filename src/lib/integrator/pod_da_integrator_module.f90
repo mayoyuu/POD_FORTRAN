@@ -566,21 +566,26 @@ contains
          
         real(DP), parameter :: err_factor = 41.0_DP/840.0_DP
 
-        call f0%init(6); call f1%init(6); call f2%init(6); call f3%init(6); call f4%init(6)
-        call f5%init(6); call f6%init(6); call f7%init(6); call f8%init(6); call f9%init(6)
-        call f10%init(6); call f11%init(6); call f12%init(6)
-        call pool%init()
-        
         if (state_7th%size /= 6) call state_7th%init(6)
         if (state_8th%size /= 6) call state_8th%init(6)
         if (error_estimate_vector%size /= 6) call error_estimate_vector%init(6)
 
+        ! The adaptive driver can leave a sub-machine-precision remainder at
+        ! the final epoch. Handle that no-op step before allocating the 13
+        ! RKF stages and the nine-vector work pool; returning after those
+        ! allocations used to leak (13 + 9) * 6 = 132 DA handles per
+        ! propagation.
         if (dt <= 1.0e-15_DP) then
             state_7th = state
             state_8th = state
             error_estimate_vector = 0.0_DP
             return
         end if
+
+        call f0%init(6); call f1%init(6); call f2%init(6); call f3%init(6); call f4%init(6)
+        call f5%init(6); call f6%init(6); call f7%init(6); call f8%init(6); call f9%init(6)
+        call f10%init(6); call f11%init(6); call f12%init(6)
+        call pool%init()
 
         call da_compute_derivatives(state, time, f0)
         ! f1: state + dt*(f0*b10)

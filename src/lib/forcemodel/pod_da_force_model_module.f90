@@ -5,6 +5,7 @@ module pod_da_force_model_module
     use pod_spice, only: get_body_state, pxform, bodvrd, bodvcd
     use pod_gravity_model_module, only: gravity_field
     use pod_dace_classes
+    use pod_spacecraft_geometry, only: spacecraft_geometry_type, srp_da_parameter_map_type
     implicit none
 
     real(DP), public :: current_epoch0 = 0.0_DP
@@ -18,6 +19,7 @@ module pod_da_force_model_module
     public :: set_propagation_epoch, cleanup_gravity_network
     public :: set_srp_scale_uncertainty, clear_srp_scale_uncertainty
     public :: set_srp_ballistic_parameters
+    public :: build_srp_da_parameter_map
 
     ! =========================================================
     ! N 体常量定义
@@ -129,6 +131,31 @@ contains
         srp_scale_da_span = 1.0_DP
     end subroutine clear_srp_scale_uncertainty
 
+    subroutine build_srp_da_parameter_map(da_map)
+        type(srp_da_parameter_map_type), intent(out) :: da_map
+        integer :: nvars
+        real(DP), parameter :: ARCSEC_TO_RAD = acos(-1.0_DP)/(180.0_DP*3600.0_DP)
+        real(DP), parameter :: DEG_TO_RAD = acos(-1.0_DP)/180.0_DP
+
+        nvars = dace_max_variables()
+        da_map%global_scale_index = 0
+        da_map%attitude_bias_index = 0
+        da_map%array_angle_index = 0
+        da_map%global_scale_nominal = 0.0_DP
+        da_map%global_scale_span = 0.0_DP
+        da_map%attitude_bias_span_rad = config%srp_attitude_bias_span_arcsec*ARCSEC_TO_RAD
+        da_map%array_angle_span_rad = config%srp_array_angle_span_deg*DEG_TO_RAD
+
+        if (use_srp_scale_da .and. srp_scale_da_index >= 1 .and. &
+            srp_scale_da_index <= nvars) then
+            da_map%global_scale_index = srp_scale_da_index
+            da_map%global_scale_nominal = srp_scale_nominal
+            da_map%global_scale_span = srp_scale_da_span
+        end if
+        if (nvars >= 10) da_map%attitude_bias_index = [8, 9, 10]
+        if (nvars >= 11) da_map%array_angle_index = 11
+    end subroutine build_srp_da_parameter_map
+
     subroutine set_srp_ballistic_parameters(Cr, SMR, RP)
         real(DP), intent(in), optional :: Cr, SMR, RP
 
@@ -172,7 +199,7 @@ contains
 
         ! 2.2 太阳辐射压 (SRP)
         if (config%use_srp) then
-            call da_compute_solar_radiation_pressure(position, time, acc_srp, pool)
+            call da_compute_solar_radiation_pressure(position, time, acc_srp, pool, velocity=velocity)
         else
             call vec_mul(0.0_DP, acc_srp, acc_srp)
         end if
@@ -432,16 +459,49 @@ contains
     ! ======================================================================
     ! 太阳辐射压 (SRP) —— 标准炮弹球模型，支持可选参数
     ! ======================================================================
-    subroutine da_compute_solar_radiation_pressure(position, time, acceleration, pool, Cr, SMR, RP)
+    subroutine da_compute_solar_radiation_pressure(position, time, acceleration, pool, Cr, SMR, RP, velocity)
         type(AlgebraicVector), intent(in) :: position
         real(DP), intent(in) :: time
         type(AlgebraicVector), intent(inout) :: acceleration
         type(ForceModelTempPool), intent(inout) :: pool
         real(DP), intent(in), optional :: Cr, SMR, RP   ! 新增可选参数
+        type(AlgebraicVector), intent(in), optional :: velocity
         
         real(DP) :: reflectivity, area_mass_ratio, nominal_rp, srp_coefficient
         real(DP), dimension(3) :: sun_position, sun_velocity
+        real(DP), dimension(3) :: moon_position, moon_velocity, earth_position, earth_velocity
         type(DA) :: srp_scale_da, srp_multiplier_da, srp_factor_da
+        type(spacecraft_geometry_type) :: geometry
+        type(srp_da_parameter_map_type) :: da_map
+        integer :: status
+        character(len=256) :: message
+
+        if (trim(config%srp_model) == 'box_wing') then
+            if (.not. present(velocity)) then
+                error stop 'DA box-wing SRP requires spacecraft velocity'
+            end if
+            call geometry%initialize_from_config(config, status, message)
+            if (status < 0) then
+                write(*,*) 'invalid DA box-wing geometry: ', trim(message)
+                error stop 'invalid DA box-wing geometry'
+            end if
+            call get_body_state('SUN', time, 'EARTH', sun_position, sun_velocity)
+            call get_body_state('MOON', time, 'EARTH', moon_position, moon_velocity)
+            earth_position = 0.0_DP
+            earth_velocity = 0.0_DP
+            call build_srp_da_parameter_map(da_map)
+            call geometry%compute_srp_from_ephemerides_da(position, velocity, sun_position, &
+                                                           earth_position, moon_position, da_map, &
+                                                           acceleration, status, message, &
+                                                           sun_velocity=sun_velocity, &
+                                                           earth_velocity=earth_velocity, &
+                                                           moon_velocity=moon_velocity)
+            if (status < 0) then
+                write(*,*) 'DA box-wing SRP computation failed: ', trim(message)
+                error stop 'DA box-wing SRP computation failed'
+            end if
+            return
+        end if
 
         ! 默认值 (与 f_SRP 对齐)
         reflectivity = srp_reflectivity_default
