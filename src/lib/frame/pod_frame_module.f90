@@ -376,4 +376,83 @@ contains
         
     end subroutine state_to_geodetic
 
+    !> Build the instantaneous inertial-to-RTN direction cosine matrix.
+    !!
+    !! Rows of c_rtn_from_inertial are the radial, transverse and normal
+    !! unit vectors expressed in the input inertial frame.  Consequently,
+    !! vector_rtn = matmul(c_rtn_from_inertial, vector_inertial).
+    subroutine build_rtn_rotation(position, velocity, c_rtn_from_inertial, status, message)
+        real(DP), intent(in) :: position(3), velocity(3)
+        real(DP), intent(out) :: c_rtn_from_inertial(3,3)
+        integer, intent(out) :: status
+        character(len=*), intent(out), optional :: message
+
+        real(DP) :: radial(3), transverse(3), normal(3), angular_momentum(3)
+        real(DP) :: position_norm, velocity_norm, momentum_norm
+        real(DP) :: position_tol, momentum_tol
+
+        c_rtn_from_inertial = 0.0_DP
+        status = 0
+        if (present(message)) message = ''
+
+        position_norm = sqrt(dot_product(position, position))
+        position_tol = 100.0_DP*epsilon(1.0_DP)*max(1.0_DP, position_norm)
+        if (position_norm <= position_tol) then
+            status = -1
+            if (present(message)) message = 'RTN frame requires a nonzero position vector'
+            return
+        end if
+
+        velocity_norm = sqrt(dot_product(velocity, velocity))
+        angular_momentum = cross_product(position, velocity)
+        momentum_norm = sqrt(dot_product(angular_momentum, angular_momentum))
+        momentum_tol = 100.0_DP*epsilon(1.0_DP)* &
+                       max(1.0_DP, position_norm*velocity_norm)
+        if (momentum_norm <= momentum_tol) then
+            status = -2
+            if (present(message)) message = &
+                'RTN frame requires nonzero angular momentum (position cross velocity)'
+            return
+        end if
+
+        radial = position/position_norm
+        normal = angular_momentum/momentum_norm
+        transverse = cross_product(normal, radial)
+
+        c_rtn_from_inertial(1,:) = radial
+        c_rtn_from_inertial(2,:) = transverse
+        c_rtn_from_inertial(3,:) = normal
+    end subroutine build_rtn_rotation
+
+    !> Express one inertial vector in the instantaneous RTN basis.
+    pure subroutine transform_vector_to_rtn(vector_inertial, c_rtn_from_inertial, vector_rtn)
+        real(DP), intent(in) :: vector_inertial(3), c_rtn_from_inertial(3,3)
+        real(DP), intent(out) :: vector_rtn(3)
+
+        vector_rtn = matmul(c_rtn_from_inertial, vector_inertial)
+    end subroutine transform_vector_to_rtn
+
+    !> Rotate a 3x3 covariance into the instantaneous RTN basis.
+    pure subroutine transform_covariance3_to_rtn(cov_i, c_rtn_from_i, cov_rtn)
+        real(DP), intent(in) :: cov_i(3,3), c_rtn_from_i(3,3)
+        real(DP), intent(out) :: cov_rtn(3,3)
+
+        cov_rtn = matmul(c_rtn_from_i, matmul(cov_i, transpose(c_rtn_from_i)))
+    end subroutine transform_covariance3_to_rtn
+
+    !> Rotate a 6x6 instantaneous position/velocity error covariance to RTN.
+    !!
+    !! This is a block-axis rotation, not a rotating-frame state derivative;
+    !! therefore no frame angular-rate terms are applied.
+    pure subroutine transform_covariance6_to_rtn(cov_i, c_rtn_from_i, cov_rtn)
+        real(DP), intent(in) :: cov_i(6,6), c_rtn_from_i(3,3)
+        real(DP), intent(out) :: cov_rtn(6,6)
+        real(DP) :: block_rotation(6,6)
+
+        block_rotation = 0.0_DP
+        block_rotation(1:3,1:3) = c_rtn_from_i
+        block_rotation(4:6,4:6) = c_rtn_from_i
+        cov_rtn = matmul(block_rotation, matmul(cov_i, transpose(block_rotation)))
+    end subroutine transform_covariance6_to_rtn
+
 end module pod_frame_module

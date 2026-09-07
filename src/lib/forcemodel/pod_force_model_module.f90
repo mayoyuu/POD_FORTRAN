@@ -8,7 +8,9 @@ module pod_force_model_module
     implicit none
 
     real(DP), public :: current_epoch0 = 0.0_DP
+    real(DP) :: srp_scale_error_real = 0.0_DP
     public :: set_propagation_epoch
+    public :: set_srp_scale_error, clear_srp_scale_error
     
     ! =========================================================
     ! N 体常量定义
@@ -42,6 +44,24 @@ contains
         real(DP), intent(in) :: epoch
         current_epoch0 = epoch
     end subroutine set_propagation_epoch
+
+    !> Set a deterministic fractional SRP acceleration error for Real runs.
+    !!
+    !! The same multiplier is applied after either the cannonball or box-wing
+    !! nominal acceleration has been formed: a = (1 + scale_error)*a_nominal.
+    subroutine set_srp_scale_error(scale_error)
+        real(DP), intent(in) :: scale_error
+
+        if (scale_error <= -1.0_DP) then
+            error stop 'SRP scale error must be greater than -1'
+        end if
+        srp_scale_error_real = scale_error
+    end subroutine set_srp_scale_error
+
+    !> Restore nominal Real SRP acceleration.
+    subroutine clear_srp_scale_error()
+        srp_scale_error_real = 0.0_DP
+    end subroutine clear_srp_scale_error
 
     !> 计算总加速度的主函数
     subroutine compute_acceleration(position, velocity, time, acceleration)
@@ -305,7 +325,9 @@ contains
             earth_velocity = 0.0_DP
             call geometry%compute_srp_from_ephemerides_real(position, velocity, sun_position, &
                                                              earth_position, moon_position, acceleration, &
-                                                             status, message, sun_velocity=sun_velocity, &
+                                                             status, message, &
+                                                             global_scale_error=srp_scale_error_real, &
+                                                             sun_velocity=sun_velocity, &
                                                              earth_velocity=earth_velocity, &
                                                              moon_velocity=moon_velocity)
             if (status < 0) then
@@ -335,6 +357,7 @@ contains
                       (AU_KM / solar_distance)**2 * solar_direction
         ! 单位转换 m/s² -> km/s²
         acceleration = acceleration * 1.0e-3_DP
+        acceleration = (1.0_DP + srp_scale_error_real) * acceleration
         
         ! 如需阴影模型，可在此调用 compute_illumination_factor (已实现，当前未激活)
     end subroutine compute_solar_radiation_pressure
