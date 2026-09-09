@@ -25,7 +25,7 @@ program test_spacecraft_geometry_config
     write(unit, '(A)') 'srp_array_tracking_mode = single_axis'
     write(unit, '(A)') 'srp_array_hinge_axis_body = 0 1 0'
     write(unit, '(A)') 'srp_array_reference_normal_body = 1 0 0'
-    write(unit, '(A)') 'srp_array_front_optical = 0.10 0.80 0.10'
+    write(unit, '(A)') 'srp_array_front_optical = 0.85 0.08 0.07'
     write(unit, '(A)') 'srp_array_back_optical = 0.60 0.20 0.20'
     write(unit, '(A)') 'srp_pressure_1au_n_m2 = 4.56e-6'
     write(unit, '(A)') 'srp_geometry_tolerance = 1.0e-12'

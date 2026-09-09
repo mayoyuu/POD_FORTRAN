@@ -85,6 +85,14 @@ module pod_dace_classes
             real(c_double), intent(out) :: out_res(*)
         end subroutine c_fdace_compiled_eval_double
 
+        subroutine c_fdace_compiled_eval_batch_double(cda_handle,in_args,n_args, &
+            n_points,out_res,n_res) bind(C,name="fdace_compiled_eval_batch_double")
+            import :: c_int,c_double
+            integer(c_int),value :: cda_handle,n_args,n_points,n_res
+            real(c_double),intent(in) :: in_args(*)
+            real(c_double),intent(out) :: out_res(*)
+        end subroutine c_fdace_compiled_eval_batch_double
+
         ! 基础代数运算
         subroutine c_fdace_add(h1, h2, ho) bind(C, name="fdace_add")
             import :: c_int; integer(c_int), value :: h1, h2, ho
@@ -358,6 +366,8 @@ module pod_dace_classes
     contains
         procedure :: destroy => compiled_destroy
         procedure :: eval => compiled_eval
+        procedure :: eval_into => compiled_eval_into
+        procedure :: eval_batch_into => compiled_eval_batch_into
     end type CompiledDA
 
     ! =========================================================
@@ -650,6 +660,55 @@ contains
         ! 调用 C++ 端的极致优化模板
         call c_fdace_compiled_eval_double(this%handle, args, size(args), res, this%dim)
     end function compiled_eval
+
+    !> Evaluate a compiled DA vector into caller-owned storage.
+    !!
+    !! This avoids one allocation per sample in large DA-Monte-Carlo loops.
+    !! A negative status is returned before entering the C binding when the
+    !! compiled object is invalid or the output dimension is inconsistent.
+    subroutine compiled_eval_into(this, args, res, status)
+        class(CompiledDA), intent(in) :: this
+        real(8), intent(in) :: args(:)
+        real(8), intent(out) :: res(:)
+        integer, intent(out) :: status
+
+        status = 0
+        if (this%handle == -1) then
+            status = -2
+            return
+        end if
+        if (size(res) /= this%dim) then
+            status = -1
+            return
+        end if
+        call c_fdace_compiled_eval_double(this%handle, args, size(args), &
+                                          res, this%dim)
+    end subroutine compiled_eval_into
+
+    !> Evaluate many sample columns using one allocation-reusing C++ call.
+    !!
+    !! args(:,j) is the j-th DA input point and res(:,j) is the corresponding
+    !! compiled-vector result. Both matrices must be contiguous so their
+    !! Fortran column-major storage matches the C++ pointer arithmetic.
+    subroutine compiled_eval_batch_into(this,args,res,status)
+        class(CompiledDA),intent(in) :: this
+        real(8),intent(in),contiguous :: args(:,:)
+        real(8),intent(out),contiguous :: res(:,:)
+        integer,intent(out) :: status
+
+        status=0
+        if(this%handle==-1) then
+            status=-2
+            return
+        end if
+        if(size(args,1)<1 .or. size(args,2)<1 .or. &
+           size(res,1)/=this%dim .or. size(res,2)/=size(args,2)) then
+            status=-1
+            return
+        end if
+        call c_fdace_compiled_eval_batch_double(this%handle,args,size(args,1), &
+            size(args,2),res,this%dim)
+    end subroutine compiled_eval_batch_into
 
     ! === AlgebraicVector 的编译方法 ===
     function vector_compile(this) result(cda)

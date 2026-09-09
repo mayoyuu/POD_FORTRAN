@@ -77,7 +77,7 @@ contains
         config%srp_array_tracking_mode = 'single_axis'
         config%srp_array_hinge_axis_body = [0.0_DP, 1.0_DP, 0.0_DP]
         config%srp_array_reference_normal_body = [1.0_DP, 0.0_DP, 0.0_DP]
-        config%srp_array_front_optical = [0.10_DP, 0.80_DP, 0.10_DP]
+        config%srp_array_front_optical = [0.85_DP, 0.08_DP, 0.07_DP]
         config%srp_array_back_optical = [0.60_DP, 0.20_DP, 0.20_DP]
         config%srp_roll_reference = 'orbit_normal'
         config%srp_primary_axis_body = [0.0_DP, 0.0_DP, 1.0_DP]

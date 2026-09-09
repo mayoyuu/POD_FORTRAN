@@ -5,6 +5,7 @@
 !! independent of any particular propagator and is reusable by SRP and other
 !! low-dimensional uncertainty studies.
 module pod_uncertainty_diagnostics_module
+    use, intrinsic :: iso_fortran_env, only: int64
     use pod_global, only: DP
     use pod_basicmath_module, only: eigenvalue_decomposition
     implicit none
@@ -15,8 +16,128 @@ module pod_uncertainty_diagnostics_module
     public :: compute_weighted_moments
     public :: compute_covariance_axes
     public :: compute_effective_rank
+    public :: generate_antithetic_standard_normal_samples
 
 contains
+
+    !> Generate a reproducible antithetic standard-normal sample ensemble.
+    !!
+    !! The first half uses midpoint-stratified standard-normal quantiles.  A
+    !! local Park-Miller stream independently permutes those quantiles in every
+    !! component, and the second half is the exact negative of the first.  This
+    !! gives stable tail/fourth-moment coverage, exactly zero finite-ensemble
+    !! mean, and does not change Fortran's global random-number state.  Each
+    !! component is finally rescaled to unit second moment; the moment matching
+    !! leaves every antithetic pair intact.
+    subroutine generate_antithetic_standard_normal_samples(samples,seed,status)
+        real(DP), intent(out) :: samples(:,:)
+        integer, intent(in) :: seed
+        integer, intent(out) :: status
+
+        integer(int64), parameter :: LCG_A=48271_int64
+        integer(int64), parameter :: LCG_M=2147483647_int64
+        integer(int64) :: rng_state
+        integer,allocatable :: permutation(:)
+        real(DP),allocatable :: normal_grid(:)
+        integer :: n_dim,n_samples,n_half,column,component,swap_column,temp_index
+        real(DP) :: u1,radius
+
+        status=0
+        samples=0.0_DP
+        n_dim=size(samples,1)
+        n_samples=size(samples,2)
+        if(n_dim<1 .or. n_samples<2 .or. mod(n_samples,2)/=0) then
+            status=-1
+            return
+        end if
+        if(seed<=0) then
+            status=-2
+            return
+        end if
+
+        n_half=n_samples/2
+        rng_state=mod(int(seed,int64),LCG_M-1_int64)+1_int64
+        allocate(permutation(n_half),normal_grid(n_half))
+        do column=1,n_half
+            normal_grid(column)=inverse_standard_normal( &
+                (real(column,DP)-0.5_DP)/real(n_half,DP))
+        end do
+        do component=1,n_dim
+            permutation=[(column,column=1,n_half)]
+            do column=n_half,2,-1
+                call next_uniform(rng_state,u1)
+                swap_column=1+int(u1*real(column,DP))
+                temp_index=permutation(column)
+                permutation(column)=permutation(swap_column)
+                permutation(swap_column)=temp_index
+            end do
+            samples(component,1:n_half)=normal_grid(permutation)
+        end do
+        samples(:,n_half+1:n_samples)=-samples(:,1:n_half)
+
+        do component=1,n_dim
+            radius=sqrt(sum(samples(component,:)**2)/real(n_samples,DP))
+            if(radius<=tiny(1.0_DP)) then
+                samples=0.0_DP
+                status=-3
+                return
+            end if
+            samples(component,:)=samples(component,:)/radius
+        end do
+        deallocate(permutation,normal_grid)
+
+    contains
+
+        subroutine next_uniform(state,value)
+            integer(int64), intent(inout) :: state
+            real(DP), intent(out) :: value
+
+            state=mod(LCG_A*state,LCG_M)
+            value=real(state,DP)/real(LCG_M,DP)
+        end subroutine next_uniform
+
+        function inverse_standard_normal(probability) result(value)
+            real(DP),intent(in) :: probability
+            real(DP) :: value,q,r,cdf,pdf
+            real(DP),parameter :: P_LOW=0.02425_DP,P_HIGH=1.0_DP-P_LOW
+            real(DP),parameter :: SQRT_TWO=sqrt(2.0_DP)
+            real(DP),parameter :: SQRT_TWO_PI=sqrt(2.0_DP*acos(-1.0_DP))
+            real(DP),parameter :: A(6)=[-3.969683028665376e1_DP, &
+                2.209460984245205e2_DP,-2.759285104469687e2_DP, &
+                1.383577518672690e2_DP,-3.066479806614716e1_DP, &
+                2.506628277459239_DP]
+            real(DP),parameter :: B(5)=[-5.447609879822406e1_DP, &
+                1.615858368580409e2_DP,-1.556989798598866e2_DP, &
+                6.680131188771972e1_DP,-1.328068155288572e1_DP]
+            real(DP),parameter :: C(6)=[-7.784894002430293e-3_DP, &
+                -3.223964580411365e-1_DP,-2.400758277161838_DP, &
+                -2.549732539343734_DP,4.374664141464968_DP, &
+                2.938163982698783_DP]
+            real(DP),parameter :: D(4)=[7.784695709041462e-3_DP, &
+                3.224671290700398e-1_DP,2.445134137142996_DP, &
+                3.754408661907416_DP]
+
+            if(probability<P_LOW) then
+                q=sqrt(-2.0_DP*log(probability))
+                value=(((((C(1)*q+C(2))*q+C(3))*q+C(4))*q+C(5))*q+C(6))/ &
+                    ((((D(1)*q+D(2))*q+D(3))*q+D(4))*q+1.0_DP)
+            else if(probability<=P_HIGH) then
+                q=probability-0.5_DP
+                r=q*q
+                value=(((((A(1)*r+A(2))*r+A(3))*r+A(4))*r+A(5))*r+A(6))*q/ &
+                    (((((B(1)*r+B(2))*r+B(3))*r+B(4))*r+B(5))*r+1.0_DP)
+            else
+                q=sqrt(-2.0_DP*log(1.0_DP-probability))
+                value=-(((((C(1)*q+C(2))*q+C(3))*q+C(4))*q+C(5))*q+C(6))/ &
+                    ((((D(1)*q+D(2))*q+D(3))*q+D(4))*q+1.0_DP)
+            end if
+
+            cdf=0.5_DP*(1.0_DP+erf(value/SQRT_TWO))
+            pdf=exp(-0.5_DP*value*value)/SQRT_TWO_PI
+            value=value-(cdf-probability)/pdf
+        end function inverse_standard_normal
+
+    end subroutine generate_antithetic_standard_normal_samples
 
     !> Construct an n-point Gauss-Legendre rule for probability U(-1,1).
     subroutine gauss_legendre_probability_rule(nodes, weights, status)
@@ -276,4 +397,3 @@ contains
     end subroutine sort_eigenpairs_descending
 
 end module pod_uncertainty_diagnostics_module
-

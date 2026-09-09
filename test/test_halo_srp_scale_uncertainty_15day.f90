@@ -41,7 +41,6 @@ program test_halo_srp_scale_uncertainty_15day
     integer, parameter :: STRATEGY_CONSTANT8=3
     real(DP), parameter :: OUTPUT_STEP_S=3600.0_DP
     real(DP), parameter :: DURATION_S=360.0_DP*OUTPUT_STEP_S
-    real(DP), parameter :: SCALE_SPAN=0.1_DP
     real(DP), parameter :: SIGMA_Q=1.0_DP/sqrt(3.0_DP)
     real(DP), parameter :: SKEW_LIMIT=0.1_DP, KURT_LIMIT=0.2_DP
     real(DP), parameter :: NONLINEAR_LIMIT=0.05_DP
@@ -56,17 +55,16 @@ program test_halo_srp_scale_uncertainty_15day
     real(DP), parameter :: CANNONBALL_SMR=CANNONBALL_AREA_M2/SPACECRAFT_MASS_KG
     real(DP), parameter :: SOLAR_PRESSURE_1AU=1367.0_DP/299792458.0_DP
     character(len=*), parameter :: CONFIG_FILE='config/config.txt'
-    character(len=*), parameter :: HALO_OPM='OPM/L1Halo-1/L1Halo-1_init.opm.json'
-    character(len=*), parameter :: OUTPUT_DIR='SRP/260903_srp_uncertainty'
+    character(len=256) :: halo_opm='OPM/L1Halo-1/L1Halo-1_init.opm.json'
+    character(len=256) :: out_dir
+    real(DP) :: scale_span = 0.1_DP
     character(len=32), parameter :: MODEL_NAMES(N_MODELS)=[character(len=32) :: &
         'cannonball','box_wing_sun','box_wing_earth','box_wing_moon']
     character(len=16), parameter :: DISTRIBUTION_NAMES(N_DISTRIBUTIONS)= &
         [character(len=16) :: 'uniform','Gaussian']
     character(len=16), parameter :: STRATEGY_NAMES(3)= &
         [character(len=16) :: 'constant_4','scheduled_4_6_8','constant_8']
-    real(DP), parameter :: VALIDATION_ERRORS(N_VALIDATION)= &
-        [-sqrt(3.0_DP)*SCALE_SPAN,-SCALE_SPAN,SCALE_SPAN, &
-          sqrt(3.0_DP)*SCALE_SPAN]
+    real(DP) :: validation_errors(N_VALIDATION)
 
     real(DP) :: epoch0, state0(6), covariance0(6,6), initial_nd(6)
     real(DP) :: uniform_nodes(N_QUAD), uniform_weights(N_QUAD)
@@ -94,9 +92,15 @@ program test_halo_srp_scale_uncertainty_15day
     integer :: status, model_id, validation_id, epoch_id, exit_status
     logical :: all_validation_pass
 
+    call parse_args()
+    validation_errors = [-sqrt(3.0_DP)*scale_span, -scale_span, scale_span, &
+                          sqrt(3.0_DP)*scale_span]
+    out_dir='SRP/260903_srp_uncertainty_'//trim(orbit_tag(halo_opm))
+    write(*,'(a,a)') 'OPM file     : ', trim(halo_opm)
+    write(*,'(a,a)') 'Output dir   : ', trim(out_dir)
     call pod_engine_init(CONFIG_FILE)
     call init_gravity_network_da()
-    call load_initial_opm(HALO_OPM,epoch0,state0,covariance0)
+    call load_initial_opm(trim(halo_opm),epoch0,state0,covariance0)
     call set_propagation_epoch_real(epoch0)
     call set_propagation_epoch_da(epoch0)
     initial_nd(1:3)=state0(1:3)/config%LU
@@ -137,7 +141,7 @@ program test_halo_srp_scale_uncertainty_15day
     order3_schedule_pos_diff=0.0_DP
     order3_schedule_vel_diff=0.0_DP
 
-    call execute_command_line('mkdir -p '//OUTPUT_DIR,exitstat=exit_status)
+    call execute_command_line('mkdir -p '//trim(out_dir),exitstat=exit_status)
     call assert_true(exit_status==0,'failed to create SRP output directory')
     call open_outputs(history_unit,validation_unit,summary_unit,timing_unit)
 
@@ -163,7 +167,7 @@ program test_halo_srp_scale_uncertainty_15day
 
         call propagate_real_history(0.0_DP,real_nominal)
         do validation_id=1,N_VALIDATION
-            call propagate_real_history(VALIDATION_ERRORS(validation_id), &
+            call propagate_real_history(validation_errors(validation_id), &
                                         real_perturbed)
             do epoch_id=1,N_EPOCHS
                 call write_validation_record(model_id,validation_id,epoch_id, &
@@ -189,6 +193,70 @@ program test_halo_srp_scale_uncertainty_15day
     write(*,'(a)') 'PASS: 15-day SRP uncertainty histories and validation CSVs written.'
 
 contains
+
+    !> Parse command-line options: -opm <file> selects the initial OPM.
+    subroutine parse_args()
+        character(len=256) :: arg
+        integer :: n, k, ios
+        real(DP) :: val
+
+        n = command_argument_count()
+        k = 1
+        do while (k <= n)
+            call get_command_argument(k, arg)
+            select case (trim(arg))
+            case ('-h', '--help')
+                call print_usage()
+                stop 0
+            case ('-opm')
+                call get_command_argument(k + 1, halo_opm)
+                k = k + 1
+            case ('-span')
+                call get_command_argument(k + 1, arg)
+                read(arg, *, iostat=ios) val
+                if (ios /= 0 .or. val <= 0.0_DP) then
+                    write(*,'(a,a)') 'Error: invalid -span value: ', trim(arg)
+                    stop 1
+                end if
+                scale_span = val
+                k = k + 1
+            case default
+                write(*,'(a,a)') 'Warning: ignoring unknown argument: ', trim(arg)
+            end select
+            k = k + 1
+        end do
+    end subroutine parse_args
+
+    subroutine print_usage()
+        write(*,'(a)') 'Usage: fpm test test_halo_srp_scale_uncertainty_15day -- [-opm <file>] [-span <val>]'
+        write(*,'(a)') '  -opm <file>   Initial OPM, default OPM/L1Halo-1/L1Halo-1_init.opm.json'
+        write(*,'(a)') '  -span <val>   SRP scale span (delta_s = span*q), default 0.1'
+    end subroutine print_usage
+
+    !> Orbit tag from the OPM file's basename without the extension.
+    !! 'OPM/L1Halo-1/L1Halo-1_init.opm.json' -> 'L1Halo-1_init'.
+    function orbit_tag(path) result(tag)
+        character(len=*), intent(in) :: path
+        character(len=256) :: tag
+        character(len=256) :: base
+        integer :: slash, dot
+
+        base = trim(path)
+        slash = index(base, '/', back=.true.)
+        if (slash > 0) base = base(slash+1:)
+
+        dot = index(base, '.opm.json', back=.true.)
+        if (dot > 1) then
+            tag = base(1:dot-1)
+        else
+            dot = index(base, '.json', back=.true.)
+            if (dot > 1) then
+                tag = base(1:dot-1)
+            else
+                tag = base
+            end if
+        end if
+    end function orbit_tag
 
     !> Active DA order attached to an hourly output epoch.
     pure integer function da_order_for_output_hour(hour) result(order)
@@ -245,7 +313,7 @@ contains
         config%srp_array_tracking_mode='single_axis'
         config%srp_array_hinge_axis_body=[0.0_DP,1.0_DP,0.0_DP]
         config%srp_array_reference_normal_body=[1.0_DP,0.0_DP,0.0_DP]
-        config%srp_array_front_optical=[0.10_DP,0.80_DP,0.10_DP]
+        config%srp_array_front_optical=[0.85_DP,0.08_DP,0.07_DP]
         config%srp_array_back_optical=[0.60_DP,0.20_DP,0.20_DP]
         config%srp_roll_reference='orbit_normal'
         config%srp_primary_axis_body=[0.0_DP,0.0_DP,1.0_DP]
@@ -281,16 +349,16 @@ contains
         integer, intent(out) :: history,validation,summary,timing
         integer :: ios
 
-        open(newunit=history,file=OUTPUT_DIR//'/srp_uncertainty_history.csv', &
+        open(newunit=history,file=trim(out_dir)//'/srp_uncertainty_history.csv', &
              status='replace',action='write',iostat=ios)
         call assert_true(ios==0,'cannot open uncertainty history CSV')
-        open(newunit=validation,file=OUTPUT_DIR//'/srp_da_real_validation.csv', &
+        open(newunit=validation,file=trim(out_dir)//'/srp_da_real_validation.csv', &
              status='replace',action='write',iostat=ios)
         call assert_true(ios==0,'cannot open DA/Real validation CSV')
-        open(newunit=summary,file=OUTPUT_DIR//'/srp_uncertainty_summary.csv', &
+        open(newunit=summary,file=trim(out_dir)//'/srp_uncertainty_summary.csv', &
              status='replace',action='write',iostat=ios)
         call assert_true(ios==0,'cannot open uncertainty summary CSV')
-        open(newunit=timing,file=OUTPUT_DIR//'/srp_da_order_timing.csv', &
+        open(newunit=timing,file=trim(out_dir)//'/srp_da_order_timing.csv', &
              status='replace',action='write',iostat=ios)
         call assert_true(ios==0,'cannot open DA order timing CSV')
         call write_history_header(history)
@@ -403,7 +471,7 @@ contains
         call assert_true(handles_before==0,'DA handles nonzero before model')
         call dace_initialize(DA_MAX_ORDER,N_DA_VARS)
         call dace_set_to(4)
-        call set_srp_scale_uncertainty(1,0.0_DP,SCALE_SPAN)
+        call set_srp_scale_uncertainty(1,0.0_DP,scale_span)
         phase_seconds=0.0_DP
         call current_state%init(6)
         do i=1,6
@@ -470,7 +538,7 @@ contains
 
         compiled=state_da%compile()
         do i=1,N_VALIDATION
-            q=VALIDATION_ERRORS(i)/SCALE_SPAN
+            q=validation_errors(i)/scale_span
             evaluated_nd=compiled%eval([q])
             call nondimensional_to_physical(evaluated_nd, &
                                             validation_history(:,i,index))
@@ -721,7 +789,7 @@ contains
             all_pass=.false.
         end if
         write(unit,'(*(g0,:,","))') trim(MODEL_NAMES(id)), &
-            VALIDATION_ERRORS(value_id),real(index-1,DP), &
+            validation_errors(value_id),real(index-1,DP), &
             da_order_for_output_hour(index-1),da_error,real_error, &
             difference,pos_diff,vel_diff,pos_tolerance,vel_tolerance, &
             trim(passed_text)
@@ -743,7 +811,7 @@ contains
         handles_before=active_da_count()
         call assert_true(handles_before==0,'handles before order convergence run')
         call dace_initialize(3,N_DA_VARS)
-        call set_srp_scale_uncertainty(1,0.0_DP,SCALE_SPAN)
+        call set_srp_scale_uncertainty(1,0.0_DP,scale_span)
         call initial_state%init(6)
         do i=1,6
             initial_state%elements(i)=initial_nd(i)
@@ -757,7 +825,7 @@ contains
         pos_diff=0.0_DP
         vel_diff=0.0_DP
         do j=1,N_VALIDATION
-            q=VALIDATION_ERRORS(j)/SCALE_SPAN
+            q=validation_errors(j)/scale_span
             evaluated=compiled%eval([q])
             call nondimensional_to_physical(evaluated,order3_value)
             pos_diff=max(pos_diff,sqrt(sum((order3_value(1:3)- &
@@ -797,7 +865,7 @@ contains
         call dace_initialize(DA_MAX_ORDER,N_DA_VARS)
         active_order=da_order_for_strategy(strategy,0)
         call dace_set_to(active_order)
-        call set_srp_scale_uncertainty(1,0.0_DP,SCALE_SPAN)
+        call set_srp_scale_uncertainty(1,0.0_DP,scale_span)
         phase_seconds=0.0_DP
         call current_state%init(6)
         do i=1,6
@@ -830,7 +898,7 @@ contains
 
         compiled=current_state%compile()
         do j=1,N_VALIDATION
-            q=VALIDATION_ERRORS(j)/SCALE_SPAN
+            q=validation_errors(j)/scale_span
             evaluated=compiled%eval([q])
             call nondimensional_to_physical(evaluated,final_values(:,j))
         end do

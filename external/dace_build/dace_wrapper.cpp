@@ -3,6 +3,7 @@
 #include <vector>
 #include <iostream>
 #include <cstring>
+#include <algorithm>
 
 using namespace DACE;
 
@@ -100,6 +101,27 @@ extern "C" {
         // 将结果写回 C 数组，供 Fortran 读取
         for(int i = 0; i < n_res; ++i) {
             out_res[i] = res_vec[i];
+        }
+    }
+
+    // Evaluate a Fortran column-major matrix of sample points in one C call.
+    // The two work vectors are allocated once and reused for every column,
+    // avoiding two heap allocations and one FFI round trip per sample.
+    void fdace_compiled_eval_batch_double(int cda_handle,
+                                          const double* in_args,
+                                          int n_args,
+                                          int n_points,
+                                          double* out_res,
+                                          int n_res) {
+        std::vector<double> args_vec(n_args);
+        std::vector<double> res_vec(n_res);
+
+        for (int point = 0; point < n_points; ++point) {
+            const double* input_column = in_args + point * n_args;
+            double* output_column = out_res + point * n_res;
+            std::copy_n(input_column, n_args, args_vec.begin());
+            cda_registry[cda_handle].eval(args_vec, res_vec);
+            std::copy_n(res_vec.begin(), n_res, output_column);
         }
     }
 

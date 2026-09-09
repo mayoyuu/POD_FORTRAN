@@ -6,6 +6,8 @@
 !! cannonball, and box-wing with Sun/Earth/Moon pointing. The error of each
 !! model relative to the no-SRP baseline is sampled at every accepted
 !! integrator step and written to CSV files under SRP/260902_state_err/.
+!! Each box-wing model's state error relative to the cannonball model is
+!! additionally written to halo_srp_boxwing_vs_cannonball_<tag>.csv.
 program test_halo_srp_error_export
     use pod_global, only: DP
     use pod_engine_module, only: pod_engine_init
@@ -30,9 +32,8 @@ program test_halo_srp_error_export
     real(DP), parameter :: SOLAR_PRESSURE_1AU = 1367.0_DP / 299792458.0_DP
 
     character(len=*), parameter :: CONFIG_FILE = 'config/config.txt'
-    character(len=*), parameter :: HALO_OPM = &
-        'OPM/L1Halo-1/L1Halo-1_init.opm.json'
-    character(len=*), parameter :: OUT_DIR = 'SRP/260902_state_err'
+    character(len=256) :: halo_opm = 'OPM/L1Halo-1/L1Halo-1_init.opm.json'
+    character(len=256) :: out_dir
 
     character(len=32), parameter :: CASE_NAMES(N_CASES) = [ &
         character(len=32) :: 'cannonball', 'box-wing / Sun pointing', &
@@ -46,18 +47,23 @@ program test_halo_srp_error_export
     real(DP) :: initial_nd(6)
     real(DP), allocatable :: times_base(:), states_base(:,:)
     real(DP), allocatable :: times_model(:), states_model(:,:)
+    real(DP), allocatable :: times_cb(:), states_cb(:,:)
     real(DP) :: base_interp(6), dr(3), dv(3), dr_norm, dv_norm, time_days
-    integer :: n_base, n_model, case_id, i, u
+    integer :: n_base, n_cb, n_model, case_id, i, u
     character(len=256) :: fname
 
+    call parse_args()
+    out_dir = 'SRP/260902_state_err_' // trim(orbit_tag(halo_opm))
+    write(*,'(a,a)') 'OPM file     : ', trim(halo_opm)
+    write(*,'(a,a)') 'Output dir   : ', trim(out_dir)
     call pod_engine_init(CONFIG_FILE)
-    call load_initial_opm(HALO_OPM, epoch0, state0, covariance0)
+    call load_initial_opm(trim(halo_opm), epoch0, state0, covariance0)
     call set_propagation_epoch(epoch0)
 
     initial_nd(1:3) = state0(1:3) / config%LU
     initial_nd(4:6) = state0(4:6) / config%VU
 
-    call execute_command_line('mkdir -p ' // OUT_DIR)
+    call execute_command_line('mkdir -p ' // trim(out_dir))
 
     ! 1. No-SRP baseline trajectory.
     config%use_srp = .false.
@@ -89,7 +95,7 @@ program test_halo_srp_error_export
                                  FINAL_TIME_TOL_S, &
                                  trim(CASE_NAMES(case_id))//' final time')
 
-        fname = OUT_DIR // '/halo_srp_error_' // trim(CASE_TAGS(case_id)) // '.csv'
+        fname = trim(out_dir) // '/halo_srp_error_' // trim(CASE_TAGS(case_id)) // '.csv'
         open(newunit=u, file=trim(fname), status='replace', action='write')
         write(u,'(a)') 'time_days,dR_x_km,dR_y_km,dR_z_km,dR_norm_km,'// &
                        'dV_x_kms,dV_y_kms,dV_z_kms,dV_norm_kms'
@@ -115,14 +121,79 @@ program test_halo_srp_error_export
 
         write(*,'(a32,2x,i6,2x,es14.6)') CASE_NAMES(case_id), n_model, dr_norm
 
+        if (case_id == 1) then
+            n_cb = n_model
+            allocate(times_cb(n_cb), states_cb(n_cb, 6))
+            times_cb(:) = times_model(1:n_cb)
+            states_cb(:,:) = states_model(1:n_cb, :)
+        else
+            call write_cannonball_diff(case_id, times_model, states_model, n_model)
+        end if
+
         if (allocated(times_model)) deallocate(times_model)
         if (allocated(states_model)) deallocate(states_model)
     end do
 
+    if (allocated(times_cb)) deallocate(times_cb)
+    if (allocated(states_cb)) deallocate(states_cb)
+
     write(*,'(a)') 'PASS: halo SRP state-error export complete.'
-    write(*,'(a)') 'Output written to ' // OUT_DIR // '/'
+    write(*,'(a)') 'Output written to ' // trim(out_dir) // '/'
 
 contains
+
+    !> Parse command-line options: -opm <file> selects the initial OPM.
+    subroutine parse_args()
+        character(len=256) :: arg
+        integer :: n, k
+
+        n = command_argument_count()
+        k = 1
+        do while (k <= n)
+            call get_command_argument(k, arg)
+            select case (trim(arg))
+            case ('-h', '--help')
+                call print_usage()
+                stop 0
+            case ('-opm')
+                call get_command_argument(k + 1, halo_opm)
+                k = k + 1
+            case default
+                write(*,'(a,a)') 'Warning: ignoring unknown argument: ', trim(arg)
+            end select
+            k = k + 1
+        end do
+    end subroutine parse_args
+
+    subroutine print_usage()
+        write(*,'(a)') 'Usage: fpm test test_halo_srp_error_export -- [-opm <file>]'
+        write(*,'(a)') '  -opm <file>   Initial OPM, default OPM/L1Halo-1/L1Halo-1_init.opm.json'
+    end subroutine print_usage
+
+    !> Orbit tag from the OPM file's basename without the extension.
+    !! 'OPM/L1Halo-1/L1Halo-1_init.opm.json' -> 'L1Halo-1_init'.
+    function orbit_tag(path) result(tag)
+        character(len=*), intent(in) :: path
+        character(len=256) :: tag
+        character(len=256) :: base
+        integer :: slash, dot
+
+        base = trim(path)
+        slash = index(base, '/', back=.true.)
+        if (slash > 0) base = base(slash+1:)
+
+        dot = index(base, '.opm.json', back=.true.)
+        if (dot > 1) then
+            tag = base(1:dot-1)
+        else
+            dot = index(base, '.json', back=.true.)
+            if (dot > 1) then
+                tag = base(1:dot-1)
+            else
+                tag = base
+            end if
+        end if
+    end function orbit_tag
 
     !> Configure one deterministic SRP case (cannonball or box-wing).
     subroutine configure_srp_case(id)
@@ -136,7 +207,7 @@ contains
         config%srp_array_tracking_mode = 'single_axis'
         config%srp_array_hinge_axis_body = [0.0_DP, 1.0_DP, 0.0_DP]
         config%srp_array_reference_normal_body = [1.0_DP, 0.0_DP, 0.0_DP]
-        config%srp_array_front_optical = [0.10_DP, 0.80_DP, 0.10_DP]
+        config%srp_array_front_optical = [0.85_DP, 0.08_DP, 0.07_DP]
         config%srp_array_back_optical = [0.60_DP, 0.20_DP, 0.20_DP]
         config%srp_primary_axis_body = [0.0_DP, 0.0_DP, 1.0_DP]
         config%srp_secondary_axis_body = [0.0_DP, 1.0_DP, 0.0_DP]
@@ -171,7 +242,7 @@ contains
         integer, intent(in) :: n
         integer :: i, u
 
-        open(newunit=u, file=OUT_DIR // '/halo_srp_baseline_nosrp.csv', &
+        open(newunit=u, file=trim(out_dir) // '/halo_srp_baseline_nosrp.csv', &
              status='replace', action='write')
         write(u,'(a)') 'time_days,x_km,y_km,z_km,vx_kms,vy_kms,vz_kms'
         do i = 1, n
@@ -215,6 +286,36 @@ contains
         w = (tq - times(lo)) / (times(hi) - times(lo))
         out(:) = states(lo,:) + w * (states(hi,:) - states(lo,:))
     end subroutine interp_state
+
+    !> Write box-wing state error relative to the cannonball trajectory.
+    subroutine write_cannonball_diff(case_id, times_model, states_model, n_model)
+        integer, intent(in) :: case_id
+        real(DP), intent(in) :: times_model(:), states_model(:,:)
+        integer, intent(in) :: n_model
+        real(DP) :: cb_interp(6), dr(3), dv(3), dr_norm, dv_norm, time_days
+        integer :: i, u
+        character(len=256) :: fname
+
+        fname = trim(out_dir) // '/halo_srp_boxwing_vs_cannonball_' // &
+                trim(CASE_TAGS(case_id)) // '.csv'
+        open(newunit=u, file=trim(fname), status='replace', action='write')
+        write(u,'(a)') 'time_days,dR_x_km,dR_y_km,dR_z_km,dR_norm_km,'// &
+                       'dV_x_kms,dV_y_kms,dV_z_kms,dV_norm_kms'
+        do i = 1, n_model
+            time_days = times_model(i) * config%TU / DAY_S
+            call interp_state(times_model(i), times_cb, states_cb, n_cb, cb_interp)
+            dr = (states_model(i,1:3) - cb_interp(1:3)) * config%LU
+            dv = (states_model(i,4:6) - cb_interp(4:6)) * config%VU
+            dr_norm = sqrt(sum(dr*dr))
+            dv_norm = sqrt(sum(dv*dv))
+            call assert_true(ieee_is_finite(dr_norm) .and. &
+                             ieee_is_finite(dv_norm), &
+                             trim(CASE_NAMES(case_id))//' non-finite vs-cannonball error')
+            write(u,'(es16.8,",",es16.8,",",es16.8,",",es16.8,",",es16.8,",",es16.8,",",es16.8,",",es16.8,",",es16.8)') &
+                time_days, dr(1), dr(2), dr(3), dr_norm, dv(1), dv(2), dv(3), dv_norm
+        end do
+        close(u)
+    end subroutine write_cannonball_diff
 
     !> Assert a logical condition and retain a useful failure message.
     subroutine assert_true(condition, message)
