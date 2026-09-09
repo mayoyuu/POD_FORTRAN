@@ -2,17 +2,20 @@ program test_ads_core_dynamic_dimensions
     use pod_global, only: DP
     use pod_dace_classes, only: AlgebraicVector, DA, dace_initialize, &
         da_exp_sub, active_da_count, assignment(=)
-    use pod_ads_split_module, only: patch_type, patch_init, patch_destroy, &
+    use pod_ads_split_module, only: patch_type, manifold_type, patch_init, patch_destroy, &
         patch_get_trunc_err, patch_get_split_dir, patch_split, sh_center, sh_width, sh_contain, &
-        sh_map_point
+        sh_map_point, mf_init, mf_destroy, mf_push, mf_evaluate_point, mf_evaluate_points
     implicit none
 
     type(AlgebraicVector) :: source
     type(DA) :: x7
     type(patch_type) :: parent, left, right
+    type(manifold_type) :: manifold
     real(DP), allocatable :: center(:), width(:), values(:)
     real(DP) :: point(7), errors(3)
-    integer :: n_fail, direction, active_before
+    real(DP) :: batch_points(7,3), batch_values(3,3), single_value(3)
+    logical :: batch_found(3), single_found
+    integer :: n_fail, direction, active_before, status
 
     n_fail = 0
     call dace_initialize(2, 7)
@@ -80,9 +83,37 @@ program test_ads_core_dynamic_dimensions
     call assert_close(values(1), 1.0_DP + 0.75_DP + 0.5_DP * 0.75_DP**2, 1.0e-13_DP, &
         'translated right polynomial retains the global value', n_fail)
 
+    call mf_init(manifold)
+    call mf_push(manifold, left)
+    call mf_push(manifold, right)
+    batch_points = 0.0_DP
+    batch_points(7,:) = [-0.75_DP, 0.75_DP, 1.25_DP]
+    call mf_evaluate_points(manifold, batch_points, batch_values, batch_found, status)
+    call assert_equal_int(status, 0, 'manifold batch evaluation status', n_fail)
+    call assert_true(all(batch_found(1:2)), &
+        'manifold finds samples in both child Patches', n_fail)
+    call assert_true(.not. batch_found(3), &
+        'manifold reports a sample outside the ADS unit box', n_fail)
+    call assert_close(batch_values(1,1), &
+        1.0_DP - 0.75_DP + 0.5_DP * 0.75_DP**2, 1.0e-13_DP, &
+        'batch evaluates the left Patch', n_fail)
+    call assert_close(batch_values(1,2), &
+        1.0_DP + 0.75_DP + 0.5_DP * 0.75_DP**2, 1.0e-13_DP, &
+        'batch evaluates the right Patch', n_fail)
+
+    point = 0.0_DP
+    point(7) = 0.25_DP
+    call mf_evaluate_point(manifold, point, single_value, single_found, status)
+    call assert_equal_int(status, 0, 'single manifold evaluation status', n_fail)
+    call assert_true(single_found, 'single manifold evaluation finds its Patch', n_fail)
+    call assert_close(single_value(1), &
+        1.0_DP + 0.25_DP + 0.5_DP * 0.25_DP**2, 1.0e-13_DP, &
+        'single manifold evaluation retains the global value', n_fail)
+
     if (allocated(center)) deallocate(center)
     if (allocated(width)) deallocate(width)
     if (allocated(values)) deallocate(values)
+    call mf_destroy(manifold)
     call patch_destroy(parent)
     call patch_destroy(left)
     call patch_destroy(right)
