@@ -276,6 +276,24 @@ contains
         if (allocated(p%history%entries)) deallocate(p%history%entries)
     end subroutine patch_destroy
 
+    !> Deep-copy a Patch, including fresh ownership of every DA handle.
+    !! Intrinsic assignment of patch_type is unsafe because defined assignment
+    !! is not recursively applied to its AlgebraicVector component.
+    subroutine patch_copy(source, destination)
+        type(patch_type), intent(in) :: source
+        type(patch_type), intent(inout) :: destination
+        integer :: i
+
+        call patch_destroy(destination)
+        if (allocated(destination%da_vec%h_list)) &
+            deallocate(destination%da_vec%h_list)
+        call destination%da_vec%init(source%da_vec%size)
+        do i = 1, source%da_vec%size
+            destination%da_vec%elements(i) = source%da_vec%elements(i)
+        end do
+        destination%history = source%history
+    end subroutine patch_copy
+
     ! =========================================================================
     ! Patch: patch_get_trunc_err
     ! =========================================================================
@@ -394,12 +412,14 @@ contains
         if (.not. allocated(m%patches)) then
             allocate(m%patches(1))
             m%n_patches = 1
-            m%patches(1) = p
+            call patch_copy(p, m%patches(1))
         else
             n = m%n_patches
             allocate(tmp(n+1))
-            tmp(1:n) = m%patches(1:n)
-            tmp(n+1) = p
+            do i = 1, n
+                call patch_copy(m%patches(i), tmp(i))
+            end do
+            call patch_copy(p, tmp(n+1))
             do i = 1, n
                 call patch_destroy(m%patches(i))
             end do
@@ -417,7 +437,7 @@ contains
         type(patch_type), allocatable :: tmp(:)
         integer :: n, i
         if (m%n_patches == 0) return
-        p = m%patches(1)
+        call patch_copy(m%patches(1), p)
         n = m%n_patches
         if (n == 1) then
             call patch_destroy(m%patches(1))
@@ -426,7 +446,7 @@ contains
         else
             allocate(tmp(n-1))
             do i = 2, n
-                tmp(i-1) = m%patches(i)
+                call patch_copy(m%patches(i), tmp(i-1))
             end do
             do i = 1, n
                 call patch_destroy(m%patches(i))
