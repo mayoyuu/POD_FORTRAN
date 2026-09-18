@@ -2,10 +2,10 @@ program test_da_force_model_jacobians
     use pod_global, only: DP
     use pod_engine_module, only: pod_engine_init
     use pod_config, only: config
-    use pod_spice, only: str2et
+    use pod_spice, only: str2et, get_body_state
     use pod_force_model_module, only: compute_gravity_network, compute_atmospheric_drag, &
                                       compute_solar_radiation_pressure, compute_post_newtonian, &
-                                      init_real_gravity => init_gravity_network
+                                      init_real_gravity => init_gravity_network, AU_KM
     use pod_da_force_model_module, only: da_compute_gravity_network, da_compute_atmospheric_drag, &
                                          da_compute_solar_radiation_pressure, da_compute_post_newtonian, &
                                          ForceModelTempPool, &
@@ -28,6 +28,7 @@ program test_da_force_model_jacobians
     call dace_initialize(2, 6)
 
     n_fail = 0
+    call test_srp_configured_nominal(et, n_fail)
     call test_gravity_position_jacobian(et, n_fail)
     call test_drag_jacobians(n_fail)
     call test_srp_position_jacobian(et, n_fail)
@@ -42,6 +43,36 @@ program test_da_force_model_jacobians
     write(*,*) 'test_da_force_model_jacobians passed'
 
 contains
+
+    subroutine test_srp_configured_nominal(epoch, n_fail)
+        real(DP), intent(in) :: epoch
+        integer, intent(inout) :: n_fail
+        real(DP), parameter :: PRESSURE_1AU = 1367.0_DP / 299792458.0_DP
+        real(DP) :: pos(3), vel(3), acc_real(3), acc_da_cons(3)
+        real(DP) :: sun_pos(3), sun_vel(3), relative_pos(3), expected(3), distance
+        type(AlgebraicVector) :: pos_da, vel_da, acc_da
+        type(ForceModelTempPool) :: pool
+
+        config%srp_model = 'cannonball'
+        pos = [100000.0_DP, 50000.0_DP, 20000.0_DP]
+        vel = [1.5_DP, 2.5_DP, 0.5_DP]
+        call get_body_state('SUN', epoch, 'EARTH', sun_pos, sun_vel)
+        relative_pos = pos - sun_pos
+        distance = norm2(relative_pos)
+        expected = config%srp_cannonball_cr * &
+            (config%srp_cannonball_area_m2 / config%srp_mass_kg) * PRESSURE_1AU * &
+            (AU_KM / distance)**2 * (relative_pos / distance) * 1.0e-3_DP
+
+        call compute_solar_radiation_pressure(pos, epoch, acc_real)
+        call init_da_state(pos, vel, pos_da, vel_da, acc_da, pool)
+        call da_compute_solar_radiation_pressure(pos_da, epoch, acc_da, pool)
+        acc_da_cons = acc_da%cons()
+        call assert_vector_close('configured Real SRP nominal', acc_real, expected, &
+                                 1.0e-13_DP, 1.0e-25_DP, n_fail)
+        call assert_vector_close('configured DA SRP nominal', acc_da_cons, expected, &
+                                 1.0e-13_DP, 1.0e-25_DP, n_fail)
+        call destroy_da_state(pos_da, vel_da, acc_da, pool)
+    end subroutine test_srp_configured_nominal
 
     subroutine test_gravity_position_jacobian(epoch, n_fail)
         real(DP), intent(in) :: epoch
@@ -192,6 +223,26 @@ contains
             write(*,'(A,A,A,ES14.6)') 'PASS: ', trim(label), ' relative_error=', max_error / max(scale, atol)
         end if
     end subroutine assert_jacobian_close
+
+    subroutine assert_vector_close(label, actual, expected, rtol, atol, n_fail)
+        character(len=*), intent(in) :: label
+        real(DP), intent(in) :: actual(3), expected(3), rtol, atol
+        integer, intent(inout) :: n_fail
+        real(DP) :: max_error, scale, limit
+
+        max_error = maxval(abs(actual - expected))
+        scale = maxval(abs(expected))
+        limit = atol + rtol * scale
+        if (max_error > limit) then
+            write(*,'(A,A)') 'FAIL: ', trim(label)
+            write(*,'(A,ES14.6,A,ES14.6,A,ES14.6)') &
+                '  max_error=', max_error, ' scale=', scale, ' limit=', limit
+            n_fail = n_fail + 1
+        else
+            write(*,'(A,A,A,ES14.6)') 'PASS: ', trim(label), &
+                ' relative_error=', max_error / max(scale, atol)
+        end if
+    end subroutine assert_vector_close
 
     subroutine finite_difference_position_gravity(pos, epoch, h, jacobian)
         real(DP), intent(in) :: pos(3), epoch, h

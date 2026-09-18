@@ -11,6 +11,7 @@ module pod_force_model_module
     real(DP) :: srp_scale_error_real = 0.0_DP
     public :: set_propagation_epoch
     public :: set_srp_scale_error, clear_srp_scale_error
+    public :: set_srp_ballistic_parameters, clear_srp_ballistic_parameters
     
     ! =========================================================
     ! N 体常量定义
@@ -34,6 +35,14 @@ module pod_force_model_module
     real(DP), parameter :: SOLAR_CONSTANT = 1367.0_DP       ! W/m^2
     real(DP), parameter :: SPEED_OF_LIGHT = 299792458.0_DP  ! m/s
     real(DP), parameter :: AU_KM = 149597870.7_DP           ! 1 AU (km)
+    real(DP), parameter, private :: DEFAULT_SOLAR_PRESSURE_1AU = &
+        SOLAR_CONSTANT / SPEED_OF_LIGHT
+    real(DP), private :: cannonball_cr_real = 0.0_DP
+    real(DP), private :: cannonball_smr_real = 0.0_DP
+    real(DP), private :: cannonball_rp_real = DEFAULT_SOLAR_PRESSURE_1AU
+    logical, private :: override_cannonball_cr_real = .false.
+    logical, private :: override_cannonball_smr_real = .false.
+    logical, private :: override_cannonball_rp_real = .false.
     ! 新增：用于相对论效应的光速 (km/s)
     real(DP), parameter :: C_LIGHT_KM = SPEED_OF_LIGHT * 1.0e-3_DP   ! 299792.458 km/s
 
@@ -62,6 +71,39 @@ contains
     subroutine clear_srp_scale_error()
         srp_scale_error_real = 0.0_DP
     end subroutine clear_srp_scale_error
+
+    !> Override Real cannonball parameters for one caller-controlled run.
+    !!
+    !! The defaults remain backward compatible. Box-wing SRP ignores these
+    !! values because it returns through its geometry branch before the
+    !! cannonball law is evaluated. Call clear_srp_ballistic_parameters after
+    !! a scoped experiment to prevent the module state affecting later runs.
+    subroutine set_srp_ballistic_parameters(Cr, SMR, RP)
+        real(DP), intent(in), optional :: Cr, SMR, RP
+
+        if (present(Cr)) then
+            if (Cr < 0.0_DP) error stop 'cannonball Cr must be nonnegative'
+            cannonball_cr_real = Cr
+            override_cannonball_cr_real = .true.
+        end if
+        if (present(SMR)) then
+            if (SMR <= 0.0_DP) error stop 'cannonball area/mass ratio must be positive'
+            cannonball_smr_real = SMR
+            override_cannonball_smr_real = .true.
+        end if
+        if (present(RP)) then
+            if (RP <= 0.0_DP) error stop 'solar pressure must be positive'
+            cannonball_rp_real = RP
+            override_cannonball_rp_real = .true.
+        end if
+    end subroutine set_srp_ballistic_parameters
+
+    !> Clear caller overrides so subsequent evaluations use config again.
+    subroutine clear_srp_ballistic_parameters()
+        override_cannonball_cr_real = .false.
+        override_cannonball_smr_real = .false.
+        override_cannonball_rp_real = .false.
+    end subroutine clear_srp_ballistic_parameters
 
     !> 计算总加速度的主函数
     subroutine compute_acceleration(position, velocity, time, acceleration)
@@ -337,10 +379,14 @@ contains
             return
         end if
         
-        ! 默认值 (与 f_SRP 完全对齐)
-        reflectivity = 1.25_DP
-        area_mass_ratio = 7.5e-3_DP
-        nominal_rp = SOLAR_CONSTANT / SPEED_OF_LIGHT   ! ≈ 4.56e-6 N/m²
+        ! Nominal physical constants come from the shared configuration.
+        reflectivity = config%srp_cannonball_cr
+        area_mass_ratio = config%srp_cannonball_area_m2 / config%srp_mass_kg
+        nominal_rp = DEFAULT_SOLAR_PRESSURE_1AU
+        if (config%srp_pressure_1au_n_m2 > 0.0_DP) nominal_rp = config%srp_pressure_1au_n_m2
+        if (override_cannonball_cr_real) reflectivity = cannonball_cr_real
+        if (override_cannonball_smr_real) area_mass_ratio = cannonball_smr_real
+        if (override_cannonball_rp_real) nominal_rp = cannonball_rp_real
         
         if (present(Cr)) reflectivity = Cr
         if (present(SMR)) area_mass_ratio = SMR

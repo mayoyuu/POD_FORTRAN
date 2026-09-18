@@ -18,9 +18,9 @@
 !!   total solar-array area  = 24 m^2
 !!
 !! A cannonball needs one fixed reference area instead of attitude-dependent
-!! projected areas. Its selected area is 9 m^2, so A/m = 9/1200 = 7.5e-3
-!! m^2/kg, matching the current Real cannonball default. The DA ballistic
-!! parameters are set identically. Real and DA are compared within each model;
+!! projected areas. The shared configuration selects Cr=1.2213 and 30 m^2,
+!! so A/m = 30/1200 = 0.025 m^2/kg. The DA ballistic parameters are set
+!! identically. Real and DA are compared within each model;
 !! cannonball and box-wing trajectories are not required to agree.
 program test_halo_srp_real_da_10day
     use pod_global, only: DP
@@ -52,8 +52,8 @@ program test_halo_srp_real_da_10day
     real(DP), parameter :: DT_MAX_S = 3600.0_DP
 
     real(DP), parameter :: SPACECRAFT_MASS_KG = 1200.0_DP
-    real(DP), parameter :: CANNONBALL_AREA_M2 = 9.0_DP
-    real(DP), parameter :: CANNONBALL_CR = 1.25_DP
+    real(DP), parameter :: CANNONBALL_AREA_M2 = 30.0_DP
+    real(DP), parameter :: CANNONBALL_CR = 1.2213_DP
     real(DP), parameter :: CANNONBALL_SMR = &
         CANNONBALL_AREA_M2 / SPACECRAFT_MASS_KG
     real(DP), parameter :: SOLAR_PRESSURE_1AU = &

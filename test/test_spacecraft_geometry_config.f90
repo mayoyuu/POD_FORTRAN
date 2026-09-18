@@ -8,6 +8,9 @@ program test_spacecraft_geometry_config
 
     call set_default_config()
     call assert_true(trim(config%srp_model) == 'cannonball', 'default SRP model')
+    call assert_scalar_close(config%srp_cannonball_cr, 1.2213_DP, 'default cannonball Cr')
+    call assert_scalar_close(config%srp_cannonball_area_m2, 30.0_DP, 'default cannonball area')
+    call assert_scalar_close(config%srp_mass_kg, 1200.0_DP, 'default spacecraft mass')
     call assert_close(config%srp_primary_axis_body, [0.0_DP, 0.0_DP, 1.0_DP], 'default primary axis')
     call assert_close(config%srp_secondary_axis_body, [0.0_DP, 1.0_DP, 0.0_DP], 'default secondary axis')
     call assert_true(validate_config(), 'cannonball does not require box-wing geometry')
@@ -18,6 +21,8 @@ program test_spacecraft_geometry_config
     write(unit, '(A)') 'srp_roll_reference = orbit_normal'
     write(unit, '(A)') 'srp_primary_axis_body = 0 0 1'
     write(unit, '(A)') 'srp_secondary_axis_body = 0 1 0'
+    write(unit, '(A)') 'srp_cannonball_cr = 1.30'
+    write(unit, '(A)') 'srp_cannonball_area_m2 = 32.0'
     write(unit, '(A)') 'srp_mass_kg = 1200'
     write(unit, '(A)') 'srp_box_dimensions_m = 2 3 4'
     write(unit, '(A)') 'srp_box_optical = 0.30 0.40 0.30'
@@ -37,10 +42,25 @@ program test_spacecraft_geometry_config
     call load_config(temp_file)
     call assert_true(trim(config%srp_model) == 'box_wing', 'parsed SRP model')
     call assert_true(trim(config%srp_attitude_mode) == 'moon', 'parsed attitude mode')
+    call assert_scalar_close(config%srp_cannonball_cr, 1.30_DP, 'parsed cannonball Cr')
+    call assert_scalar_close(config%srp_cannonball_area_m2, 32.0_DP, 'parsed cannonball area')
     call assert_close(config%srp_box_dimensions_m, [2.0_DP, 3.0_DP, 4.0_DP], 'parsed box dimensions')
     call assert_close(config%srp_attitude_bias_span_arcsec, [10.0_DP, 20.0_DP, 30.0_DP], &
                       'parsed attitude spans')
     call assert_true(validate_config(), 'valid box-wing configuration')
+
+    config%srp_model = 'cannonball'
+    config%srp_cannonball_cr = -1.0_DP
+    call assert_true(.not. validate_config(), 'negative cannonball Cr rejected')
+    config%srp_cannonball_cr = 1.2213_DP
+    config%srp_cannonball_area_m2 = 0.0_DP
+    call assert_true(.not. validate_config(), 'nonpositive cannonball area rejected')
+    config%srp_cannonball_area_m2 = 30.0_DP
+    config%srp_mass_kg = 0.0_DP
+    call assert_true(.not. validate_config(), 'nonpositive cannonball mass rejected')
+    config%srp_mass_kg = 1200.0_DP
+    call assert_true(validate_config(), 'valid cannonball configuration')
+    config%srp_model = 'box_wing'
 
     config%srp_mass_kg = -1.0_DP
     call assert_true(.not. validate_config(), 'negative mass rejected')
@@ -76,5 +96,14 @@ contains
             stop 1
         end if
     end subroutine assert_close
+
+    subroutine assert_scalar_close(actual, expected, label)
+        real(DP), intent(in) :: actual, expected
+        character(len=*), intent(in) :: label
+        if (abs(actual - expected) > 1.0e-14_DP) then
+            write(*,*) 'FAILED: ', trim(label), actual, expected
+            stop 1
+        end if
+    end subroutine assert_scalar_close
 
 end program test_spacecraft_geometry_config

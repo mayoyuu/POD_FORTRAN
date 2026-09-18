@@ -28,8 +28,8 @@ program run_srp_uq_propagation
     da_order = 4
     dt_seconds = 0.0_DP
     target_et = 0.0_DP
-    srp_cr = 1.25_DP
-    srp_smr = 7.5e-3_DP
+    srp_cr = 1.2213_DP
+    srp_smr = 30.0_DP / 1200.0_DP
     srp_rp = 1367.0_DP / 299792458.0_DP
     srp_eta_mean = 0.0_DP
     srp_eta_sigma = 0.0_DP

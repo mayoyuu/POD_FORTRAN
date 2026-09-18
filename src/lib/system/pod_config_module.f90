@@ -53,6 +53,7 @@
 
 module pod_config
     use pod_global, only: DP, MAX_STRING_LEN, global_state
+    use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
     
     implicit none
     
@@ -134,7 +135,9 @@ module pod_config
         character(len=MAX_STRING_LEN) :: srp_roll_reference = 'orbit_normal'
         real(DP) :: srp_primary_axis_body(3) = [0.0_DP, 0.0_DP, 1.0_DP]
         real(DP) :: srp_secondary_axis_body(3) = [0.0_DP, 1.0_DP, 0.0_DP]
-        real(DP) :: srp_mass_kg = -1.0_DP
+        real(DP) :: srp_cannonball_cr = 1.2213_DP
+        real(DP) :: srp_cannonball_area_m2 = 30.0_DP
+        real(DP) :: srp_mass_kg = 1200.0_DP
         real(DP) :: srp_box_dimensions_m(3) = -1.0_DP
         real(DP) :: srp_box_optical(3) = -1.0_DP
         real(DP) :: srp_array_total_area_m2 = -1.0_DP
@@ -311,7 +314,9 @@ contains
         config%srp_roll_reference = 'orbit_normal'
         config%srp_primary_axis_body = [0.0_DP, 0.0_DP, 1.0_DP]
         config%srp_secondary_axis_body = [0.0_DP, 1.0_DP, 0.0_DP]
-        config%srp_mass_kg = -1.0_DP
+        config%srp_cannonball_cr = 1.2213_DP
+        config%srp_cannonball_area_m2 = 30.0_DP
+        config%srp_mass_kg = 1200.0_DP
         config%srp_box_dimensions_m = -1.0_DP
         config%srp_box_optical = -1.0_DP
         config%srp_array_total_area_m2 = -1.0_DP
@@ -470,7 +475,9 @@ contains
         write(unit, '(A)') 'srp_roll_reference = orbit_normal'
         write(unit, '(A)') 'srp_primary_axis_body = 0.0 0.0 1.0'
         write(unit, '(A)') 'srp_secondary_axis_body = 0.0 1.0 0.0'
-        write(unit, '(A)') 'srp_mass_kg = -1.0'
+        write(unit, '(A)') 'srp_cannonball_cr = 1.2213'
+        write(unit, '(A)') 'srp_cannonball_area_m2 = 30.0'
+        write(unit, '(A)') 'srp_mass_kg = 1200.0'
         write(unit, '(A)') 'srp_box_dimensions_m = -1.0 -1.0 -1.0'
         write(unit, '(A)') 'srp_box_optical = -1.0 -1.0 -1.0'
         write(unit, '(A)') 'srp_array_total_area_m2 = -1.0'
@@ -677,6 +684,10 @@ contains
                 read(value, *, iostat=ios) config%srp_primary_axis_body
             case ('srp_secondary_axis_body')
                 read(value, *, iostat=ios) config%srp_secondary_axis_body
+            case ('srp_cannonball_cr')
+                read(value, *, iostat=ios) config%srp_cannonball_cr
+            case ('srp_cannonball_area_m2')
+                read(value, *, iostat=ios) config%srp_cannonball_area_m2
             case ('srp_mass_kg')
                 read(value, *, iostat=ios) config%srp_mass_kg
             case ('srp_box_dimensions_m')
@@ -877,10 +888,12 @@ contains
         write(*, *) '  第三体摄动: ', config%use_third_body
         write(*, *) '  太阳辐射压: ', config%use_srp
         write(*, *) '  SRP 模型: ', trim(config%srp_model)
+        write(*, *) '  炮弹球 Cr: ', config%srp_cannonball_cr
+        write(*, *) '  炮弹球参考面积 (m^2): ', config%srp_cannonball_area_m2
+        write(*, *) '  星体质量 (kg): ', config%srp_mass_kg
         if (trim(config%srp_model) == 'box_wing') then
             write(*, *) '  SRP 定姿模式: ', trim(config%srp_attitude_mode)
             write(*, *) '  SRP 滚转参考: ', trim(config%srp_roll_reference)
-            write(*, *) '  星体质量 (kg): ', config%srp_mass_kg
             write(*, *) '  箱体尺寸 (m): ', config%srp_box_dimensions_m
             write(*, *) '  太阳翼总面积 (m^2): ', config%srp_array_total_area_m2
         end if
@@ -1036,8 +1049,30 @@ contains
             validate_config = .false.
         end if
 
-        ! Simplified box-wing SRP validation. Cannonball mode intentionally keeps
-        ! the legacy configuration valid without requiring geometry parameters.
+        ! Common cannonball parameters are physical Real constants.  The same
+        ! configured nominal values are consumed by both Real and DA models.
+        if (.not. ieee_is_finite(config%srp_cannonball_cr) .or. &
+            config%srp_cannonball_cr < 0.0_DP) then
+            write(*, *) '错误: srp_cannonball_cr 必须为有限非负数'
+            validate_config = .false.
+        end if
+        if (.not. ieee_is_finite(config%srp_cannonball_area_m2) .or. &
+            config%srp_cannonball_area_m2 <= 0.0_DP) then
+            write(*, *) '错误: srp_cannonball_area_m2 必须为有限正数'
+            validate_config = .false.
+        end if
+        if (.not. ieee_is_finite(config%srp_mass_kg) .or. config%srp_mass_kg <= 0.0_DP) then
+            write(*, *) '错误: srp_mass_kg 必须为有限正数'
+            validate_config = .false.
+        end if
+        if ((.not. ieee_is_finite(config%srp_pressure_1au_n_m2)) .or. &
+            (config%srp_pressure_1au_n_m2 <= 0.0_DP .and. &
+             config%srp_pressure_1au_n_m2 /= -1.0_DP)) then
+            write(*, *) '错误: srp_pressure_1au_n_m2 必须为-1(使用内置值)或有限正数'
+            validate_config = .false.
+        end if
+
+        ! Simplified box-wing SRP validation.
         if (trim(config%srp_model) /= 'cannonball' .and. trim(config%srp_model) /= 'box_wing') then
             write(*, *) '错误: srp_model 必须为 cannonball 或 box_wing'
             validate_config = .false.
@@ -1059,10 +1094,6 @@ contains
                 validate_config = .false.
             end if
 
-            if (config%srp_mass_kg <= 0.0_DP) then
-                write(*, *) '错误: srp_mass_kg 必须大于0'
-                validate_config = .false.
-            end if
             if (any(config%srp_box_dimensions_m <= 0.0_DP)) then
                 write(*, *) '错误: srp_box_dimensions_m 三个分量必须大于0'
                 validate_config = .false.
@@ -1115,11 +1146,6 @@ contains
                 end if
             end if
 
-            if (config%srp_pressure_1au_n_m2 <= 0.0_DP .and. &
-                config%srp_pressure_1au_n_m2 /= -1.0_DP) then
-                write(*, *) '错误: srp_pressure_1au_n_m2 必须为-1(使用内置值)或正数'
-                validate_config = .false.
-            end if
             if (config%srp_geometry_tolerance <= 0.0_DP) then
                 write(*, *) '错误: srp_geometry_tolerance 必须大于0'
                 validate_config = .false.

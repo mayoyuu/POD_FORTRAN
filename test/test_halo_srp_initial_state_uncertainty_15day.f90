@@ -50,7 +50,7 @@ program test_halo_srp_initial_state_uncertainty_15day
     real(DP),parameter :: RANK_TOL=1.0e-8_DP
     real(DP),parameter :: RAD_TO_ARCSEC=206264.80624709636_DP
     real(DP),parameter :: SPACECRAFT_MASS_KG=1200.0_DP
-    real(DP),parameter :: CANNONBALL_AREA_M2=9.0_DP,CANNONBALL_CR=1.25_DP
+    real(DP),parameter :: CANNONBALL_AREA_M2=30.0_DP,CANNONBALL_CR=1.2213_DP
     real(DP),parameter :: CANNONBALL_SMR=CANNONBALL_AREA_M2/SPACECRAFT_MASS_KG
     real(DP),parameter :: SOLAR_PRESSURE_1AU=1367.0_DP/299792458.0_DP
     character(len=*),parameter :: CONFIG_FILE='config/config.txt'

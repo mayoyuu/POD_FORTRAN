@@ -13,12 +13,15 @@ module pod_da_force_model_module
     integer :: srp_scale_da_index = 0
     real(DP) :: srp_scale_nominal = 0.0_DP
     real(DP) :: srp_scale_da_span = 1.0_DP
-    real(DP) :: srp_reflectivity_default = 1.25_DP
-    real(DP) :: srp_area_mass_default = 7.5e-3_DP
+    real(DP) :: srp_reflectivity_default = 0.0_DP
+    real(DP) :: srp_area_mass_default = 0.0_DP
     real(DP) :: srp_pressure_default = -1.0_DP
+    logical :: override_srp_reflectivity = .false.
+    logical :: override_srp_area_mass = .false.
+    logical :: override_srp_pressure = .false.
     public :: set_propagation_epoch, cleanup_gravity_network
     public :: set_srp_scale_uncertainty, clear_srp_scale_uncertainty
-    public :: set_srp_ballistic_parameters
+    public :: set_srp_ballistic_parameters, clear_srp_ballistic_parameters
     public :: build_srp_da_parameter_map
 
     ! =========================================================
@@ -159,10 +162,28 @@ contains
     subroutine set_srp_ballistic_parameters(Cr, SMR, RP)
         real(DP), intent(in), optional :: Cr, SMR, RP
 
-        if (present(Cr)) srp_reflectivity_default = Cr
-        if (present(SMR)) srp_area_mass_default = SMR
-        if (present(RP)) srp_pressure_default = RP
+        if (present(Cr)) then
+            if (Cr < 0.0_DP) error stop 'DA cannonball Cr must be nonnegative'
+            srp_reflectivity_default = Cr
+            override_srp_reflectivity = .true.
+        end if
+        if (present(SMR)) then
+            if (SMR <= 0.0_DP) error stop 'DA cannonball area/mass ratio must be positive'
+            srp_area_mass_default = SMR
+            override_srp_area_mass = .true.
+        end if
+        if (present(RP)) then
+            if (RP <= 0.0_DP) error stop 'DA solar pressure must be positive'
+            srp_pressure_default = RP
+            override_srp_pressure = .true.
+        end if
     end subroutine set_srp_ballistic_parameters
+
+    subroutine clear_srp_ballistic_parameters()
+        override_srp_reflectivity = .false.
+        override_srp_area_mass = .false.
+        override_srp_pressure = .false.
+    end subroutine clear_srp_ballistic_parameters
     
     !> 计算总加速度的主函数
     subroutine da_compute_acceleration(position, velocity, time, acceleration)
@@ -503,11 +524,14 @@ contains
             return
         end if
 
-        ! 默认值 (与 f_SRP 对齐)
-        reflectivity = srp_reflectivity_default
-        area_mass_ratio = srp_area_mass_default
+        ! Nominal physical constants come from the shared configuration.
+        reflectivity = config%srp_cannonball_cr
+        area_mass_ratio = config%srp_cannonball_area_m2 / config%srp_mass_kg
         nominal_rp = SOLAR_CONSTANT / SPEED_OF_LIGHT
-        if (srp_pressure_default > 0.0_DP) nominal_rp = srp_pressure_default   ! ≈ 4.56e-6 N/m²
+        if (config%srp_pressure_1au_n_m2 > 0.0_DP) nominal_rp = config%srp_pressure_1au_n_m2
+        if (override_srp_reflectivity) reflectivity = srp_reflectivity_default
+        if (override_srp_area_mass) area_mass_ratio = srp_area_mass_default
+        if (override_srp_pressure) nominal_rp = srp_pressure_default
         
         if (present(Cr)) reflectivity = Cr
         if (present(SMR)) area_mass_ratio = SMR
