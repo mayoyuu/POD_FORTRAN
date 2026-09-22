@@ -57,7 +57,7 @@ program test_halo_srp_scale_uncertainty_15day
     character(len=*), parameter :: CONFIG_FILE='config/config.txt'
     character(len=256) :: halo_opm='OPM/L1Halo-1/L1Halo-1_init.opm.json'
     character(len=256) :: out_dir
-    real(DP) :: scale_span = 0.1_DP
+    real(DP) :: scale_span = 0.3_DP
     character(len=32), parameter :: MODEL_NAMES(N_MODELS)=[character(len=32) :: &
         'cannonball','box_wing_sun','box_wing_earth','box_wing_moon']
     character(len=16), parameter :: DISTRIBUTION_NAMES(N_DISTRIBUTIONS)= &
