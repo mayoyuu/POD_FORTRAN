@@ -2,8 +2,9 @@
 !> Provides SplittingHistory, Patch, Manifold types and operations
 !> Translated from C++ reference: ADS_cpp_Core_file/
 module pod_ads_split_module
+    use, intrinsic :: ieee_arithmetic, only: ieee_quiet_nan, ieee_value
     use pod_global, only: DP
-    use pod_dace_classes, only: AlgebraicVector, DA, da_var, da_estim_norm, &
+    use pod_dace_classes, only: AlgebraicVector, CompiledDA, DA, da_var, da_estim_norm, &
         dace_max_variables, da_add, da_mul, vector_eval_da_vec_sub, &
         operator(+), operator(*), assignment(=)
     implicit none
@@ -30,6 +31,7 @@ module pod_ads_split_module
     public :: sh_push, sh_pop, sh_count, sh_replay, sh_center, sh_width, sh_contain, sh_map_point
     public :: patch_init, patch_destroy, patch_get_trunc_err, patch_get_split_dir, patch_split
     public :: mf_init, mf_destroy, mf_push, mf_pop_front
+    public :: mf_find_patch, mf_evaluate_point, mf_evaluate_points
 
 contains
 
@@ -274,6 +276,24 @@ contains
         if (allocated(p%history%entries)) deallocate(p%history%entries)
     end subroutine patch_destroy
 
+    !> Deep-copy a Patch, including fresh ownership of every DA handle.
+    !! Intrinsic assignment of patch_type is unsafe because defined assignment
+    !! is not recursively applied to its AlgebraicVector component.
+    subroutine patch_copy(source, destination)
+        type(patch_type), intent(in) :: source
+        type(patch_type), intent(inout) :: destination
+        integer :: i
+
+        call patch_destroy(destination)
+        if (allocated(destination%da_vec%h_list)) &
+            deallocate(destination%da_vec%h_list)
+        call destination%da_vec%init(source%da_vec%size)
+        do i = 1, source%da_vec%size
+            destination%da_vec%elements(i) = source%da_vec%elements(i)
+        end do
+        destination%history = source%history
+    end subroutine patch_copy
+
     ! =========================================================================
     ! Patch: patch_get_trunc_err
     ! =========================================================================
@@ -388,16 +408,21 @@ contains
         type(manifold_type), intent(inout) :: m
         type(patch_type), intent(in) :: p
         type(patch_type), allocatable :: tmp(:)
-        integer :: n
+        integer :: i, n
         if (.not. allocated(m%patches)) then
             allocate(m%patches(1))
             m%n_patches = 1
-            m%patches(1) = p
+            call patch_copy(p, m%patches(1))
         else
             n = m%n_patches
             allocate(tmp(n+1))
-            tmp(1:n) = m%patches(1:n)
-            tmp(n+1) = p
+            do i = 1, n
+                call patch_copy(m%patches(i), tmp(i))
+            end do
+            call patch_copy(p, tmp(n+1))
+            do i = 1, n
+                call patch_destroy(m%patches(i))
+            end do
             call move_alloc(tmp, m%patches)
             m%n_patches = n + 1
         end if
@@ -412,19 +437,150 @@ contains
         type(patch_type), allocatable :: tmp(:)
         integer :: n, i
         if (m%n_patches == 0) return
-        p = m%patches(1)
+        call patch_copy(m%patches(1), p)
         n = m%n_patches
         if (n == 1) then
+            call patch_destroy(m%patches(1))
             deallocate(m%patches)
             m%n_patches = 0
         else
             allocate(tmp(n-1))
             do i = 2, n
-                tmp(i-1) = m%patches(i)
+                call patch_copy(m%patches(i), tmp(i-1))
+            end do
+            do i = 1, n
+                call patch_destroy(m%patches(i))
             end do
             call move_alloc(tmp, m%patches)
             m%n_patches = n - 1
         end if
     end subroutine mf_pop_front
+
+    !> Return the first Patch containing a point in the global ADS unit box.
+    !! Zero means the point is outside every Patch (or has the wrong dimension).
+    subroutine mf_find_patch(m, point, patch_index)
+        type(manifold_type), intent(in) :: m
+        real(DP), intent(in) :: point(:)
+        integer, intent(out) :: patch_index
+        integer :: i
+
+        patch_index = 0
+        if (size(point) /= dace_max_variables()) return
+        do i = 1, m%n_patches
+            if (sh_contain(m%patches(i)%history, point)) then
+                patch_index = i
+                return
+            end if
+        end do
+    end subroutine mf_find_patch
+
+    !> Evaluate one global unit-box point using its owning Patch.
+    !! value is set to NaN and found is false when no Patch contains the point.
+    subroutine mf_evaluate_point(m, point, value, found, status)
+        type(manifold_type), intent(in) :: m
+        real(DP), intent(in) :: point(:)
+        real(DP), intent(out) :: value(:)
+        logical, intent(out) :: found
+        integer, intent(out) :: status
+        type(CompiledDA) :: compiled
+        real(DP), allocatable :: local_point(:)
+        integer :: patch_index
+
+        status = 0
+        found = .false.
+        value = ieee_value(0.0_DP, ieee_quiet_nan)
+        if (size(point) /= dace_max_variables()) then
+            status = -1
+            return
+        end if
+        if (m%n_patches < 1) return
+        if (size(value) /= m%patches(1)%da_vec%size) then
+            status = -2
+            return
+        end if
+
+        call mf_find_patch(m, point, patch_index)
+        if (patch_index == 0) return
+        local_point = point
+        call sh_map_point(m%patches(patch_index)%history, local_point)
+        compiled = m%patches(patch_index)%da_vec%compile()
+        call compiled%eval_into(local_point, value, status)
+        call compiled%destroy()
+        found = status == 0
+    end subroutine mf_evaluate_point
+
+    !> Evaluate sample columns across a split manifold in Patch-sized batches.
+    !! Each Patch is compiled once, then all samples belonging to it are mapped
+    !! to local coordinates and evaluated by one batch call. Outside points stay
+    !! NaN with found=false; they are never silently replaced by a nominal state.
+    subroutine mf_evaluate_points(m, points, values, found, status)
+        type(manifold_type), intent(in) :: m
+        real(DP), intent(in) :: points(:,:)
+        real(DP), intent(out) :: values(:,:)
+        logical, intent(out) :: found(:)
+        integer, intent(out) :: status
+        type(CompiledDA) :: compiled
+        real(DP), allocatable :: local_points(:,:), local_values(:,:)
+        integer, allocatable :: owners(:), sample_indices(:)
+        integer :: i, j, n_assigned, n_samples, n_variables, n_outputs
+
+        status = 0
+        values = ieee_value(0.0_DP, ieee_quiet_nan)
+        found = .false.
+        n_variables = dace_max_variables()
+        n_samples = size(points,2)
+        if (size(points,1) /= n_variables .or. size(found) /= n_samples .or. &
+            size(values,2) /= n_samples) then
+            status = -1
+            return
+        end if
+        if (m%n_patches < 1) then
+            if (size(values,1) /= 0) status = -2
+            return
+        end if
+        n_outputs = m%patches(1)%da_vec%size
+        if (size(values,1) /= n_outputs) then
+            status = -2
+            return
+        end if
+        do i = 2, m%n_patches
+            if (m%patches(i)%da_vec%size /= n_outputs) then
+                status = -3
+                return
+            end if
+        end do
+        if (n_samples == 0) return
+
+        allocate(owners(n_samples))
+        owners = 0
+        do j = 1, n_samples
+            call mf_find_patch(m, points(:,j), owners(j))
+        end do
+
+        do i = 1, m%n_patches
+            n_assigned = count(owners == i)
+            if (n_assigned == 0) cycle
+            allocate(local_points(n_variables,n_assigned))
+            allocate(local_values(n_outputs,n_assigned))
+            allocate(sample_indices(n_assigned))
+            n_assigned = 0
+            do j = 1, n_samples
+                if (owners(j) /= i) cycle
+                n_assigned = n_assigned + 1
+                sample_indices(n_assigned) = j
+                local_points(:,n_assigned) = points(:,j)
+                call sh_map_point(m%patches(i)%history, local_points(:,n_assigned))
+            end do
+            compiled = m%patches(i)%da_vec%compile()
+            call compiled%eval_batch_into(local_points, local_values, status)
+            call compiled%destroy()
+            if (status /= 0) return
+            do j = 1, n_assigned
+                values(:,sample_indices(j)) = local_values(:,j)
+                found(sample_indices(j)) = .true.
+            end do
+            deallocate(local_points, local_values, sample_indices)
+        end do
+    end subroutine mf_evaluate_points
 
 end module pod_ads_split_module
