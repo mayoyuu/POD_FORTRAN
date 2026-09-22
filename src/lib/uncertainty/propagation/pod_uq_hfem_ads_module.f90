@@ -57,7 +57,24 @@ module pod_uq_hfem_ads_module
         integer, allocatable :: split_counts(:)
     end type hfem_ads_stats_type
 
+    ! Incremental ADS domain. Each Patch maps the original unit box to the
+    ! physical Cartesian state at current_time; its splitting history is kept.
+    type, public :: hfem_ads_history_type
+        type(ads_coordinate_map_type) :: coordinate_map
+        type(hfem_ads_options_type) :: options
+        type(hfem_ads_stats_type) :: stats
+        type(manifold_type) :: domain
+        type(manifold_type) :: previous_domain
+        real(DP) :: previous_time = 0.0_DP
+        logical :: previous_available = .false.
+        real(DP) :: epoch0 = 0.0_DP
+        real(DP) :: current_time = 0.0_DP
+        logical :: initialized = .false.
+    end type hfem_ads_history_type
+
     public :: hfem_ads_propagate
+    public :: hfem_ads_history_init, hfem_ads_history_advance
+    public :: hfem_ads_history_evaluate, hfem_ads_history_destroy
 
 contains
 
@@ -290,4 +307,205 @@ contains
         call mf_destroy(queue)
     end subroutine build_domain
 
+    subroutine hfem_ads_history_init(history, nominal_state, covariance, epoch0, &
+            options, status, message)
+        type(hfem_ads_history_type), intent(inout) :: history
+        real(DP), intent(in) :: nominal_state(6), covariance(6,6), epoch0
+        type(hfem_ads_options_type), intent(in) :: options
+        integer, intent(out) :: status
+        character(len=*), intent(out) :: message
+        type(AlgebraicVector) :: initial_da
+        type(patch_type) :: initial_patch
+        integer :: i, j, map_status
+
+        status = 0
+        message = ''
+        if (history%initialized) call hfem_ads_history_destroy(history)
+        if (.not. ieee_is_finite(epoch0)) then
+            status = -1
+            message = 'ADS history epoch must be finite'
+            return
+        end if
+        if (options%da_order < 1 .or. options%max_split_depth < 0 .or. &
+            options%max_steps < 2 .or. any(options%error_tolerance <= 0.0_DP) .or. &
+            .not. all(ieee_is_finite(options%error_tolerance)) .or. &
+            .not. ieee_is_finite(options%rel_tol) .or. options%rel_tol <= 0.0_DP .or. &
+            .not. ieee_is_finite(options%abs_tol) .or. options%abs_tol <= 0.0_DP .or. &
+            .not. ieee_is_finite(options%dt_min) .or. options%dt_min <= 0.0_DP .or. &
+            .not. ieee_is_finite(options%dt_max) .or. options%dt_max < options%dt_min) then
+            status = -2
+            message = 'ADS history options contain an invalid limit'
+            return
+        end if
+        call ads_build_coordinate_map(nominal_state, covariance, &
+            options%coordinate_mode, options%domain_sigma, options%srp_sigma, &
+            history%coordinate_map, map_status, message)
+        if (map_status /= 0) then
+            status = map_status
+            return
+        end if
+
+        history%options = options
+        history%epoch0 = epoch0
+        history%current_time = 0.0_DP
+        history%stats = hfem_ads_stats_type()
+        history%stats%coordinate_mode = history%coordinate_map%mode
+        history%stats%n_variables = history%coordinate_map%n_variables
+        history%stats%domain_sigma = options%domain_sigma
+        history%stats%srp_sigma = options%srp_sigma
+        history%stats%basis6 = history%coordinate_map%basis6
+        allocate(history%stats%split_counts(history%coordinate_map%n_variables), source=0)
+        call dace_initialize(options%da_order, history%coordinate_map%n_variables)
+        call set_propagation_epoch(epoch0)
+        call clear_srp_scale_uncertainty()
+        call initial_da%init(STATE_DIM)
+        do i = 1, STATE_DIM
+            initial_da%elements(i) = nominal_state(i)
+            do j = 1, STATE_DIM
+                initial_da%elements(i) = initial_da%elements(i) + &
+                    history%coordinate_map%basis6(i,j)*da_var(j)
+            end do
+        end do
+        call patch_init(initial_patch, initial_da)
+        call mf_init(history%domain)
+        call mf_push(history%domain, initial_patch)
+        call patch_destroy(initial_patch)
+        history%stats%n_patches = 1
+        history%initialized = .true.
+    end subroutine hfem_ads_history_init
+
+    subroutine hfem_ads_history_advance(history, next_time, status, message)
+        type(hfem_ads_history_type), intent(inout) :: history
+        real(DP), intent(in) :: next_time
+        integer, intent(out) :: status
+        character(len=*), intent(out) :: message
+        type(manifold_type) :: queue, accepted
+        type(patch_type) :: input_patch, propagated_patch, left, right
+        type(AlgebraicVector) :: starting_nd, ending_nd, ending_physical
+        real(DP), allocatable :: times(:), nominal_states(:,:), patch_center(:), patch_width(:)
+        real(DP) :: errors(6), excess(6), state_scale, eta_scale
+        integer :: i, component(1), direction, n_steps, count_start, count_end, count_rate
+
+        status = 0
+        message = ''
+        if (.not. history%initialized) then
+            status = -1
+            message = 'ADS history is not initialized'
+            return
+        end if
+        if (.not. ieee_is_finite(next_time) .or. next_time < history%current_time) then
+            status = -2
+            message = 'ADS history time must be finite and nondecreasing'
+            return
+        end if
+        if (next_time == history%current_time) return
+
+        call system_clock(count_start, count_rate)
+        call mf_init(queue)
+        call mf_init(accepted)
+        do i = 1, history%domain%n_patches
+            call mf_push(queue, history%domain%patches(i))
+        end do
+        history%stats%bfs_iterations = 0
+        history%stats%max_queue_size = 0
+        history%stats%depth_limited_patches = 0
+        history%stats%split_counts = 0
+        do while (queue%n_patches > 0)
+            history%stats%bfs_iterations = history%stats%bfs_iterations + 1
+            history%stats%max_queue_size = max(history%stats%max_queue_size, queue%n_patches)
+            call mf_pop_front(queue, input_patch)
+            if (history%coordinate_map%n_variables == 7) then
+                patch_center = sh_center(input_patch%history)
+                patch_width = sh_width(input_patch%history)
+                eta_scale = history%options%domain_sigma*history%options%srp_sigma
+                call set_srp_scale_uncertainty(7, eta_scale*patch_center(7), &
+                    eta_scale*patch_width(7)/2.0_DP)
+            else
+                call clear_srp_scale_uncertainty()
+            end if
+
+            call starting_nd%init(STATE_DIM)
+            do i = 1, STATE_DIM
+                state_scale = merge(config%LU, config%VU, i <= 3)
+                starting_nd%elements(i) = input_patch%da_vec%elements(i)/state_scale
+            end do
+            call da_adaptive_step_integrate(starting_nd, &
+                history%current_time/config%TU, next_time/config%TU, METHOD_RKF78, &
+                times, nominal_states, ending_nd, n_steps, history%options%max_steps, &
+                history%options%rel_tol, history%options%abs_tol, &
+                history%options%dt_min, history%options%dt_max)
+            call starting_nd%destroy()
+            call ending_physical%init(STATE_DIM)
+            do i = 1, STATE_DIM
+                state_scale = merge(config%LU, config%VU, i <= 3)
+                ending_physical%elements(i) = ending_nd%elements(i)*state_scale
+            end do
+            call ending_nd%destroy()
+            if (allocated(times)) deallocate(times)
+            if (allocated(nominal_states)) deallocate(nominal_states)
+
+            call patch_init(propagated_patch, ending_physical, input_patch%history)
+            call patch_get_trunc_err(propagated_patch, history%options%da_order, errors)
+            excess = max(0.0_DP, errors-history%options%error_tolerance)
+            if (maxval(excess) <= 0.0_DP) then
+                call mf_push(accepted, propagated_patch)
+            else if (sh_count(input_patch%history,0) >= history%options%max_split_depth) then
+                history%stats%depth_limited_patches = history%stats%depth_limited_patches + 1
+                call mf_push(accepted, propagated_patch)
+            else
+                component = maxloc(excess)
+                direction = patch_get_split_dir(propagated_patch, &
+                    component(1), history%options%da_order)
+                history%stats%split_counts(direction) = &
+                    history%stats%split_counts(direction) + 1
+                call patch_split(input_patch, direction, left, right)
+                call mf_push(queue, left)
+                call mf_push(queue, right)
+                call patch_destroy(left)
+                call patch_destroy(right)
+            end if
+            call patch_destroy(input_patch)
+            call patch_destroy(propagated_patch)
+        end do
+        call mf_destroy(queue)
+        if (history%previous_available) call mf_destroy(history%previous_domain)
+        call move_alloc(history%domain%patches, history%previous_domain%patches)
+        history%previous_domain%n_patches = history%domain%n_patches
+        history%previous_time = history%current_time
+        history%previous_available = .true.
+        call move_alloc(accepted%patches, history%domain%patches)
+        history%domain%n_patches = accepted%n_patches
+        accepted%n_patches = 0
+        history%stats%n_patches = history%domain%n_patches
+        history%current_time = next_time
+        call clear_srp_scale_uncertainty()
+        call system_clock(count_end)
+        history%stats%elapsed_seconds = real(count_end-count_start,DP)/real(count_rate,DP)
+    end subroutine hfem_ads_history_advance
+
+    subroutine hfem_ads_history_evaluate(history, unit_points, values, found, status)
+        type(hfem_ads_history_type), intent(in) :: history
+        real(DP), intent(in) :: unit_points(:,:)
+        real(DP), intent(out) :: values(:,:)
+        logical, intent(out) :: found(:)
+        integer, intent(out) :: status
+
+        status = -1
+        found = .false.
+        values = 0.0_DP
+        if (.not. history%initialized) return
+        call mf_evaluate_points(history%domain, unit_points, values, found, status)
+    end subroutine hfem_ads_history_evaluate
+
+    subroutine hfem_ads_history_destroy(history)
+        type(hfem_ads_history_type), intent(inout) :: history
+
+        if (.not. history%initialized) return
+        call mf_destroy(history%domain)
+        if (history%previous_available) call mf_destroy(history%previous_domain)
+        history%previous_available = .false.
+        call clear_srp_scale_uncertainty()
+        history%stats = hfem_ads_stats_type()
+        history%initialized = .false.
+    end subroutine hfem_ads_history_destroy
 end module pod_uq_hfem_ads_module
