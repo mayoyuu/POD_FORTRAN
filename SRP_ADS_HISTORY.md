@@ -31,3 +31,33 @@ python3 tools/plot_srp_ads_history.py --prefix output/DROb_srp_ads --hours 0 24 
 ```
 
 The script uses only Python's standard library and renders selected checkpoints on demand.
+
+## Parallel batch for 10 km / 0.03 m/s initial-error OPMs
+
+The batch wrapper recursively scans `OPM` for `*_init.opm` and
+`*_init.opm.json`, reproduces the complete OPM directory tree below
+`SRP/SRP_UCERTAINTY_PROP_WITHINIT`, and runs only files whose top-level
+covariance has a three-dimensional 1-sigma RSS of 10 km and 0.03 m/s.
+
+Defaults are four parallel processes, SRP relative multiplier sigma 0.3
+(the ADS eta interval is -0.9 to +0.9), 15 days, hourly checkpoints,
+DA order 4, split depth 8, 100 m position tolerance, and 1 mm/s velocity
+tolerance.
+
+Run the preflight without propagation:
+
+```sh
+bash tools/run_srp_ads_batch.sh --dry-run --jobs 4
+```
+
+Run the full campaign:
+
+```sh
+bash tools/run_srp_ads_batch.sh --jobs 4
+```
+
+Completed reports with matching settings are skipped on restart. Use `--force`
+to overwrite them. Each orbit writes its normal SRP-ADS outputs and a
+`*_run.log` in the corresponding mirrored directory. Campaign-wide files are
+`batch_preflight.csv`, `batch_results.csv`, `batch_summary.json`, and
+`batch_build.log`.
