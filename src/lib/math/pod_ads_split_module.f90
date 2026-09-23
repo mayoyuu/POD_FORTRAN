@@ -314,16 +314,24 @@ contains
     ! =========================================================================
     ! Patch: patch_get_split_dir
     ! =========================================================================
-    integer function patch_get_split_dir(p, comp, order) result(dir)
+    integer function patch_get_split_dir(p, comp, order, scores) result(dir)
         type(patch_type), intent(in) :: p
         integer, intent(in) :: comp, order
+        real(DP), intent(out), optional :: scores(:)
         real(DP) :: err_m, top_norm
         integer :: i, nvars
         dir = 1
         err_m = 0.0_DP
         nvars = dace_max_variables()
+        if (present(scores)) then
+            if (size(scores) < nvars) then
+                error stop 'patch_get_split_dir: scores array is smaller than active variables'
+            end if
+            scores = 0.0_DP
+        end if
         do i = 1, nvars
             call da_estim_norm(p%da_vec%elements(comp)%handle, i, order, top_norm)
+            if (present(scores)) scores(i) = top_norm
             if (top_norm > err_m) then
                 err_m = top_norm
                 dir = i

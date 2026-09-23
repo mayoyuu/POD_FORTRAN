@@ -54,6 +54,17 @@ module pod_uq_hfem_ads_module
         real(DP) :: srp_sigma = 0.0_DP
         real(DP) :: basis6(6,6) = 0.0_DP
         real(DP) :: elapsed_seconds = 0.0_DP
+        logical :: split_occurred = .false.
+        integer :: first_split_component = 0
+        integer :: first_split_direction = 0
+        integer :: first_split_depth = -1
+        integer :: first_split_bfs_iteration = 0
+        real(DP) :: first_split_errors(6) = 0.0_DP
+        real(DP) :: first_split_tolerances(6) = 0.0_DP
+        real(DP) :: first_split_excess(6) = 0.0_DP
+        real(DP) :: first_split_direction_scores(7) = 0.0_DP
+        real(DP) :: first_split_parent_center(7) = 0.0_DP
+        real(DP) :: first_split_parent_width(7) = 0.0_DP
         integer, allocatable :: split_counts(:)
     end type hfem_ads_stats_type
 
@@ -224,6 +235,7 @@ contains
         real(DP), allocatable :: times(:), nominal_states(:,:)
         real(DP), allocatable :: patch_center(:), patch_width(:)
         real(DP) :: errors(6), excess(6), state_scale, eta_scale
+        real(DP) :: direction_scores(7)
         integer :: i, j, n_steps, component(1), direction
 
         call dace_initialize(options%da_order, coordinate_map%n_variables)
@@ -291,7 +303,10 @@ contains
             else
                 component = maxloc(excess)
                 direction = patch_get_split_dir(propagated_patch, &
-                    component(1), options%da_order)
+                    component(1), options%da_order, direction_scores)
+                call record_first_split(stats, input_patch, errors, &
+                    options%error_tolerance, excess, component(1), direction, &
+                    direction_scores)
                 stats%split_counts(direction) = stats%split_counts(direction) + 1
                 call patch_split(input_patch, direction, left, right)
                 call mf_push(queue, left)
@@ -384,6 +399,7 @@ contains
         type(AlgebraicVector) :: starting_nd, ending_nd, ending_physical
         real(DP), allocatable :: times(:), nominal_states(:,:), patch_center(:), patch_width(:)
         real(DP) :: errors(6), excess(6), state_scale, eta_scale
+        real(DP) :: direction_scores(7)
         integer :: i, component(1), direction, n_steps, count_start, count_end, count_rate
 
         status = 0
@@ -410,6 +426,7 @@ contains
         history%stats%max_queue_size = 0
         history%stats%depth_limited_patches = 0
         history%stats%split_counts = 0
+        call reset_first_split(history%stats)
         do while (queue%n_patches > 0)
             history%stats%bfs_iterations = history%stats%bfs_iterations + 1
             history%stats%max_queue_size = max(history%stats%max_queue_size, queue%n_patches)
@@ -455,7 +472,10 @@ contains
             else
                 component = maxloc(excess)
                 direction = patch_get_split_dir(propagated_patch, &
-                    component(1), history%options%da_order)
+                    component(1), history%options%da_order, direction_scores)
+                call record_first_split(history%stats, input_patch, errors, &
+                    history%options%error_tolerance, excess, component(1), direction, &
+                    direction_scores)
                 history%stats%split_counts(direction) = &
                     history%stats%split_counts(direction) + 1
                 call patch_split(input_patch, direction, left, right)
@@ -482,6 +502,49 @@ contains
         call system_clock(count_end)
         history%stats%elapsed_seconds = real(count_end-count_start,DP)/real(count_rate,DP)
     end subroutine hfem_ads_history_advance
+
+    subroutine reset_first_split(stats)
+        type(hfem_ads_stats_type), intent(inout) :: stats
+
+        stats%split_occurred = .false.
+        stats%first_split_component = 0
+        stats%first_split_direction = 0
+        stats%first_split_depth = -1
+        stats%first_split_bfs_iteration = 0
+        stats%first_split_errors = 0.0_DP
+        stats%first_split_tolerances = 0.0_DP
+        stats%first_split_excess = 0.0_DP
+        stats%first_split_direction_scores = 0.0_DP
+        stats%first_split_parent_center = 0.0_DP
+        stats%first_split_parent_width = 0.0_DP
+    end subroutine reset_first_split
+
+    subroutine record_first_split(stats, parent, errors, tolerances, excess, &
+            component, direction, direction_scores)
+        type(hfem_ads_stats_type), intent(inout) :: stats
+        type(patch_type), intent(in) :: parent
+        real(DP), intent(in) :: errors(6), tolerances(6), excess(6)
+        integer, intent(in) :: component, direction
+        real(DP), intent(in) :: direction_scores(:)
+        real(DP), allocatable :: center(:), width(:)
+        integer :: nvars
+
+        if (stats%split_occurred) return
+        nvars = min(stats%n_variables, 7)
+        center = sh_center(parent%history)
+        width = sh_width(parent%history)
+        stats%split_occurred = .true.
+        stats%first_split_component = component
+        stats%first_split_direction = direction
+        stats%first_split_depth = sh_count(parent%history, 0)
+        stats%first_split_bfs_iteration = stats%bfs_iterations
+        stats%first_split_errors = errors
+        stats%first_split_tolerances = tolerances
+        stats%first_split_excess = excess
+        stats%first_split_direction_scores(1:nvars) = direction_scores(1:nvars)
+        stats%first_split_parent_center(1:nvars) = center(1:nvars)
+        stats%first_split_parent_width(1:nvars) = width(1:nvars)
+    end subroutine record_first_split
 
     subroutine hfem_ads_history_evaluate(history, unit_points, values, found, status)
         type(hfem_ads_history_type), intent(in) :: history

@@ -23,6 +23,10 @@ program run_srp_ads_history
     real(DP) :: max_validation_pos, max_validation_vel, worst_pos, worst_vel
     real(DP) :: lower(6), upper(6), pos_max, vel_max, pos_axes(3), vel_axes(3)
     real(DP) :: mapped(7), nominal(6), delta(6)
+    real(DP) :: first_split_hour, first_split_interval_start_hour
+    real(DP) :: first_split_errors(6), first_split_tolerances(6), first_split_excess(6)
+    real(DP) :: first_split_direction_scores(7), first_split_parent_center(7)
+    real(DP) :: first_split_parent_width(7)
     real(DP), allocatable :: points(:,:), ads(:,:), truth(:,:), eta(:), truth_initial(:,:)
     integer, allocatable :: validation_ids(:)
     logical, allocatable :: found(:)
@@ -30,6 +34,8 @@ program run_srp_ads_history
     integer :: argc, i, j, unit_history, unit_shape, unit_initial
     integer :: status, step_index, steps, worst_id, first_worst_id, first_failed_step, previous_pass_step
     integer :: first_uncertified_step, depth_limited, last_pass_step
+    integer :: first_split_step, first_split_component, first_split_direction
+    integer :: first_split_depth, first_split_bfs_iteration
     character(len=16) :: hour_tag
 
     opm_file=''
@@ -161,6 +167,8 @@ program run_srp_ads_history
         'pos_max_km,vel_max_kms,pos_axis1_km,pos_axis2_km,pos_axis3_km,'// &
         'vel_axis1_kms,vel_axis2_kms,vel_axis3_kms,patches,depth_limited,'// &
         'split_dim1,split_dim2,split_dim3,split_dim4,split_dim5,split_dim6,split_dim7,'// &
+        'step_split_occurred,step_first_split_component,step_first_split_direction,'// &
+        'step_first_split_depth,step_first_split_bfs_iteration,'// &
         'bfs_iterations,max_queue_size,step_elapsed_seconds,'// &
         'max_validation_pos_km,max_validation_vel_kms,worst_point_id,'// &
         'validation_failed,precision_unconfirmed'
@@ -168,6 +176,19 @@ program run_srp_ads_history
     first_failed_step=-1
     previous_pass_step=-1
     first_uncertified_step=-1
+    first_split_step=-1
+    first_split_hour=0.0_DP
+    first_split_interval_start_hour=0.0_DP
+    first_split_component=0
+    first_split_direction=0
+    first_split_depth=-1
+    first_split_bfs_iteration=0
+    first_split_errors=0.0_DP
+    first_split_tolerances=0.0_DP
+    first_split_excess=0.0_DP
+    first_split_direction_scores=0.0_DP
+    first_split_parent_center=0.0_DP
+    first_split_parent_width=0.0_DP
     last_pass_step=-1
     final_seconds=duration_hours*3600.0_DP
     steps=ceiling(duration_hours/save_hours)
@@ -179,6 +200,21 @@ program run_srp_ads_history
         if(step_index>0) then
             call hfem_ads_history_advance(history,t_seconds,status,message)
             if(status/=0) call fatal('ADS advance: '//trim(message))
+            if(history%stats%split_occurred.and.first_split_step<0) then
+                first_split_step=step_index
+                first_split_hour=current_hour
+                first_split_interval_start_hour=previous_hour
+                first_split_component=history%stats%first_split_component
+                first_split_direction=history%stats%first_split_direction
+                first_split_depth=history%stats%first_split_depth
+                first_split_bfs_iteration=history%stats%first_split_bfs_iteration
+                first_split_errors=history%stats%first_split_errors
+                first_split_tolerances=history%stats%first_split_tolerances
+                first_split_excess=history%stats%first_split_excess
+                first_split_direction_scores=history%stats%first_split_direction_scores
+                first_split_parent_center=history%stats%first_split_parent_center
+                first_split_parent_width=history%stats%first_split_parent_width
+            end if
             call advance_real_probes(truth,eta,epoch0,prev_seconds,t_seconds, &
                 options,status,message)
             if(status/=0) call fatal('real SRP advance: '//trim(message))
@@ -204,6 +240,9 @@ program run_srp_ads_history
         write(unit_history,'(*(G0,:,","))') current_hour,epoch0+t_seconds,nominal, &
             lower,upper,pos_max,vel_max,pos_axes,vel_axes, &
             history%domain%n_patches,depth_limited,history%stats%split_counts, &
+            merge(1,0,history%stats%split_occurred), &
+            history%stats%first_split_component,history%stats%first_split_direction, &
+            history%stats%first_split_depth,history%stats%first_split_bfs_iteration, &
             history%stats%bfs_iterations,history%stats%max_queue_size, &
             history%stats%elapsed_seconds,max_validation_pos, &
             max_validation_vel,worst_id,merge(1,0,failed), &
@@ -214,12 +253,12 @@ program run_srp_ads_history
         end do
         flush(unit_history)
         flush(unit_shape)
-        if(step_index==0.or.step_index==steps.or. &
+        if(step_index==0.or.step_index==steps.or.step_index==first_split_step.or. &
            step_index==first_failed_step.or.step_index==first_uncertified_step) then
             call snapshot_current()
         end if
-        if(step_index>0.and.(step_index==first_failed_step.or. &
-            step_index==first_uncertified_step)) then
+        if(step_index>0.and.(step_index==first_split_step.or. &
+            step_index==first_failed_step.or.step_index==first_uncertified_step)) then
             write(hour_tag,'(I7.7)') nint(prev_seconds)
             path=trim(prefix)//'_patch_s'//trim(hour_tag)
             call write_ads_patch_snapshot(history,trim(path),.true.,status,message)
@@ -243,6 +282,10 @@ program run_srp_ads_history
     if(first_uncertified_step>=0) write(*,'(A,F8.2)') &
         'First depth-limited, tolerance-unconfirmed hour ', &
         min(duration_hours,real(first_uncertified_step,DP)*save_hours)
+    if(first_split_step>=0) write(*,'(A,F8.2,A,F8.2,A,I0,A,I0)') &
+        'First split decision in interval [',first_split_interval_start_hour,', ', &
+        first_split_hour,'] h: component ',first_split_component, &
+        ', direction ',first_split_direction
 contains
     subroutine snapshot_current()
         write(hour_tag,'(I7.7)') nint(t_seconds)
@@ -269,6 +312,53 @@ contains
         write(u,'(A,ES25.16E3,A)') '  "velocity_tolerance_kms": ',vel_tolerance,','
         write(u,'(A,I0,A)') '  "da_order": ',options%da_order,','
         write(u,'(A,I0,A)') '  "max_split_depth": ',options%max_split_depth,','
+        write(u,'(A)') '  "split_decision_rule": "split if any DACE truncation estimate '// &
+            'exceeds its component tolerance; select component by maximum positive '// &
+            'error-minus-tolerance and direction by maximum top-order direction score",'
+        write(u,'(A)') '  "split_truncation_estimator": '// &
+            '"da_estim_norm(component, variable=0, da_order)",'
+        write(u,'(A)') '  "split_direction_estimator": '// &
+            '"da_estim_norm(selected_component, variable=1..n_variables, da_order)",'
+        write(u,'(A)') '  "state_component_order": ["x_km", "y_km", "z_km", '// &
+            '"vx_kms", "vy_kms", "vz_kms"],'
+        write(u,'(A)') '  "uncertainty_direction_order": ["whitened_state_1", '// &
+            '"whitened_state_2", "whitened_state_3", "whitened_state_4", '// &
+            '"whitened_state_5", "whitened_state_6", "relative_srp_eta"],'
+        if(first_split_step>=0) then
+            write(u,'(A,ES25.16E3,A)') '  "first_split_hour": ',first_split_hour,','
+            write(u,'(A,ES25.16E3,A)') '  "first_split_interval_start_hour": ', &
+                first_split_interval_start_hour,','
+            write(u,'(A,I0,A)') '  "first_split_component": ',first_split_component,','
+            write(u,'(A,I0,A)') '  "first_split_direction": ',first_split_direction,','
+            write(u,'(A,I0,A)') '  "first_split_parent_depth": ',first_split_depth,','
+            write(u,'(A,I0,A)') '  "first_split_bfs_iteration": ', &
+                first_split_bfs_iteration,','
+            call write_json_real_array(u,'first_split_truncation_estimates', &
+                first_split_errors)
+            call write_json_real_array(u,'first_split_component_tolerances', &
+                first_split_tolerances)
+            call write_json_real_array(u,'first_split_positive_excess', &
+                first_split_excess)
+            call write_json_real_array(u,'first_split_direction_scores', &
+                first_split_direction_scores)
+            call write_json_real_array(u,'first_split_parent_unit_center', &
+                first_split_parent_center)
+            call write_json_real_array(u,'first_split_parent_unit_width', &
+                first_split_parent_width)
+        else
+            write(u,'(A)') '  "first_split_hour": null,'
+            write(u,'(A)') '  "first_split_interval_start_hour": null,'
+            write(u,'(A)') '  "first_split_component": null,'
+            write(u,'(A)') '  "first_split_direction": null,'
+            write(u,'(A)') '  "first_split_parent_depth": null,'
+            write(u,'(A)') '  "first_split_bfs_iteration": null,'
+            write(u,'(A)') '  "first_split_truncation_estimates": null,'
+            write(u,'(A)') '  "first_split_component_tolerances": null,'
+            write(u,'(A)') '  "first_split_positive_excess": null,'
+            write(u,'(A)') '  "first_split_direction_scores": null,'
+            write(u,'(A)') '  "first_split_parent_unit_center": null,'
+            write(u,'(A)') '  "first_split_parent_unit_width": null,'
+        end if
         if(first_failed_step>=0) then
             write(u,'(A,ES25.16E3,A)') '  "first_failed_hour": ', &
                 min(duration_hours,real(first_failed_step,DP)*save_hours),','
@@ -299,6 +389,20 @@ contains
         write(u,'(A)') '}'
         close(u)
     end subroutine write_report
+
+    subroutine write_json_real_array(u,key,values)
+        integer, intent(in) :: u
+        character(len=*), intent(in) :: key
+        real(DP), intent(in) :: values(:)
+        integer :: k
+
+        write(u,'(A)',advance='no') '  "'//trim(key)//'": ['
+        do k=1,size(values)
+            if(k>1) write(u,'(A)',advance='no') ', '
+            write(u,'(ES25.16E3)',advance='no') values(k)
+        end do
+        write(u,'(A)') '],'
+    end subroutine write_json_real_array
 
     subroutine usage()
         write(*,'(A)') 'Usage: run_srp_ads_history -opm INPUT.opm.json -o OUTPUT_PREFIX '// &

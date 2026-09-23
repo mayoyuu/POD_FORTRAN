@@ -99,6 +99,41 @@ program test_srp_ads_history_core
         'previous checkpoint snapshot reconstructs ADS state')
     call hfem_ads_history_destroy(history)
 
+    options%max_split_depth = 1
+    options%error_tolerance = [1.0e-20_DP,1.0e-20_DP,1.0e-20_DP, &
+        1.0e-25_DP,1.0e-25_DP,1.0e-25_DP]
+    call hfem_ads_history_init(history, state0, covariance, epoch0, options, status, message)
+    call require(status == 0, 'strict split-diagnostic initialization: '//trim(message))
+    call hfem_ads_history_advance(history, 3600.0_DP, status, message)
+    call require(status == 0, 'strict split-diagnostic step: '//trim(message))
+    call require(history%stats%split_occurred, 'strict tolerance records a split event')
+    call require(history%stats%first_split_component >= 1 .and. &
+        history%stats%first_split_component <= 6, 'first split records selected state component')
+    call require(history%stats%first_split_direction >= 1 .and. &
+        history%stats%first_split_direction <= 7, 'first split records selected uncertainty direction')
+    call require(history%stats%first_split_depth == 0, 'first root split records parent depth')
+    call require(history%stats%first_split_bfs_iteration >= 1, &
+        'first split records breadth-first iteration')
+    call require(history%stats%first_split_excess(history%stats%first_split_component) > 0.0_DP, &
+        'first split records positive tolerance excess')
+    call require(history%stats%first_split_excess(history%stats%first_split_component) == &
+        maxval(history%stats%first_split_excess), &
+        'selected state component has the largest recorded positive excess')
+    call require(maxval(abs(history%stats%first_split_tolerances- &
+        options%error_tolerance)) == 0.0_DP, 'first split records component tolerances')
+    call require(history%stats%first_split_direction_scores(history%stats%first_split_direction) == &
+        maxval(history%stats%first_split_direction_scores(1:history%stats%n_variables)), &
+        'selected split direction has the largest recorded score')
+    call require(maxval(abs(history%stats%first_split_parent_center(1:7))) < 1.0e-15_DP, &
+        'first root split records parent center')
+    call require(maxval(abs(history%stats%first_split_parent_width(1:7)-2.0_DP)) < 1.0e-15_DP, &
+        'first root split records parent width')
+    call hfem_ads_history_destroy(history)
+
+    options%max_split_depth = 2
+    options%error_tolerance = [1.0e3_DP,1.0e3_DP,1.0e3_DP, &
+        1.0_DP,1.0_DP,1.0_DP]
+
     call hfem_ads_propagate(state0, covariance, epoch0, 0.0_DP, 120.0_DP, &
         physical, options, one_shot, stats, status, message)
     call require(status == 0, 'one-shot comparison: '//trim(message))
