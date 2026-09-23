@@ -37,14 +37,14 @@ class BatchDiscoveryTest(unittest.TestCase):
             opm = root / "OPM"
             output = root / "SRP" / "SRP_UCERTAINTY_PROP_WITHINIT"
             good = opm / "DRO-1" / "DRO-1_init.opm.json"
-            bad = opm / "nested" / "DRO-1_corrected_init.opm.json"
+            bad = opm / "supp_batch" / "nested" / "DRO-1_corrected_init.opm.json"
             ignored = opm / "DRO-2" / "DRO-2_final.opm.json"
             write_opm(good, 10.0, 0.03)
             write_opm(bad, 1.0, 0.01)
             write_opm(ignored, 10.0, 0.03)
 
             found = batch.find_initial_opms(opm)
-            self.assertEqual(found, [good, bad])
+            self.assertEqual(found, [good])
             pos_rss, vel_rss = batch.covariance_rss(good)
             self.assertTrue(math.isclose(pos_rss, 10.0, rel_tol=1e-12))
             self.assertTrue(math.isclose(vel_rss, 0.03, rel_tol=1e-12))

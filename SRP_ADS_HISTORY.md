@@ -34,8 +34,8 @@ The script uses only Python's standard library and renders selected checkpoints 
 
 ## Parallel batch for 10 km / 0.03 m/s initial-error OPMs
 
-The batch wrapper recursively scans `OPM` for `*_init.opm` and
-`*_init.opm.json`, reproduces the complete OPM directory tree below
+The batch wrapper scans only `OPM/<orbit-name>/` for `*_init.opm` and
+`*_init.opm.json`, reproducing those direct orbit directories below
 `SRP/SRP_UCERTAINTY_PROP_WITHINIT`, and runs only files whose top-level
 covariance has a three-dimensional 1-sigma RSS of 10 km and 0.03 m/s.
 

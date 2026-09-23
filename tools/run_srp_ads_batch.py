@@ -18,8 +18,8 @@ VEL_KEYS = ("CX_DOT_X_DOT", "CY_DOT_Y_DOT", "CZ_DOT_Z_DOT")
 
 
 def find_initial_opms(root: Path) -> list[Path]:
-    paths = set(root.rglob("*_init.opm"))
-    paths.update(root.rglob("*_init.opm.json"))
+    paths = set(root.glob("*/*_init.opm"))
+    paths.update(root.glob("*/*_init.opm.json"))
     return sorted(path for path in paths if path.is_file())
 
 
@@ -66,8 +66,10 @@ def output_prefix_for(path: Path, opm_root: Path, output_root: Path) -> Path:
 
 def mirror_directories(opm_root: Path, output_root: Path) -> None:
     output_root.mkdir(parents=True, exist_ok=True)
-    for source in sorted(path for path in opm_root.rglob("*") if path.is_dir()):
-        (output_root / source.relative_to(opm_root)).mkdir(parents=True, exist_ok=True)
+    for opm_path in find_initial_opms(opm_root):
+        output_prefix_for(opm_path, opm_root, output_root).parent.mkdir(
+            parents=True, exist_ok=True
+        )
 
 
 def write_csv(path: Path, rows: list[dict], fields: list[str]) -> None:
