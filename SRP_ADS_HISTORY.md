@@ -164,3 +164,59 @@ Each orbit produces:
 
 The comparison root also contains `paired_orbit_summary.csv`,
 `paired_population_history.csv`, and `paired_summary.json`.
+
+
+## Offline reconstruction of a saved ADS domain
+
+A complete patch snapshot consists of four files with a shared prefix:
+
+- `PREFIX_meta.csv`: patch centers, widths, and split depth.
+- `PREFIX_coeff.csv`: sparse DA coefficients for six absolute state
+  components.
+- `PREFIX_splits.csv`: signed split history for every patch.
+- `PREFIX_map.csv`: DA order, whitening map, domain sigma, and eta sigma.
+
+Reconstruct a dense deterministic cloud from one saved snapshot by passing the
+prefix before those suffixes:
+
+```sh
+python3 tools/reconstruct_srp_ads_snapshot.py \
+  --prefix SRP/SRP_UCERTAINTY_PROP_WITHINIT/L1Halo-1/run_patch_s1296000
+```
+
+The default writes `PREFIX_reconstructed.csv` and
+`PREFIX_reconstruction.json`, with 4096 samples per patch. Every patch
+includes all local hypercube corners, both signed axes, its center, deterministic
+Halton face points, and deterministic Halton interior points. Increase the
+density without rerunning orbit propagation:
+
+```sh
+python3 tools/reconstruct_srp_ads_snapshot.py \
+  --prefix /path/to/run_patch_s1296000 \
+  --points-per-patch 16384 \
+  --boundary-fraction 0.75 \
+  --output /path/to/hour360_dense.csv \
+  --report /path/to/hour360_dense.json
+```
+
+The tool automatically handles 7D treatment snapshots and padded 6D eta=0
+control snapshots. It replays every signed split and rejects metadata that
+cannot be reproduced by the split history. When the snapshot follows the
+normal `RUN_patch_sNNNNNNN` naming convention, it reads
+`RUN_history.csv`, evaluates the original saved design points from
+`RUN_initial_points.csv`, and requires agreement with `RUN_shape.csv`
+before reporting success. Use `--history` only when the history file was
+moved. For a standalone snapshot, `--absolute-only --no-verify` writes
+absolute states without the parent run files.
+
+The reconstructed CSV contains patch-local coordinates, original global
+whitened coordinates, physical eta, six absolute state components, and, when
+history is available, six errors relative to the nominal center trajectory.
+The JSON records source hashes, dimensions, sampling parameters, extrema,
+structural checks, and saved-cloud verification errors.
+
+This reconstructs the saved ADS polynomial domain. It can make the point cloud
+arbitrarily denser, while its physical accuracy remains limited by the DA
+order, ADS splitting, maximum depth, and the independent real-integrator
+validation recorded by the propagation run. A time can be reconstructed only
+when its complete four-file patch snapshot was exported.
