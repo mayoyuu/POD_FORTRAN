@@ -1,23 +1,44 @@
 #!/usr/bin/env python3
-"""Run 15-day SRP-ADS histories for matching initial OPM files in parallel."""
+"""Run paired SRP-ADS histories for matching initial OPM files in parallel."""
 from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import math
 import os
+import shutil
 import subprocess
 import sys
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+OUTPUT_SCHEMA_VERSION = 2
 POS_KEYS = ("CX_X", "CY_Y", "CZ_Z")
 VEL_KEYS = ("CX_DOT_X_DOT", "CY_DOT_Y_DOT", "CZ_DOT_Z_DOT")
+SPLIT_EVENT_COLUMNS = {
+    "interval_start_hour",
+    "interval_end_hour",
+    "parent_depth",
+    "component",
+    "direction",
+    "direction_score7",
+}
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def find_initial_opms(root: Path) -> list[Path]:
+    """Only accept init OPMs directly below one orbit directory."""
     paths = set(root.glob("*/*_init.opm"))
     paths.update(root.glob("*/*_init.opm.json"))
     return sorted(path for path in paths if path.is_file())
@@ -83,6 +104,7 @@ def write_csv(path: Path, rows: list[dict], fields: list[str]) -> None:
 
 
 def write_json(path: Path, data: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_suffix(path.suffix + ".tmp")
     temp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     temp.replace(path)
@@ -137,31 +159,160 @@ def find_executable(project_root: Path) -> Path:
     return max(candidates, key=lambda path: path.stat().st_mtime)
 
 
-def report_matches(prefix: Path, args: argparse.Namespace) -> bool:
+def _close_number(actual: object, expected: float) -> bool:
     try:
-        report = json.loads(
-            Path(str(prefix) + "_report.json").read_text(encoding="utf-8")
-        )
-    except (OSError, json.JSONDecodeError):
+        return math.isclose(float(actual), expected, rel_tol=1e-12, abs_tol=1e-15)
+    except (TypeError, ValueError):
         return False
-    expected = {
+
+
+def audit_report(
+    prefix: Path,
+    args: argparse.Namespace,
+    opm_path: Path,
+    config_path: Path,
+) -> tuple[str, list[str]]:
+    report_path = Path(str(prefix) + "_report.json")
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return "missing_result", ["report_missing_or_invalid"]
+
+    reasons: list[str] = []
+    expected_ints = {
+        "output_schema_version": OUTPUT_SCHEMA_VERSION,
+        "n_variables": 6 if args.eta_sigma == 0.0 else 7,
+        "da_order": args.da_order,
+        "max_split_depth": args.max_depth,
+    }
+    for key, value in expected_ints.items():
+        try:
+            matches = int(report[key]) == value
+        except (KeyError, TypeError, ValueError):
+            matches = False
+        if not matches:
+            reasons.append(key)
+
+    expected_numbers = {
         "duration_hours": args.days * 24.0,
         "save_hours": args.save_hours,
         "eta_sigma": args.eta_sigma,
         "position_tolerance_km": args.pos_tol_km,
         "velocity_tolerance_kms": args.vel_tol_kms,
-        "da_order": args.da_order,
-        "max_split_depth": args.max_depth,
     }
-    for key, value in expected.items():
-        if key not in report:
-            return False
-        if isinstance(value, int):
-            if int(report[key]) != value:
-                return False
-        elif not math.isclose(float(report[key]), value, rel_tol=1e-12, abs_tol=1e-15):
-            return False
-    return True
+    for key, value in expected_numbers.items():
+        if key not in report or not _close_number(report[key], value):
+            reasons.append(key)
+
+    expected_bools = {
+        "nominal_srp_enabled": True,
+        "srp_uncertainty_enabled": args.eta_sigma > 0.0,
+    }
+    for key, value in expected_bools.items():
+        if report.get(key) is not value:
+            reasons.append(key)
+
+    expected_hashes = {
+        "opm_sha256": file_sha256(opm_path),
+        "config_sha256": file_sha256(config_path),
+    }
+    for key, value in expected_hashes.items():
+        if report.get(key) != value:
+            reasons.append(key)
+
+    split_path = Path(str(prefix) + "_split_events.csv")
+    try:
+        with split_path.open(newline="", encoding="utf-8") as handle:
+            header = set(next(csv.reader(handle)))
+        if not SPLIT_EVENT_COLUMNS.issubset(header):
+            reasons.append("split_events_columns")
+    except (OSError, StopIteration):
+        reasons.append("split_events_file")
+
+    return ("compatible", []) if not reasons else ("incompatible", reasons)
+
+
+def report_matches(
+    prefix: Path,
+    args: argparse.Namespace,
+    opm_path: Path | None = None,
+    config_path: Path | None = None,
+) -> bool:
+    if opm_path is None or config_path is None:
+        return False
+    return audit_report(prefix, args, opm_path, config_path)[0] == "compatible"
+
+
+def inject_provenance(
+    prefix: Path,
+    opm_path: Path,
+    config_path: Path,
+    executable: Path,
+    source_revision: str,
+) -> None:
+    report_path = Path(str(prefix) + "_report.json")
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    report.update(
+        {
+            "output_schema_version": OUTPUT_SCHEMA_VERSION,
+            "source_opm": str(opm_path.resolve()),
+            "opm_sha256": file_sha256(opm_path),
+            "source_config": str(config_path.resolve()),
+            "config_sha256": file_sha256(config_path),
+            "executable_sha256": file_sha256(executable),
+            "source_revision": source_revision,
+        }
+    )
+    write_json(report_path, report)
+
+
+def promote_prefix(temp_prefix: Path, final_prefix: Path) -> int:
+    temp_files = sorted(
+        path
+        for path in temp_prefix.parent.glob(temp_prefix.name + "_*")
+        if path.is_file()
+    )
+    if not temp_files:
+        raise RuntimeError(f"temporary run produced no artifacts: {temp_prefix}")
+    old_files = {
+        path
+        for path in final_prefix.parent.glob(final_prefix.name + "_*")
+        if path.is_file()
+    }
+    targets: set[Path] = set()
+    for source in temp_files:
+        suffix = source.name[len(temp_prefix.name) :]
+        target = final_prefix.parent / (final_prefix.name + suffix)
+        source.replace(target)
+        targets.add(target)
+    for stale in sorted(old_files - targets):
+        stale.unlink()
+    return len(targets)
+
+
+def stage_executable(executable: Path, output_root: Path) -> Path:
+    digest = file_sha256(executable)
+    runtime = output_root / ".batch_runtime"
+    runtime.mkdir(parents=True, exist_ok=True)
+    target = runtime / f"run_srp_ads_history_{digest[:16]}"
+    if not target.exists() or file_sha256(target) != digest:
+        temp = target.with_suffix(".tmp")
+        shutil.copy2(executable, temp)
+        temp.chmod(temp.stat().st_mode | 0o111)
+        temp.replace(target)
+    return target
+
+
+def source_revision(project_root: Path) -> str:
+    completed = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=project_root,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    return completed.stdout.strip() if completed.returncode == 0 else "unknown"
 
 
 def run_one(
@@ -171,24 +322,42 @@ def run_one(
     config: Path,
     args: argparse.Namespace,
     environment: dict[str, str],
+    revision: str = "unknown",
 ) -> dict:
     prefix = Path(row["output_prefix"])
+    opm_path = Path(row["opm"])
     prefix.parent.mkdir(parents=True, exist_ok=True)
-    report = Path(str(prefix) + "_report.json")
-    log = Path(str(prefix) + "_run.log")
-    if report.exists() and not args.force:
-        status = "skipped_complete" if report_matches(prefix, args) else "conflict_existing_report"
+    audit_status, audit_reasons = audit_report(prefix, args, opm_path, config)
+    final_log = Path(str(prefix) + "_run.log")
+
+    if audit_status == "compatible" and not args.force:
         return {
             **row,
-            "run_status": status,
-            "return_code": 0 if status == "skipped_complete" else 2,
+            "audit_status": audit_status,
+            "audit_reasons": "",
+            "run_status": "skipped_complete",
+            "return_code": 0,
             "elapsed_seconds": 0.0,
-            "log": str(log),
+            "log": str(final_log),
         }
+    if audit_status == "incompatible" and not (args.refresh_incompatible or args.force):
+        return {
+            **row,
+            "audit_status": audit_status,
+            "audit_reasons": ";".join(audit_reasons),
+            "run_status": "conflict_existing_report",
+            "return_code": 2,
+            "elapsed_seconds": 0.0,
+            "log": str(final_log),
+        }
+
+    temp_prefix = prefix.with_name(prefix.name + f".__new__{uuid.uuid4().hex}")
+    temp_report = Path(str(temp_prefix) + "_report.json")
+    temp_log = Path(str(temp_prefix) + "_run.log")
     command = [
         str(executable),
-        "-opm", str(Path(row["opm"]).resolve()),
-        "-o", str(prefix.resolve()),
+        "-opm", str(opm_path.resolve()),
+        "-o", str(temp_prefix.resolve()),
         "--eta-sigma", str(args.eta_sigma),
         "--days", str(args.days),
         "--save-hours", str(args.save_hours),
@@ -199,7 +368,7 @@ def run_one(
         "-cfg", str(config),
     ]
     started = time.monotonic()
-    with log.open("w", encoding="utf-8") as handle:
+    with temp_log.open("w", encoding="utf-8") as handle:
         handle.write("COMMAND: " + " ".join(command) + "\n")
         handle.flush()
         completed = subprocess.run(
@@ -211,13 +380,36 @@ def run_one(
             check=False,
         )
     elapsed = round(time.monotonic() - started, 3)
-    status = "succeeded" if completed.returncode == 0 and report.exists() else "failed"
+    run_status = "failed"
+    result_log = temp_log
+
+    if completed.returncode == 0 and temp_report.exists():
+        try:
+            inject_provenance(
+                temp_prefix, opm_path, config, executable, revision
+            )
+            verified, reasons = audit_report(
+                temp_prefix, args, opm_path, config
+            )
+            if verified != "compatible":
+                raise RuntimeError(
+                    "new result failed compatibility audit: " + ";".join(reasons)
+                )
+            promote_prefix(temp_prefix, prefix)
+            run_status = "refreshed" if audit_status == "incompatible" else "succeeded"
+            result_log = final_log
+        except Exception as exc:
+            with temp_log.open("a", encoding="utf-8") as handle:
+                handle.write(f"PROMOTION ERROR: {exc}\n")
+
     return {
         **row,
-        "run_status": status,
-        "return_code": completed.returncode,
+        "audit_status": audit_status,
+        "audit_reasons": ";".join(audit_reasons),
+        "run_status": run_status,
+        "return_code": completed.returncode if run_status != "failed" else max(1, completed.returncode),
         "elapsed_seconds": elapsed,
-        "log": str(log),
+        "log": str(result_log),
     }
 
 
@@ -245,6 +437,16 @@ def make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--executable", type=Path)
     parser.add_argument("--no-build", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--audit-only",
+        action="store_true",
+        help="write compatibility audit without building or propagating",
+    )
+    parser.add_argument(
+        "--refresh-incompatible",
+        action="store_true",
+        help="rerun incompatible or legacy results and replace only after success",
+    )
     parser.add_argument("--force", action="store_true")
     return parser
 
@@ -257,9 +459,15 @@ def main(argv: list[str] | None = None) -> int:
     args.config = args.config.resolve()
     if args.jobs < 1:
         raise SystemExit("--jobs must be at least 1")
+    if not math.isfinite(args.eta_sigma) or args.eta_sigma < 0.0:
+        raise SystemExit("--eta-sigma must be finite and nonnegative")
     positive = (
-        args.eta_sigma, args.days, args.save_hours, args.pos_tol_km,
-        args.vel_tol_kms, args.expected_position_rss_km, args.expected_velocity_rss_mps,
+        args.days,
+        args.save_hours,
+        args.pos_tol_km,
+        args.vel_tol_kms,
+        args.expected_position_rss_km,
+        args.expected_velocity_rss_mps,
     )
     if not all(math.isfinite(value) and value > 0.0 for value in positive):
         raise SystemExit("numeric campaign parameters must be finite and positive")
@@ -292,13 +500,44 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Preflight CSV: {preflight_path}")
     if not eligible:
         return 2
+
+    audit_rows = []
+    for row in eligible:
+        status, reasons = audit_report(
+            Path(row["output_prefix"]), args, Path(row["opm"]), args.config
+        )
+        audit_rows.append(
+            {
+                **row,
+                "audit_status": status,
+                "audit_reasons": ";".join(reasons),
+            }
+        )
+    audit_path = args.output_root / "batch_compatibility_audit.csv"
+    write_csv(
+        audit_path,
+        audit_rows,
+        [
+            "opm", "relative_opm", "output_prefix", "position_rss_km",
+            "velocity_rss_mps", "status", "reason", "audit_status", "audit_reasons",
+        ],
+    )
+
+    eta_domain = [0.0, 0.0] if args.eta_sigma == 0.0 else [
+        -3.0 * args.eta_sigma,
+        3.0 * args.eta_sigma,
+    ]
     common = {
+        "output_schema_version": OUTPUT_SCHEMA_VERSION,
         "discovered": len(rows),
         "eligible": len(eligible),
         "rejected_preflight": rejected,
         "jobs": args.jobs,
         "eta_sigma": args.eta_sigma,
-        "eta_ads_domain": [-3.0 * args.eta_sigma, 3.0 * args.eta_sigma],
+        "eta_ads_domain": eta_domain,
+        "n_variables": 6 if args.eta_sigma == 0.0 else 7,
+        "nominal_srp_enabled": True,
+        "srp_uncertainty_enabled": args.eta_sigma > 0.0,
         "days": args.days,
         "save_hours": args.save_hours,
         "da_order": args.da_order,
@@ -307,11 +546,22 @@ def main(argv: list[str] | None = None) -> int:
         "velocity_tolerance_kms": args.vel_tol_kms,
         "expected_position_rss_km": args.expected_position_rss_km,
         "expected_velocity_rss_mps": args.expected_velocity_rss_mps,
+        "config_sha256": file_sha256(args.config),
+        "compatibility_audit_csv": str(audit_path),
     }
+    if args.audit_only:
+        write_json(
+            args.output_root / "batch_summary.json",
+            {"status": "audit_complete", **common},
+        )
+        return 0
     if args.dry_run:
         write_json(args.output_root / "batch_summary.json", {"status": "dry_run", **common})
-        for row in eligible:
-            print(f"DRY RUN: {row['relative_opm']} -> {row['output_prefix']}")
+        for row in audit_rows:
+            print(
+                f"DRY RUN [{row['audit_status']}]: "
+                f"{row['relative_opm']} -> {row['output_prefix']}"
+            )
         return 0
 
     build_log = args.output_root / "batch_build.log"
@@ -339,17 +589,33 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Executable does not exist: {executable}", file=sys.stderr)
         return 2
 
+    executable = stage_executable(executable, args.output_root)
+    revision = source_revision(project_root)
+    common.update(
+        {
+            "executable": str(executable),
+            "executable_sha256": file_sha256(executable),
+            "source_revision": revision,
+        }
+    )
     environment = os.environ.copy()
     environment["OMP_NUM_THREADS"] = "1"
     environment["OPENBLAS_NUM_THREADS"] = "1"
-    print(f"Executable: {executable}")
+    print(f"Staged executable: {executable}")
     print(f"Launching {len(eligible)} orbit(s) with {args.jobs} parallel worker(s)")
     started = time.monotonic()
     results = []
     with ThreadPoolExecutor(max_workers=args.jobs) as pool:
         futures = {
             pool.submit(
-                run_one, row, executable, project_root, args.config, args, environment
+                run_one,
+                row,
+                executable,
+                project_root,
+                args.config,
+                args,
+                environment,
+                revision,
             ): row
             for row in eligible
         }
@@ -360,6 +626,8 @@ def main(argv: list[str] | None = None) -> int:
             except Exception as exc:
                 result = {
                     **row,
+                    "audit_status": "unknown",
+                    "audit_reasons": "",
                     "run_status": "worker_exception",
                     "return_code": 3,
                     "elapsed_seconds": 0.0,
@@ -376,18 +644,17 @@ def main(argv: list[str] | None = None) -> int:
         results,
         [
             "opm", "relative_opm", "output_prefix", "position_rss_km",
-            "velocity_rss_mps", "status", "reason", "run_status",
-            "return_code", "elapsed_seconds", "log",
+            "velocity_rss_mps", "status", "reason", "audit_status",
+            "audit_reasons", "run_status", "return_code", "elapsed_seconds", "log",
         ],
     )
-    failures = [
-        row for row in results
-        if row["run_status"] not in ("succeeded", "skipped_complete")
-    ]
+    successful = ("succeeded", "refreshed", "skipped_complete")
+    failures = [row for row in results if row["run_status"] not in successful]
     summary = {
         "status": "complete" if not failures else "completed_with_failures",
         **common,
         "succeeded": sum(row["run_status"] == "succeeded" for row in results),
+        "refreshed": sum(row["run_status"] == "refreshed" for row in results),
         "skipped_complete": sum(row["run_status"] == "skipped_complete" for row in results),
         "failed": len(failures),
         "elapsed_seconds": round(time.monotonic() - started, 3),

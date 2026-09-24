@@ -16,7 +16,8 @@ contains
         type(manifold_type), pointer :: domain
         real(DP) :: time_seconds
         real(DP), allocatable :: center(:), width(:)
-        integer :: umeta, ucoeff, uhist, umap, io, p, k, j, powers(7), nsplit
+        real(DP) :: center7(7), width7(7)
+        integer :: umeta, ucoeff, uhist, umap, io, p, k, j, powers(7), nsplit, nvars
         character(len=64) :: label
 
         status=0
@@ -38,6 +39,7 @@ contains
             domain=>history%domain
             time_seconds=history%current_time
         end if
+        nvars=history%coordinate_map%n_variables
         open(newunit=umeta,file=trim(prefix)//'_meta.csv',status='replace',action='write',iostat=io)
         if(io/=0) goto 900
         open(newunit=ucoeff,file=trim(prefix)//'_coeff.csv',status='replace',action='write',iostat=io)
@@ -66,10 +68,14 @@ contains
         do p=1,domain%n_patches
             center=sh_center(domain%patches(p)%history)
             width=sh_width(domain%patches(p)%history)
+            center7=0.0_DP
+            width7=0.0_DP
+            center7(1:nvars)=center
+            width7(1:nvars)=width
             nsplit=0
             if(allocated(domain%patches(p)%history%entries)) nsplit=size(domain%patches(p)%history%entries)
             write(umeta,'(I0,",",ES25.16E3,14(",",ES25.16E3),",",I0)') &
-                p,time_seconds,center,width,nsplit
+                p,time_seconds,center7,width7,nsplit
             do j=1,nsplit
                 write(uhist,'(I0,",",I0,",",I0)') p,j,domain%patches(p)%history%entries(j)
             end do
@@ -106,9 +112,9 @@ contains
             integer,intent(in) :: total,index,max_degree
             integer :: exponent
             real(DP) :: coeff
-            if(index==8) then
+            if(index==nvars+1) then
                 if(total>max_degree) return
-                coeff=domain%patches(p)%da_vec%elements(k)%get_coeff(powers)
+                coeff=domain%patches(p)%da_vec%elements(k)%get_coeff(powers(1:nvars))
                 if(coeff/=0.0_DP) write(ucoeff,'(I0,",",I0,7(",",I0),",",ES25.16E3)') &
                     p,k,powers,coeff
                 return

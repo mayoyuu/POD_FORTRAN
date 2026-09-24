@@ -35,6 +35,19 @@ module pod_uq_hfem_ads_module
         integer :: max_steps = 100000
     end type hfem_ads_options_type
 
+    type, public :: hfem_ads_split_event_type
+        integer :: bfs_iteration = 0
+        integer :: parent_depth = -1
+        integer :: component = 0
+        integer :: direction = 0
+        real(DP) :: errors(6) = 0.0_DP
+        real(DP) :: tolerances(6) = 0.0_DP
+        real(DP) :: excess(6) = 0.0_DP
+        real(DP) :: direction_scores(7) = 0.0_DP
+        real(DP) :: parent_center(7) = 0.0_DP
+        real(DP) :: parent_width(7) = 0.0_DP
+    end type hfem_ads_split_event_type
+
     type, public :: hfem_ads_stats_type
         integer :: requested_count = 0
         integer :: sampled_count = 0
@@ -66,6 +79,7 @@ module pod_uq_hfem_ads_module
         real(DP) :: first_split_parent_center(7) = 0.0_DP
         real(DP) :: first_split_parent_width(7) = 0.0_DP
         integer, allocatable :: split_counts(:)
+        type(hfem_ads_split_event_type), allocatable :: split_events(:)
     end type hfem_ads_stats_type
 
     ! Incremental ADS domain. Each Patch maps the original unit box to the
@@ -304,7 +318,7 @@ contains
                 component = maxloc(excess)
                 direction = patch_get_split_dir(propagated_patch, &
                     component(1), options%da_order, direction_scores)
-                call record_first_split(stats, input_patch, errors, &
+                call record_split_event(stats, input_patch, errors, &
                     options%error_tolerance, excess, component(1), direction, &
                     direction_scores)
                 stats%split_counts(direction) = stats%split_counts(direction) + 1
@@ -473,7 +487,7 @@ contains
                 component = maxloc(excess)
                 direction = patch_get_split_dir(propagated_patch, &
                     component(1), history%options%da_order, direction_scores)
-                call record_first_split(history%stats, input_patch, errors, &
+                call record_split_event(history%stats, input_patch, errors, &
                     history%options%error_tolerance, excess, component(1), direction, &
                     direction_scores)
                 history%stats%split_counts(direction) = &
@@ -517,9 +531,11 @@ contains
         stats%first_split_direction_scores = 0.0_DP
         stats%first_split_parent_center = 0.0_DP
         stats%first_split_parent_width = 0.0_DP
+        if (allocated(stats%split_events)) deallocate(stats%split_events)
+        allocate(stats%split_events(0))
     end subroutine reset_first_split
 
-    subroutine record_first_split(stats, parent, errors, tolerances, excess, &
+    subroutine record_split_event(stats, parent, errors, tolerances, excess, &
             component, direction, direction_scores)
         type(hfem_ads_stats_type), intent(inout) :: stats
         type(patch_type), intent(in) :: parent
@@ -527,24 +543,44 @@ contains
         integer, intent(in) :: component, direction
         real(DP), intent(in) :: direction_scores(:)
         real(DP), allocatable :: center(:), width(:)
-        integer :: nvars
+        type(hfem_ads_split_event_type), allocatable :: grown(:)
+        type(hfem_ads_split_event_type) :: event
+        integer :: nvars, n_events
 
-        if (stats%split_occurred) return
         nvars = min(stats%n_variables, 7)
         center = sh_center(parent%history)
         width = sh_width(parent%history)
+        event%bfs_iteration = stats%bfs_iterations
+        event%parent_depth = sh_count(parent%history, 0)
+        event%component = component
+        event%direction = direction
+        event%errors = errors
+        event%tolerances = tolerances
+        event%excess = excess
+        event%direction_scores(1:nvars) = direction_scores(1:nvars)
+        event%parent_center(1:nvars) = center(1:nvars)
+        event%parent_width(1:nvars) = width(1:nvars)
+
+        if (.not. allocated(stats%split_events)) allocate(stats%split_events(0))
+        n_events = size(stats%split_events)
+        allocate(grown(n_events+1))
+        if (n_events > 0) grown(1:n_events) = stats%split_events
+        grown(n_events+1) = event
+        call move_alloc(grown, stats%split_events)
+
+        if (stats%split_occurred) return
         stats%split_occurred = .true.
-        stats%first_split_component = component
-        stats%first_split_direction = direction
-        stats%first_split_depth = sh_count(parent%history, 0)
-        stats%first_split_bfs_iteration = stats%bfs_iterations
-        stats%first_split_errors = errors
-        stats%first_split_tolerances = tolerances
-        stats%first_split_excess = excess
-        stats%first_split_direction_scores(1:nvars) = direction_scores(1:nvars)
-        stats%first_split_parent_center(1:nvars) = center(1:nvars)
-        stats%first_split_parent_width(1:nvars) = width(1:nvars)
-    end subroutine record_first_split
+        stats%first_split_component = event%component
+        stats%first_split_direction = event%direction
+        stats%first_split_depth = event%parent_depth
+        stats%first_split_bfs_iteration = event%bfs_iteration
+        stats%first_split_errors = event%errors
+        stats%first_split_tolerances = event%tolerances
+        stats%first_split_excess = event%excess
+        stats%first_split_direction_scores = event%direction_scores
+        stats%first_split_parent_center = event%parent_center
+        stats%first_split_parent_width = event%parent_width
+    end subroutine record_split_event
 
     subroutine hfem_ads_history_evaluate(history, unit_points, values, found, status)
         type(hfem_ads_history_type), intent(in) :: history

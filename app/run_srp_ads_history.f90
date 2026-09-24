@@ -7,8 +7,8 @@ program run_srp_ads_history
     use pod_data_format_module, only: load_initial_opm
     use pod_uq_ads_coordinates_module, only: ADS_COORD_WHITENED, ads_unit_to_physical
     use pod_uq_hfem_ads_module, only: hfem_ads_options_type, hfem_ads_history_type, &
-        hfem_ads_history_init, hfem_ads_history_advance, hfem_ads_history_evaluate, &
-        hfem_ads_history_destroy
+        hfem_ads_split_event_type, hfem_ads_history_init, hfem_ads_history_advance, &
+        hfem_ads_history_evaluate, hfem_ads_history_destroy
     use pod_srp_ads_history_module, only: SHAPE_COUNT, VALIDATION_COUNT, &
         build_study_points, assess_accuracy, advance_real_probes, compute_shape_metrics, &
         validate_json_opm_fields
@@ -27,15 +27,23 @@ program run_srp_ads_history
     real(DP) :: first_split_errors(6), first_split_tolerances(6), first_split_excess(6)
     real(DP) :: first_split_direction_scores(7), first_split_parent_center(7)
     real(DP) :: first_split_parent_width(7)
+    real(DP) :: first_eta_split_hour, first_eta_split_interval_start_hour
+    real(DP) :: first_eta_split_errors(6), first_eta_split_tolerances(6)
+    real(DP) :: first_eta_split_excess(6), first_eta_split_direction_scores(7)
+    real(DP) :: first_eta_split_parent_center(7), first_eta_split_parent_width(7)
     real(DP), allocatable :: points(:,:), ads(:,:), truth(:,:), eta(:), truth_initial(:,:)
     integer, allocatable :: validation_ids(:)
     logical, allocatable :: found(:)
     logical :: has_opm, has_prefix, has_eta, failed, any_failed
-    integer :: argc, i, j, unit_history, unit_shape, unit_initial
+    integer :: argc, i, j, unit_history, unit_shape, unit_initial, unit_events
     integer :: status, step_index, steps, worst_id, first_worst_id, first_failed_step, previous_pass_step
     integer :: first_uncertified_step, depth_limited, last_pass_step
     integer :: first_split_step, first_split_component, first_split_direction
     integer :: first_split_depth, first_split_bfs_iteration
+    integer :: first_eta_split_step, first_eta_split_component
+    integer :: first_eta_split_depth, first_eta_split_bfs_iteration
+    integer :: total_split_events, step_event_index
+    integer :: split_counts7(7)
     character(len=16) :: hour_tag
 
     opm_file=''
@@ -113,9 +121,9 @@ program run_srp_ads_history
     if(.not.ieee_is_finite(eta_sigma).or..not.ieee_is_finite(duration_hours).or. &
        .not.ieee_is_finite(save_hours).or..not.ieee_is_finite(pos_tolerance).or. &
        .not.ieee_is_finite(vel_tolerance)) call fatal('numeric arguments must be finite')
-    if(eta_sigma<=0.0_DP.or.duration_hours<=0.0_DP.or.save_hours<=0.0_DP.or. &
+    if(eta_sigma<0.0_DP.or.duration_hours<=0.0_DP.or.save_hours<=0.0_DP.or. &
        pos_tolerance<=0.0_DP.or.vel_tolerance<=0.0_DP) &
-        call fatal('eta sigma, duration, cadence, and tolerances must be positive')
+        call fatal('eta sigma must be non-negative; duration, cadence, and tolerances must be positive')
     if(options%da_order<1.or.options%max_split_depth<0) call fatal('invalid DA order or split depth')
     i=len_trim(opm_file)
     if(i<4) call fatal('input must be JSON .opm or .opm.json')
@@ -142,7 +150,8 @@ program run_srp_ads_history
     if(status/=0) call fatal('cannot open initial-points output')
     write(unit_initial,'(A)') 'point_id,u1,u2,u3,u4,u5,u6,u7,eta,x0_km,y0_km,z0_km,vx0_kms,vy0_kms,vz0_kms,validation'
     do j=1,SHAPE_COUNT
-        call ads_unit_to_physical(history%coordinate_map,points(:,j),mapped(1:6),mapped(7),status)
+        call ads_unit_to_physical(history%coordinate_map, &
+            points(1:history%coordinate_map%n_variables,j),mapped(1:6),mapped(7),status)
         if(status/=0) call fatal('initial point mapping failed')
         mapped(1:6)=mapped(1:6)+nominal0
         write(unit_initial,'(I0,14(",",ES25.16E3),",",I0)') j,points(:,j), &
@@ -160,6 +169,9 @@ program run_srp_ads_history
     open(newunit=unit_shape,file=trim(prefix)//'_shape.csv', &
         status='replace',action='write',iostat=status)
     if(status/=0) call fatal('cannot open shape output')
+    open(newunit=unit_events,file=trim(prefix)//'_split_events.csv', &
+        status='replace',action='write',iostat=status)
+    if(status/=0) call fatal('cannot open split-events output')
     write(unit_history,'(A)') 'hour,epoch_et,nominal_x_km,nominal_y_km,nominal_z_km,'// &
         'nominal_vx_kms,nominal_vy_kms,nominal_vz_kms,'// &
         'lower_dx_km,lower_dy_km,lower_dz_km,lower_dvx_kms,lower_dvy_kms,lower_dvz_kms,'// &
@@ -173,6 +185,17 @@ program run_srp_ads_history
         'max_validation_pos_km,max_validation_vel_kms,worst_point_id,'// &
         'validation_failed,precision_unconfirmed'
     write(unit_shape,'(A)') 'hour,point_id,dx_km,dy_km,dz_km,dvx_kms,dvy_kms,dvz_kms'
+    write(unit_events,'(A)') 'interval_start_hour,interval_end_hour,event_id,'// &
+        'step_event_index,bfs_iteration,parent_depth,component,direction,'// &
+        'error1,error2,error3,error4,error5,error6,'// &
+        'tolerance1,tolerance2,tolerance3,tolerance4,tolerance5,tolerance6,'// &
+        'excess1,excess2,excess3,excess4,excess5,excess6,'// &
+        'direction_score1,direction_score2,direction_score3,direction_score4,'// &
+        'direction_score5,direction_score6,direction_score7,'// &
+        'parent_center1,parent_center2,parent_center3,parent_center4,'// &
+        'parent_center5,parent_center6,parent_center7,'// &
+        'parent_width1,parent_width2,parent_width3,parent_width4,'// &
+        'parent_width5,parent_width6,parent_width7'
     first_failed_step=-1
     previous_pass_step=-1
     first_uncertified_step=-1
@@ -189,6 +212,19 @@ program run_srp_ads_history
     first_split_direction_scores=0.0_DP
     first_split_parent_center=0.0_DP
     first_split_parent_width=0.0_DP
+    first_eta_split_step=-1
+    first_eta_split_hour=0.0_DP
+    first_eta_split_interval_start_hour=0.0_DP
+    first_eta_split_component=0
+    first_eta_split_depth=-1
+    first_eta_split_bfs_iteration=0
+    first_eta_split_errors=0.0_DP
+    first_eta_split_tolerances=0.0_DP
+    first_eta_split_excess=0.0_DP
+    first_eta_split_direction_scores=0.0_DP
+    first_eta_split_parent_center=0.0_DP
+    first_eta_split_parent_width=0.0_DP
+    total_split_events=0
     last_pass_step=-1
     final_seconds=duration_hours*3600.0_DP
     steps=ceiling(duration_hours/save_hours)
@@ -215,11 +251,43 @@ program run_srp_ads_history
                 first_split_parent_center=history%stats%first_split_parent_center
                 first_split_parent_width=history%stats%first_split_parent_width
             end if
+            if(allocated(history%stats%split_events)) then
+                do step_event_index=1,size(history%stats%split_events)
+                    total_split_events=total_split_events+1
+                    call write_split_event(history%stats%split_events(step_event_index), &
+                        step_event_index,total_split_events)
+                    if(history%stats%split_events(step_event_index)%direction==7.and. &
+                       first_eta_split_step<0) then
+                        first_eta_split_step=step_index
+                        first_eta_split_hour=current_hour
+                        first_eta_split_interval_start_hour=previous_hour
+                        first_eta_split_component= &
+                            history%stats%split_events(step_event_index)%component
+                        first_eta_split_depth= &
+                            history%stats%split_events(step_event_index)%parent_depth
+                        first_eta_split_bfs_iteration= &
+                            history%stats%split_events(step_event_index)%bfs_iteration
+                        first_eta_split_errors= &
+                            history%stats%split_events(step_event_index)%errors
+                        first_eta_split_tolerances= &
+                            history%stats%split_events(step_event_index)%tolerances
+                        first_eta_split_excess= &
+                            history%stats%split_events(step_event_index)%excess
+                        first_eta_split_direction_scores= &
+                            history%stats%split_events(step_event_index)%direction_scores
+                        first_eta_split_parent_center= &
+                            history%stats%split_events(step_event_index)%parent_center
+                        first_eta_split_parent_width= &
+                            history%stats%split_events(step_event_index)%parent_width
+                    end if
+                end do
+            end if
             call advance_real_probes(truth,eta,epoch0,prev_seconds,t_seconds, &
                 options,status,message)
             if(status/=0) call fatal('real SRP advance: '//trim(message))
         end if
-        call hfem_ads_history_evaluate(history,points,ads,found,status)
+        call hfem_ads_history_evaluate(history, &
+            points(1:history%coordinate_map%n_variables,:),ads,found,status)
         if(status/=0.or..not.all(found)) call fatal('ADS point evaluation failed')
         nominal=truth(:,143)
         call compute_shape_metrics(ads,nominal,lower,upper,pos_max,vel_max, &
@@ -237,9 +305,11 @@ program run_srp_ads_history
         end if
         if(.not.failed) last_pass_step=step_index
         if(depth_limited>0.and.first_uncertified_step<0) first_uncertified_step=step_index
+        split_counts7=0
+        split_counts7(1:history%coordinate_map%n_variables)=history%stats%split_counts
         write(unit_history,'(*(G0,:,","))') current_hour,epoch0+t_seconds,nominal, &
             lower,upper,pos_max,vel_max,pos_axes,vel_axes, &
-            history%domain%n_patches,depth_limited,history%stats%split_counts, &
+            history%domain%n_patches,depth_limited,split_counts7, &
             merge(1,0,history%stats%split_occurred), &
             history%stats%first_split_component,history%stats%first_split_direction, &
             history%stats%first_split_depth,history%stats%first_split_bfs_iteration, &
@@ -254,11 +324,13 @@ program run_srp_ads_history
         flush(unit_history)
         flush(unit_shape)
         if(step_index==0.or.step_index==steps.or.step_index==first_split_step.or. &
-           step_index==first_failed_step.or.step_index==first_uncertified_step) then
+           step_index==first_eta_split_step.or.step_index==first_failed_step.or. &
+           step_index==first_uncertified_step) then
             call snapshot_current()
         end if
         if(step_index>0.and.(step_index==first_split_step.or. &
-            step_index==first_failed_step.or.step_index==first_uncertified_step)) then
+            step_index==first_eta_split_step.or.step_index==first_failed_step.or. &
+            step_index==first_uncertified_step)) then
             write(hour_tag,'(I7.7)') nint(prev_seconds)
             path=trim(prefix)//'_patch_s'//trim(hour_tag)
             call write_ads_patch_snapshot(history,trim(path),.true.,status,message)
@@ -271,6 +343,7 @@ program run_srp_ads_history
     end do
     close(unit_history)
     close(unit_shape)
+    close(unit_events)
     call write_report()
     call hfem_ads_history_destroy(history)
     if(first_failed_step>=0) then
@@ -300,7 +373,17 @@ contains
             action='write',iostat=ios)
         if(ios/=0) call fatal('cannot write JSON report')
         write(u,'(A)') '{'
+        write(u,'(A)') '  "output_schema_version": 2,'
         write(u,'(A)') '  "method": "incremental ADS with independent real SRP probes",'
+        write(u,'(A,I0,A)') '  "n_variables": ',history%coordinate_map%n_variables,','
+        write(u,'(A)') '  "nominal_srp_enabled": true,'
+        if(eta_sigma>0.0_DP) then
+            write(u,'(A)') '  "srp_uncertainty_enabled": true,'
+            write(u,'(A)') '  "coordinate_7_role": "active_relative_srp_eta",'
+        else
+            write(u,'(A)') '  "srp_uncertainty_enabled": false,'
+            write(u,'(A)') '  "coordinate_7_role": "pairing_tag_only",'
+        end if
         write(u,'(A)') '  "sampled_ranges": true,'
         write(u,'(A)') '  "continuous_domain_certified": false,'
         write(u,'(A,I0,A)') '  "shape_point_count": ',SHAPE_COUNT,','
@@ -359,6 +442,42 @@ contains
             write(u,'(A)') '  "first_split_parent_unit_center": null,'
             write(u,'(A)') '  "first_split_parent_unit_width": null,'
         end if
+        if(first_eta_split_step>=0) then
+            write(u,'(A,ES25.16E3,A)') '  "first_eta_split_hour": ', &
+                first_eta_split_hour,','
+            write(u,'(A,ES25.16E3,A)') '  "first_eta_split_interval_start_hour": ', &
+                first_eta_split_interval_start_hour,','
+            write(u,'(A,I0,A)') '  "first_eta_split_component": ', &
+                first_eta_split_component,','
+            write(u,'(A,I0,A)') '  "first_eta_split_parent_depth": ', &
+                first_eta_split_depth,','
+            write(u,'(A,I0,A)') '  "first_eta_split_bfs_iteration": ', &
+                first_eta_split_bfs_iteration,','
+            call write_json_real_array(u,'first_eta_split_truncation_estimates', &
+                first_eta_split_errors)
+            call write_json_real_array(u,'first_eta_split_component_tolerances', &
+                first_eta_split_tolerances)
+            call write_json_real_array(u,'first_eta_split_positive_excess', &
+                first_eta_split_excess)
+            call write_json_real_array(u,'first_eta_split_direction_scores', &
+                first_eta_split_direction_scores)
+            call write_json_real_array(u,'first_eta_split_parent_unit_center', &
+                first_eta_split_parent_center)
+            call write_json_real_array(u,'first_eta_split_parent_unit_width', &
+                first_eta_split_parent_width)
+        else
+            write(u,'(A)') '  "first_eta_split_hour": null,'
+            write(u,'(A)') '  "first_eta_split_interval_start_hour": null,'
+            write(u,'(A)') '  "first_eta_split_component": null,'
+            write(u,'(A)') '  "first_eta_split_parent_depth": null,'
+            write(u,'(A)') '  "first_eta_split_bfs_iteration": null,'
+            write(u,'(A)') '  "first_eta_split_truncation_estimates": null,'
+            write(u,'(A)') '  "first_eta_split_component_tolerances": null,'
+            write(u,'(A)') '  "first_eta_split_positive_excess": null,'
+            write(u,'(A)') '  "first_eta_split_direction_scores": null,'
+            write(u,'(A)') '  "first_eta_split_parent_unit_center": null,'
+            write(u,'(A)') '  "first_eta_split_parent_unit_width": null,'
+        end if
         if(first_failed_step>=0) then
             write(u,'(A,ES25.16E3,A)') '  "first_failed_hour": ', &
                 min(duration_hours,real(first_failed_step,DP)*save_hours),','
@@ -390,6 +509,16 @@ contains
         close(u)
     end subroutine write_report
 
+    subroutine write_split_event(event,local_index,global_index)
+        type(hfem_ads_split_event_type), intent(in) :: event
+        integer, intent(in) :: local_index,global_index
+
+        write(unit_events,'(*(G0,:,","))') previous_hour,current_hour,global_index, &
+            local_index,event%bfs_iteration,event%parent_depth,event%component, &
+            event%direction,event%errors,event%tolerances,event%excess, &
+            event%direction_scores,event%parent_center,event%parent_width
+    end subroutine write_split_event
+
     subroutine write_json_real_array(u,key,values)
         integer, intent(in) :: u
         character(len=*), intent(in) :: key
@@ -406,7 +535,7 @@ contains
 
     subroutine usage()
         write(*,'(A)') 'Usage: run_srp_ads_history -opm INPUT.opm.json -o OUTPUT_PREFIX '// &
-            '--eta-sigma VALUE [--days 15 | --hours 360] [--save-hours 1] '// &
+            '--eta-sigma VALUE_NONNEGATIVE [--days 15 | --hours 360] [--save-hours 1] '// &
             '[--da-order 4] [--max-depth 8] [--pos-tol-km 0.1] '// &
             '[--vel-tol-kms 1e-6] [-cfg config/config.txt]'
     end subroutine usage

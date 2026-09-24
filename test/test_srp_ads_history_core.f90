@@ -124,6 +124,21 @@ program test_srp_ads_history_core
     call require(history%stats%first_split_direction_scores(history%stats%first_split_direction) == &
         maxval(history%stats%first_split_direction_scores(1:history%stats%n_variables)), &
         'selected split direction has the largest recorded score')
+    call require(allocated(history%stats%split_events), &
+        'split events are allocated for each propagation interval')
+    call require(size(history%stats%split_events) == sum(history%stats%split_counts), &
+        'one split event is recorded for every actual split')
+    call require(size(history%stats%split_events) == 1, &
+        'depth-one strict case has one root split event')
+    call require(history%stats%split_events(1)%component == &
+        history%stats%first_split_component, 'event records selected state component')
+    call require(history%stats%split_events(1)%direction == &
+        history%stats%first_split_direction, 'event records selected uncertainty direction')
+    call require(history%stats%split_events(1)%parent_depth == 0, &
+        'event records parent depth')
+    call require(maxval(abs(history%stats%split_events(1)%errors- &
+        history%stats%first_split_errors)) == 0.0_DP, &
+        'event records the complete truncation estimate vector')
     call require(maxval(abs(history%stats%first_split_parent_center(1:7))) < 1.0e-15_DP, &
         'first root split records parent center')
     call require(maxval(abs(history%stats%first_split_parent_width(1:7)-2.0_DP)) < 1.0e-15_DP, &
