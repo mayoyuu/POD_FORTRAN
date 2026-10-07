@@ -13,7 +13,12 @@ PYTHON=Path('/home/songyu/venvs/astro/bin/python')
 
 class PairedRunnerSmokeTest(unittest.TestCase):
     def test_hour_zero_outputs_are_aligned_and_complete(self):
-        opm=ROOT.parent.parent/'OPM'/'L1Halo-1'/'L1Halo-1_init.opm.json'
+        opm_candidates=(
+            ROOT/'OPM'/'L1Halo-1'/'L1Halo-1_init.opm.json',
+            ROOT.parent.parent/'OPM'/'L1Halo-1'/'L1Halo-1_init.opm.json',
+        )
+        opm=next((candidate for candidate in opm_candidates if candidate.is_file()),
+                 opm_candidates[0])
         self.assertTrue(opm.is_file())
         with tempfile.TemporaryDirectory() as tmp:
             tmp=Path(tmp)
