@@ -24,6 +24,7 @@ module pod_uq_hfem_ads_module
         integer :: coordinate_mode = ADS_COORD_COMPONENT
         real(DP) :: domain_sigma = 3.0_DP
         real(DP) :: srp_sigma = 0.0_DP
+        integer :: da_storage_variables = 0
         integer :: da_order = 4
         integer :: max_split_depth = 8
         real(DP) :: error_tolerance(6) = [1.0e-1_DP, 1.0e-1_DP, &
@@ -94,6 +95,7 @@ module pod_uq_hfem_ads_module
         logical :: previous_available = .false.
         real(DP) :: epoch0 = 0.0_DP
         real(DP) :: current_time = 0.0_DP
+        integer :: da_variables = 0
         logical :: initialized = .false.
     end type hfem_ads_history_type
 
@@ -374,6 +376,17 @@ contains
             return
         end if
 
+        history%da_variables = history%coordinate_map%n_variables
+        if (options%da_storage_variables > 0) then
+            if (options%da_storage_variables < history%coordinate_map%n_variables .or. &
+                options%da_storage_variables > 7) then
+                status = -3
+                message = 'ADS storage dimension must include every active variable'
+                return
+            end if
+            history%da_variables = options%da_storage_variables
+        end if
+
         history%options = options
         history%epoch0 = epoch0
         history%current_time = 0.0_DP
@@ -383,8 +396,8 @@ contains
         history%stats%domain_sigma = options%domain_sigma
         history%stats%srp_sigma = options%srp_sigma
         history%stats%basis6 = history%coordinate_map%basis6
-        allocate(history%stats%split_counts(history%coordinate_map%n_variables), source=0)
-        call dace_initialize(options%da_order, history%coordinate_map%n_variables)
+        allocate(history%stats%split_counts(history%da_variables), source=0)
+        call dace_initialize(options%da_order, history%da_variables)
         call set_propagation_epoch(epoch0)
         call clear_srp_scale_uncertainty()
         call initial_da%init(STATE_DIM)
@@ -589,11 +602,23 @@ contains
         logical, intent(out) :: found(:)
         integer, intent(out) :: status
 
+        real(DP), allocatable :: embedded_points(:,:)
+
         status = -1
         found = .false.
         values = 0.0_DP
         if (.not. history%initialized) return
-        call mf_evaluate_points(history%domain, unit_points, values, found, status)
+        if (size(unit_points,1) == history%da_variables) then
+            call mf_evaluate_points(history%domain, unit_points, values, found, status)
+        else if (size(unit_points,1) == history%coordinate_map%n_variables .and. &
+                 history%da_variables > history%coordinate_map%n_variables) then
+            allocate(embedded_points(history%da_variables,size(unit_points,2)),source=0.0_DP)
+            embedded_points(1:size(unit_points,1),:) = unit_points
+            call mf_evaluate_points(history%domain, embedded_points, values, found, status)
+            deallocate(embedded_points)
+        else
+            status = -2
+        end if
     end subroutine hfem_ads_history_evaluate
 
     subroutine hfem_ads_history_destroy(history)
@@ -605,6 +630,7 @@ contains
         history%previous_available = .false.
         call clear_srp_scale_uncertainty()
         history%stats = hfem_ads_stats_type()
+        history%da_variables = 0
         history%initialized = .false.
     end subroutine hfem_ads_history_destroy
 end module pod_uq_hfem_ads_module

@@ -39,7 +39,7 @@ contains
             domain=>history%domain
             time_seconds=history%current_time
         end if
-        nvars=history%coordinate_map%n_variables
+        nvars=history%da_variables
         open(newunit=umeta,file=trim(prefix)//'_meta.csv',status='replace',action='write',iostat=io)
         if(io/=0) goto 900
         open(newunit=ucoeff,file=trim(prefix)//'_coeff.csv',status='replace',action='write',iostat=io)
