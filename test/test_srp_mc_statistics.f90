@@ -1,5 +1,5 @@
 program test_srp_mc_statistics
-    use, intrinsic :: ieee_arithmetic, only: ieee_value, ieee_quiet_nan
+    use, intrinsic :: ieee_arithmetic, only: ieee_value, ieee_quiet_nan, ieee_is_finite
     use pod_global, only: DP
     use pod_srp_mc_statistics_module, only: srp_mc_group_stats_type, &
         srp_mc_pair_stats_type, compute_group_stats, compute_pair_stats
@@ -8,6 +8,7 @@ program test_srp_mc_statistics
     type(srp_mc_group_stats_type) :: treatment_stats, control_stats
     type(srp_mc_pair_stats_type) :: pair_stats
     real(DP) :: treatment(6,5), control(6,5), nominal(6)
+    real(DP),allocatable :: large_sample(:,:)
     real(DP), parameter :: SQRT3=sqrt(3.0_DP)
     integer :: i, status
 
@@ -55,6 +56,19 @@ program test_srp_mc_statistics
     call assert_close(pair_stats%position_delta_quantiles(2),2.0_DP*SQRT3,1.0e-12_DP,'delta p95')
     call assert_close(pair_stats%position_delta_max,2.5_DP*SQRT3,1.0e-12_DP,'delta max')
     call assert_true(pair_stats%position_worst_id==5,'delta worst id')
+
+    allocate(large_sample(6,50000))
+    large_sample=0.0_DP
+    do i=5,50000,5
+        large_sample(:,i)=5.0_DP
+    end do
+    call compute_group_stats(large_sample,nominal,treatment_stats,status)
+    call assert_true(status==0,'50000-point status')
+    call assert_true(all(ieee_is_finite(treatment_stats%skewness)), &
+        '50000-point skewness finite')
+    call assert_true(all(ieee_is_finite(treatment_stats%excess_kurtosis)), &
+        '50000-point kurtosis finite')
+    deallocate(large_sample)
 
     treatment(1,1)=ieee_value(0.0_DP,ieee_quiet_nan)
     call compute_group_stats(treatment,nominal,treatment_stats,status)

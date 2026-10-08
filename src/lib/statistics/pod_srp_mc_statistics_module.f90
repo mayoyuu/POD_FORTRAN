@@ -262,8 +262,10 @@ contains
             if(sigma>100.0_DP*epsilon(1.0_DP)*scale) then
                 g1=(third(i)/real(n,DP))/sigma**3
                 g2=(fourth(i)/real(n,DP))/m2**2-3.0_DP
-                if(n>2) skewness(i)=sqrt(real(n*(n-1),DP))/real(n-2,DP)*g1
-                if(n>3) kurtosis(i)=real(n-1,DP)/real((n-2)*(n-3),DP)* &
+                if(n>2) skewness(i)=sqrt(real(n,DP)*real(n-1,DP))/ &
+                    real(n-2,DP)*g1
+                if(n>3) kurtosis(i)=real(n-1,DP)/ &
+                    (real(n-2,DP)*real(n-3,DP))* &
                     (real(n+1,DP)*g2+6.0_DP)
             end if
         end do
