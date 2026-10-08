@@ -3,6 +3,8 @@ build/
 *.o
 *.mod
 *.a
+__pycache__/
+*.pyc
 
 # 如果 dace_build 有自己的编译输出目录，也屏蔽掉
 dace_build/build/
