@@ -46,6 +46,11 @@ name = "run_radec_convert"
 source-dir = "app"
 main = "run_radec_convert.f90"
 
+[[executable]]
+name = "run_uq_radec"
+source-dir = "app"
+main = "run_uq_radec.f90"
+
 
 [[test]]
 name = "test_sample_particles_from_gmm"
@@ -168,4 +173,9 @@ main = "test_l2halo1_gap_da_ut.f90"
 name = "test_l1pl1_gap_da_ut"
 source-dir = "test"
 main = "test_l1pl1_gap_da_ut.f90"
+
+[[test]]
+name = "test_uq_radec_io"
+source-dir = "test"
+main = "test_uq_radec_io.f90"
 

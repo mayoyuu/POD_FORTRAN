@@ -290,6 +290,9 @@ program run_HFEM_uprop
         end if
     end if
 
+    ! Final propagation epoch (TDB seconds since J2000) for -dt and -et paths.
+    t_end_et = epoch0 + dt
+
     write(*,*) '========================================'
     write(*,*) '  UQ Propagation Configuration'
     write(*,*) '========================================'
@@ -341,7 +344,7 @@ program run_HFEM_uprop
     if (method_switch == METHOD_UT) then
         json_path = trim(output_prefix) // '_moments.json'
         write(*,*) '>>> Writing UT moments to: ', trim(json_path)
-        call write_ut_json(json_path, final_state%mean, final_state%cov, method_str)
+        call write_ut_json(json_path, final_state%mean, final_state%cov, method_str, t_end_et)
     else if (method_switch == METHOD_ADS) then
         csv_path = trim(output_prefix)//'_particles.csv'
         json_path = trim(output_prefix)//'_moments.json'
@@ -349,7 +352,7 @@ program run_HFEM_uprop
         call write_uq_particles_csv(csv_path, final_state%samples, io_status, io_message)
         if (io_status /= 0) error stop trim(io_message)
         call write_uq_moments_json(json_path, final_state, method_str, &
-            io_status, io_message)
+            io_status, io_message, epoch_et=t_end_et)
         if (io_status /= 0) error stop trim(io_message)
         ads_stats%written_count = size(final_state%samples,2)
         call write_ads_stats_json(ads_stats_path, ads_stats, io_status, io_message)
@@ -372,7 +375,7 @@ program run_HFEM_uprop
 
         write(*,*) '>>> Writing moments to: ', trim(json_path)
         call write_mc_da_json(json_path, final_state%mean, final_state%cov, &
-                               skewness, kurtosis, method_str)
+                               skewness, kurtosis, method_str, t_end_et)
     end if
 
     write(*,*) '=== UQ propagation finished successfully ==='
@@ -385,14 +388,15 @@ program run_HFEM_uprop
 
 contains
 
-    subroutine write_ut_json(filename, mean_vec, cov_mat, method_label)
+    subroutine write_ut_json(filename, mean_vec, cov_mat, method_label, epoch_et)
         character(len=*), intent(in) :: filename, method_label
-        real(DP), intent(in) :: mean_vec(6), cov_mat(6,6)
+        real(DP), intent(in) :: mean_vec(6), cov_mat(6,6), epoch_et
         integer :: u, r
 
         open(newunit=u, file=trim(filename), status='replace', action='write')
         write(u, '(A)') '{'
         write(u, '(A,A,A)') '  "method": "', trim(method_label), '",'
+        write(u, '(A,ES22.15,A)') '  "epoch_et": ', epoch_et, ','
         write(u, '(A,5(ES22.15,", "),ES22.15,A)') '  "mean": [', mean_vec, '],'
         write(u, '(A)') '  "covariance": ['
         do r = 1, 5
@@ -404,14 +408,15 @@ contains
         close(u)
     end subroutine write_ut_json
 
-    subroutine write_mc_da_json(filename, mean_vec, cov_mat, skew, kurt, method_label)
+    subroutine write_mc_da_json(filename, mean_vec, cov_mat, skew, kurt, method_label, epoch_et)
         character(len=*), intent(in) :: filename, method_label
-        real(DP), intent(in) :: mean_vec(6), cov_mat(6,6), skew(6), kurt(6)
+        real(DP), intent(in) :: mean_vec(6), cov_mat(6,6), skew(6), kurt(6), epoch_et
         integer :: u, r
 
         open(newunit=u, file=trim(filename), status='replace', action='write')
         write(u, '(A)') '{'
         write(u, '(A,A,A)') '  "method": "', trim(method_label), '",'
+        write(u, '(A,ES22.15,A)') '  "epoch_et": ', epoch_et, ','
         write(u, '(A,5(ES22.15,", "),ES22.15,A)') '  "mean": [', mean_vec, '],'
         write(u, '(A)') '  "covariance": ['
         do r = 1, 5
