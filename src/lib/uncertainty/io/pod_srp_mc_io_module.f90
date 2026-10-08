@@ -6,11 +6,14 @@ module pod_srp_mc_io_module
     private
 
     character(len=*),parameter,public :: SRP_MC_POINTS_SCHEMA='srp_mc_points_v1'
+    character(len=*),parameter,public :: SRP_MC_INITIAL_POINTS_SCHEMA= &
+        'srp_mc_initial_points_v1'
     character(len=*),parameter :: SAMPLE_HEADER= &
         'sample_id,z1,z2,z3,z4,z5,z6,z7,u1,u2,u3,u4,u5,u6,u7,eta_treatment'
     real(DP),parameter :: SIGMA_LIMIT=3.0_DP,DEFAULT_ETA_SIGMA=0.3_DP
 
     public :: read_srp_mc_samples,write_mc_point_header,write_mc_point_rows
+    public :: write_initial_only_point_header,write_initial_only_point_rows
 
 contains
 
@@ -185,6 +188,63 @@ contains
         end do
     end subroutine write_mc_point_rows
 
+    subroutine write_initial_only_point_header(unit_value,status,message)
+        integer,intent(in) :: unit_value
+        integer,intent(out) :: status
+        character(len=*),intent(out) :: message
+        integer :: ios
+
+        status=0
+        message=''
+        write(unit_value,'(A)',iostat=ios) 'schema='//SRP_MC_INITIAL_POINTS_SCHEMA
+        if(ios==0) write(unit_value,'(A)',iostat=ios) &
+            'hour,keyframe_kind,sample_id,'// &
+            'x_km,y_km,z_km,vx_kms,vy_kms,vz_kms,'// &
+            'dx_km,dy_km,dz_km,dvx_kms,dvy_kms,dvz_kms'
+        if(ios/=0) then
+            status=-1
+            message='failed to write initial-only MC point header'
+        end if
+    end subroutine write_initial_only_point_header
+
+    subroutine write_initial_only_point_rows(unit_value,hour,keyframe_kind,sample_ids, &
+                                             states,center,status,message)
+        integer,intent(in) :: unit_value,sample_ids(:)
+        real(DP),intent(in) :: hour,states(:,:),center(:)
+        character(len=*),intent(in) :: keyframe_kind
+        integer,intent(out) :: status
+        character(len=*),intent(out) :: message
+
+        real(DP) :: error_state(6)
+        integer :: row_count,row,ios
+
+        status=0
+        message=''
+        row_count=size(sample_ids)
+        if(.not.ieee_is_finite(hour).or.len_trim(keyframe_kind)==0.or. &
+           index(keyframe_kind,',')>0.or.size(states,1)/=6.or.size(center)/=6.or. &
+           size(states,2)/=row_count.or.row_count<1) then
+            status=-1
+            message='invalid initial-only MC point dimensions or keyframe metadata'
+            return
+        end if
+        if(any(.not.ieee_is_finite(states)).or.any(.not.ieee_is_finite(center))) then
+            status=-2
+            message='initial-only MC point rows contain nonfinite values'
+            return
+        end if
+        do row=1,row_count
+            error_state=states(:,row)-center
+            write(unit_value,'(ES25.16E3,",",A,",",I0,12(",",ES25.16E3))', &
+                iostat=ios) hour,trim(keyframe_kind),sample_ids(row), &
+                states(:,row),error_state
+            if(ios/=0) then
+                status=-3
+                message='failed to write initial-only MC point row'
+                return
+            end if
+        end do
+    end subroutine write_initial_only_point_rows
     pure integer function count_character(text,needle) result(count_value)
         character(len=*),intent(in) :: text
         character,intent(in) :: needle
