@@ -113,6 +113,41 @@ class InitialOnlyRunnerTest(unittest.TestCase):
                 event_header = next(csv.reader(stream))
             self.assertIn("direction_score7", event_header)
 
+    def test_forced_split_records_full_first_event_and_limits(self):
+        opm = ROOT.parent.parent / "OPM" / "L1Halo-1" / "L1Halo-1_init.opm.json"
+        with tempfile.TemporaryDirectory() as folder:
+            folder = Path(folder)
+            samples = folder / "samples.csv"
+            manifest = folder / "samples.json"
+            subprocess.run([
+                str(PYTHON), str(ROOT / "tools" / "generate_srp_mc_samples.py"),
+                "--csv", str(samples), "--manifest", str(manifest), "--count", "32",
+            ], cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
+            prefix = folder / "forced"
+            result = self.run_fpm([
+                "-opm", str(opm), "-o", str(prefix),
+                "--mc-samples", str(samples), "--mc-count", "32",
+                "--visualization-count", "16", "--hours", "0.01",
+                "--save-hours", "0.01", "--max-depth", "1",
+                "--pos-tol-km", "1e-20", "--vel-tol-kms", "1e-25",
+                "-cfg", str(ROOT / "config" / "config_box_wing_earth.txt"),
+            ])
+            self.assertEqual(result.returncode, 0, result.stdout[-4000:])
+            with Path(str(prefix) + "_split_events.csv").open(newline="") as stream:
+                events = list(csv.DictReader(stream))
+            self.assertGreaterEqual(len(events), 1)
+            self.assertIn(int(events[0]["direction"]), range(1, 7))
+            report = json.loads(Path(str(prefix) + "_mc_report.json").read_text())
+            first = report["events"]["first_split"]
+            self.assertTrue(first["observed"])
+            self.assertIsInstance(first["full_criterion"], dict)
+            self.assertEqual(first["full_criterion"]["direction"],
+                             int(events[0]["direction"]))
+            self.assertTrue(report["events"]["first_unconfirmed"]["observed"])
+            self.assertTrue(
+                report["events"]["first_validation_failure"]["observed"]
+            )
+
     def test_rejects_cannonball_config(self):
         opm_candidates = (
             ROOT / "OPM" / "L1Halo-1" / "L1Halo-1_init.opm.json",
