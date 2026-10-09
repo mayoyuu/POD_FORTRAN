@@ -271,6 +271,21 @@ def audit_result(
             reasons.append("report_sample_count")
         if report.get("orbit_name") != orbit:
             reasons.append("report_orbit")
+        diagnostics = report.get("geometry_fallback_diagnostics")
+        if not isinstance(diagnostics, dict):
+            reasons.append("report_geometry_fallback_diagnostics")
+        else:
+            for key in ("real_count", "da_count"):
+                value = diagnostics.get(key)
+                if not isinstance(value, int) or value < 0:
+                    reasons.append(f"report_geometry_{key}")
+            for key in ("first_real_message", "first_da_message"):
+                if not isinstance(diagnostics.get(key), str):
+                    reasons.append(f"report_geometry_{key}")
+            if diagnostics.get("real_count", 0) > 0 and not diagnostics.get("first_real_message"):
+                reasons.append("report_geometry_real_message")
+            if diagnostics.get("da_count", 0) > 0 and not diagnostics.get("first_da_message"):
+                reasons.append("report_geometry_da_message")
         for key in (
             "opm_sha256", "config_sha256", "sample_sha256",
             "executable_sha256",

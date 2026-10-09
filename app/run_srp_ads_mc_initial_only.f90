@@ -16,6 +16,8 @@ program run_srp_ads_mc_initial_only
     use pod_srp_mc_io_module, only: read_srp_mc_samples, &
         write_initial_only_point_header, write_initial_only_point_rows
     use pod_srp_mc_statistics_module, only: srp_mc_group_stats_type, compute_group_stats
+    use pod_spacecraft_geometry, only: srp_geometry_diagnostics_type, &
+        reset_srp_geometry_diagnostics, get_srp_geometry_diagnostics
     implicit none
 
     integer, parameter :: PREFIX_COUNT=3
@@ -24,6 +26,7 @@ program run_srp_ads_mc_initial_only
     type(hfem_ads_history_type) :: history
     type(srp_mc_group_stats_type) :: stats
     type(hfem_ads_split_event_type) :: first_split
+    type(srp_geometry_diagnostics_type) :: geometry_diagnostics
     character(len=MAX_STRING_LEN) :: opm_file,prefix,config_file,sample_file,arg,message,path
     real(DP) :: epoch0,nominal0(6),cov(6,6)
     real(DP) :: pos_tolerance,vel_tolerance,duration_hours,save_hours
@@ -143,6 +146,7 @@ program run_srp_ads_mc_initial_only
         call fatal('SRP array-angle uncertainty must be zero')
     config%use_srp=.true.
     attitude_mode=trim(config%srp_attitude_mode)
+    call reset_srp_geometry_diagnostics()
     call load_initial_opm(trim(opm_file),epoch0,nominal0,cov)
 
     options%coordinate_mode=ADS_COORD_WHITENED
@@ -474,6 +478,7 @@ contains
 
     subroutine write_report()
         integer :: report_unit,ios,q,written
+        call get_srp_geometry_diagnostics(geometry_diagnostics)
         open(newunit=report_unit,file=trim(prefix)//'_mc_report.json', &
             status='replace',action='write',iostat=ios)
         if(ios/=0) call fatal('cannot open MC JSON report')
@@ -513,6 +518,16 @@ contains
         write(report_unit,'(A)') '  "opm_file": "'//trim(opm_file)//'",'
         write(report_unit,'(A)') '  "config_file": "'//trim(config_file)//'",'
         write(report_unit,'(A)') '  "sample_file": "'//trim(sample_file)//'",'
+        write(report_unit,'(A)') '  "geometry_fallback_diagnostics": {'
+        write(report_unit,'(A,I0,A)') '    "real_count": ', &
+            geometry_diagnostics%real_fallback_count,','
+        write(report_unit,'(A,I0,A)') '    "da_count": ', &
+            geometry_diagnostics%da_fallback_count,','
+        write(report_unit,'(A)') '    "first_real_message": "'// &
+            trim(geometry_diagnostics%first_real_message)//'",'
+        write(report_unit,'(A)') '    "first_da_message": "'// &
+            trim(geometry_diagnostics%first_da_message)//'"'
+        write(report_unit,'(A)') '  },'
         write(report_unit,'(A)',advance='no') '  "saved_keyframe_hours": ['
         written=0
         do q=0,steps

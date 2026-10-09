@@ -87,6 +87,11 @@ class InitialOnlyRunnerTest(unittest.TestCase):
             self.assertEqual(report["dace_storage_dimensions"], 6)
             self.assertEqual(report["srp_eta"], 0.0)
             self.assertEqual(report["srp_model"], "box_wing")
+            diagnostics = report["geometry_fallback_diagnostics"]
+            self.assertEqual(diagnostics["real_count"], 0)
+            self.assertEqual(diagnostics["da_count"], 0)
+            self.assertEqual(diagnostics["first_real_message"], "")
+            self.assertEqual(diagnostics["first_da_message"], "")
             self.assertEqual(report["srp_attitude_mode"], "earth")
             self.assertEqual(report["sample_count"], 32)
 

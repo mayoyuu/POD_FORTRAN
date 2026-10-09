@@ -65,6 +65,8 @@ Path(str(prefix)+"_mc_report.json").write_text(json.dumps({
     "output_schema_version":"srp_ads_mc_initial_only_v1",
     "sample_count":count,"active_dimensions":6,"dace_storage_dimensions":6,
     "srp_eta":0.0,"srp_model":"box_wing","srp_attitude_mode":attitude,
+    "geometry_fallback_diagnostics":{"real_count":0,"da_count":0,
+        "first_real_message":"","first_da_message":""},
     "saved_keyframe_hours":[0.0],
     "events":{"first_split":{"observed":False,
         "interval_start_hour":None,"hour":None,"full_criterion":None},
@@ -134,6 +136,15 @@ class CampaignTest(unittest.TestCase):
                      "earth" / "DRO-1")
             self.assertTrue((final / "DRO-1_visualization_points.h5").is_file())
             self.assertTrue((final / "DRO-1_keyframe_points.h5").is_file())
+            events_path = final / "DRO-1_events.json"
+            report = json.loads(events_path.read_text())
+            report.pop("geometry_fallback_diagnostics")
+            events_path.write_text(json.dumps(report))
+            valid, reasons = campaign.audit_result(
+                final, "earth", "DRO-1", self.make_args()
+            )
+            self.assertFalse(valid)
+            self.assertIn("report_geometry_fallback_diagnostics", reasons)
             report = json.loads((final / "DRO-1_events.json").read_text())
             self.assertEqual(report["srp_attitude_mode"], "earth")
             self.assertEqual(len(report["opm_sha256"]), 64)
