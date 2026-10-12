@@ -119,7 +119,12 @@ class InitialOnlyRunnerTest(unittest.TestCase):
             self.assertIn("direction_score7", event_header)
 
     def test_forced_split_records_full_first_event_and_limits(self):
-        opm = ROOT.parent.parent / "OPM" / "L1Halo-1" / "L1Halo-1_init.opm.json"
+        opm_candidates = (
+            ROOT / "OPM" / "L1Halo-1" / "L1Halo-1_init.opm.json",
+            ROOT.parent.parent / "OPM" / "L1Halo-1" / "L1Halo-1_init.opm.json",
+        )
+        opm = next((path for path in opm_candidates if path.is_file()), opm_candidates[0])
+        self.assertTrue(opm.is_file())
         with tempfile.TemporaryDirectory() as folder:
             folder = Path(folder)
             samples = folder / "samples.csv"
