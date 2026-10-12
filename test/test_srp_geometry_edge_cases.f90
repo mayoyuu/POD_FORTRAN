@@ -2,12 +2,14 @@ program test_srp_geometry_edge_cases
     use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
     use pod_global, only: DP
     use pod_spacecraft_geometry, only: compute_pointing_attitude_real, compute_array_normal_real, &
-                                       spacecraft_geometry_type
+                                       spacecraft_geometry_type, srp_geometry_diagnostics_type, &
+                                       reset_srp_geometry_diagnostics, get_srp_geometry_diagnostics
     implicit none
 
     real(DP) :: position(3), velocity(3), sun_position(3), earth_position(3), moon_position(3)
     real(DP) :: c_i_b(3,3), normal(3), acceleration(3), invalid_c(3,3)
     type(spacecraft_geometry_type) :: geometry
+    type(srp_geometry_diagnostics_type) :: diagnostics
     integer :: status
     character(len=256) :: message
 
@@ -36,6 +38,21 @@ program test_srp_geometry_edge_cases
                                    normal, status, message)
     call assert_true(status > 0, 'Sun parallel to hinge uses reference normal')
     call assert_true(all(ieee_is_finite(normal)), 'fallback array normal is finite')
+
+    call configure_geometry(geometry)
+    geometry%attitude_mode = 'sun'
+    geometry%roll_reference = 'sun'
+    geometry%primary_axis_body = [1.0_DP,0.0_DP,0.0_DP]
+    geometry%secondary_axis_body = [0.0_DP,1.0_DP,0.0_DP]
+    call reset_srp_geometry_diagnostics()
+    call geometry%compute_srp_from_ephemerides_real(position, velocity, sun_position, earth_position, &
+                                                     moon_position, acceleration, status, message)
+    call get_srp_geometry_diagnostics(diagnostics)
+    call assert_true(status > 0, 'real SRP wrapper preserves fallback status')
+    call assert_true(diagnostics%real_fallback_count == 1, 'real fallback is counted')
+    call assert_true(diagnostics%da_fallback_count == 0, 'real call does not increment DA count')
+    call assert_true(index(diagnostics%first_real_message,'fallback') > 0, &
+                     'real fallback message is retained')
 
     call configure_geometry(geometry)
     invalid_c = 0.0_DP

@@ -1,13 +1,16 @@
 program test_box_wing_srp_da
     use pod_global, only: DP
     use pod_dace_classes
-    use pod_spacecraft_geometry, only: spacecraft_geometry_type, srp_da_parameter_map_type
+    use pod_spacecraft_geometry, only: spacecraft_geometry_type, srp_da_parameter_map_type, &
+                                       srp_geometry_diagnostics_type, &
+                                       reset_srp_geometry_diagnostics, get_srp_geometry_diagnostics
     implicit none
 
     integer, parameter :: nvar = 6
     real(DP), parameter :: h = 100.0_DP
     type(spacecraft_geometry_type) :: geometry
     type(srp_da_parameter_map_type) :: da_map
+    type(srp_geometry_diagnostics_type) :: diagnostics
     type(AlgebraicVector) :: position_da, velocity_da, acceleration_da
     real(DP) :: position(3), velocity(3), sun_position(3), earth_position(3), moon_position(3)
     real(DP) :: acceleration_real(3), acceleration_da_constant(3)
@@ -59,6 +62,22 @@ program test_box_wing_srp_da
     end do
     call assert_matrix_close(jacobian_da, jacobian_fd, 2.0e-22_DP, 2.0e-5_DP, &
                              'DA position Jacobian equals finite difference')
+
+    geometry%roll_reference = 'sun'
+    sun_position = position + [1.0e8_DP,0.0_DP,0.0_DP]
+    do i = 1, 3
+        position_da%elements(i) = position(i)
+        velocity_da%elements(i) = velocity(i)
+    end do
+    call reset_srp_geometry_diagnostics()
+    call geometry%compute_srp_from_ephemerides_da(position_da, velocity_da, sun_position, earth_position, &
+                                                   moon_position, da_map, acceleration_da, status, message)
+    call get_srp_geometry_diagnostics(diagnostics)
+    call assert_true(status > 0, 'DA SRP wrapper preserves fallback status')
+    call assert_true(diagnostics%da_fallback_count == 1, 'DA fallback is counted')
+    call assert_true(diagnostics%real_fallback_count == 0, 'DA call does not increment real count')
+    call assert_true(index(diagnostics%first_da_message,'fallback') > 0, &
+                     'DA fallback message is retained')
 
     call position_da%destroy()
     call velocity_da%destroy()

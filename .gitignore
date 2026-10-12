@@ -40,3 +40,16 @@ kernels/
 *.tpc
 *.tls
 *.bpc
+# Python caches
+__pycache__/
+*.pyc
+
+# 20261005SRP generated experiment data
+20261005SRP/.qualification/
+20261005SRP/.runtime/
+20261005SRP/audit/
+20261005SRP/config/
+20261005SRP/logs/
+20261005SRP/population/
+20261005SRP/samples/
+20261005SRP/results_box_wing_initial_only/

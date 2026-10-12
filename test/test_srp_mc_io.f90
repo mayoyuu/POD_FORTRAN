@@ -1,16 +1,21 @@
 program test_srp_mc_io
     use pod_global, only: DP
-    use pod_srp_mc_io_module, only: SRP_MC_POINTS_SCHEMA, read_srp_mc_samples, &
-        write_mc_point_header, write_mc_point_rows
+    use, intrinsic :: ieee_arithmetic, only: ieee_value,ieee_quiet_nan
+    use pod_srp_mc_io_module, only: SRP_MC_POINTS_SCHEMA, SRP_MC_INITIAL_POINTS_SCHEMA, &
+        read_srp_mc_samples, write_mc_point_header, write_mc_point_rows, &
+        write_initial_only_point_header, write_initial_only_point_rows
     implicit none
 
     real(DP),allocatable :: z(:,:),u(:,:)
-    real(DP) :: treatment(6,2),control(6,2)
-    integer :: ids(2),status,unit_value
+    real(DP) :: treatment(6,2),control(6,2),center(6),bad_states(5,2)
+    real(DP) :: parsed_hour,parsed_values(12)
+    integer :: ids(2),short_ids(1),status,unit_value,parsed_id
     character(len=256) :: message,line
+    character(len=32) :: parsed_kind
     character(len=*),parameter :: VALID='/tmp/pod_srp_mc_valid.csv'
     character(len=*),parameter :: BAD='/tmp/pod_srp_mc_bad.csv'
     character(len=*),parameter :: POINTS='/tmp/pod_srp_mc_points.csv'
+    character(len=*),parameter :: INITIAL_POINTS='/tmp/pod_srp_mc_initial_points.csv'
 
     call write_samples(VALID,0)
     call read_srp_mc_samples(VALID,2,z,u,status,message)
@@ -62,6 +67,44 @@ program test_srp_mc_io
     call assert_true(index(line,',fixed,11,')>0,'first point id and kind')
     close(unit_value)
 
+    center=[1.0_DP,2.0_DP,3.0_DP,4.0_DP,5.0_DP,6.0_DP]
+    open(newunit=unit_value,file=INITIAL_POINTS,status='replace',action='write')
+    call write_initial_only_point_header(unit_value,status,message)
+    call assert_true(status==0,'initial-only point header')
+    call write_initial_only_point_rows(unit_value,2.0_DP,'fixed',ids,treatment,center, &
+        status,message)
+    call assert_true(status==0,'initial-only point rows')
+    close(unit_value)
+    open(newunit=unit_value,file=INITIAL_POINTS,status='old',action='read')
+    read(unit_value,'(A)') line
+    call assert_true(index(trim(line),'schema='//SRP_MC_INITIAL_POINTS_SCHEMA)==1, &
+        'initial-only schema header')
+    read(unit_value,'(A)') line
+    call assert_true(trim(line)=='hour,keyframe_kind,sample_id,x_km,y_km,z_km,'// &
+        'vx_kms,vy_kms,vz_kms,dx_km,dy_km,dz_km,dvx_kms,dvy_kms,dvz_kms', &
+        'initial-only column header')
+    read(unit_value,*) parsed_hour,parsed_kind,parsed_id,parsed_values
+    call assert_close(parsed_hour,2.0_DP,1.0e-14_DP,'initial-only hour')
+    call assert_true(trim(parsed_kind)=='fixed'.and.parsed_id==11,'initial-only id and kind')
+    call assert_true(maxval(abs(parsed_values(1:6)-treatment(:,1)))<1.0e-14_DP, &
+        'initial-only absolute state')
+    call assert_true(maxval(abs(parsed_values(7:12)-(treatment(:,1)-center)))<1.0e-14_DP, &
+        'initial-only error state')
+    close(unit_value)
+
+    bad_states=0.0_DP
+    call write_initial_only_point_rows(6,0.0_DP,'fixed',ids,bad_states,center,status,message)
+    call assert_true(status/=0,'initial-only state dimension rejected')
+    short_ids=[1]
+    call write_initial_only_point_rows(6,0.0_DP,'fixed',short_ids,treatment,center,status,message)
+    call assert_true(status/=0,'initial-only id count rejected')
+    treatment(1,1)=ieee_value(0.0_DP,ieee_quiet_nan)
+    call write_initial_only_point_rows(6,0.0_DP,'fixed',ids,treatment,center,status,message)
+    call assert_true(status/=0,'initial-only nonfinite state rejected')
+    treatment(1,1)=1.0_DP
+    center(1)=ieee_value(0.0_DP,ieee_quiet_nan)
+    call write_initial_only_point_rows(6,0.0_DP,'fixed',ids,treatment,center,status,message)
+    call assert_true(status/=0,'initial-only nonfinite center rejected')
     write(*,'(a)') 'PASS: SRP MC sample and point I/O.'
 
 contains

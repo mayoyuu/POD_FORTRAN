@@ -4,6 +4,7 @@
 !! v_I = C_I_B v_B.  The primary body axis points at exactly one selected target
 !! (Sun, Earth, or Moon); the secondary body axis only resolves roll.
 module pod_spacecraft_geometry
+    use, intrinsic :: iso_fortran_env, only: int64
     use pod_global, only: DP, MAX_STRING_LEN
     use pod_config, only: config_params
     use pod_dace_classes
@@ -13,6 +14,15 @@ module pod_spacecraft_geometry
     real(DP), parameter :: DEFAULT_GEOMETRY_TOLERANCE = 1.0e-12_DP
     real(DP), parameter :: AU_KM = 149597870.7_DP
     real(DP), parameter :: DEFAULT_SOLAR_PRESSURE_1AU = 1367.0_DP / 299792458.0_DP
+
+    type, public :: srp_geometry_diagnostics_type
+        integer(int64) :: real_fallback_count = 0_int64
+        integer(int64) :: da_fallback_count = 0_int64
+        character(len=MAX_STRING_LEN) :: first_real_message = ''
+        character(len=MAX_STRING_LEN) :: first_da_message = ''
+    end type srp_geometry_diagnostics_type
+
+    type(srp_geometry_diagnostics_type), save :: geometry_diagnostics
 
     type, public :: srp_optical_properties_type
         real(DP) :: absorptivity = 1.0_DP
@@ -79,8 +89,38 @@ module pod_spacecraft_geometry
     public :: compute_panel_force_da
     public :: normalize_vector_real
     public :: cross_product_real
+    public :: reset_srp_geometry_diagnostics
+    public :: get_srp_geometry_diagnostics
 
 contains
+
+    subroutine reset_srp_geometry_diagnostics()
+        geometry_diagnostics = srp_geometry_diagnostics_type()
+    end subroutine reset_srp_geometry_diagnostics
+
+    subroutine get_srp_geometry_diagnostics(diagnostics)
+        type(srp_geometry_diagnostics_type), intent(out) :: diagnostics
+        diagnostics = geometry_diagnostics
+    end subroutine get_srp_geometry_diagnostics
+
+    subroutine record_srp_geometry_fallback(is_da, message)
+        logical, intent(in) :: is_da
+        character(len=*), intent(in) :: message
+
+        if (is_da) then
+            geometry_diagnostics%da_fallback_count = geometry_diagnostics%da_fallback_count + 1_int64
+            if (geometry_diagnostics%da_fallback_count == 1_int64) then
+                geometry_diagnostics%first_da_message = trim(message)
+                write(*,'(A)') '[box-wing geometry fallback][DA] '//trim(message)
+            end if
+        else
+            geometry_diagnostics%real_fallback_count = geometry_diagnostics%real_fallback_count + 1_int64
+            if (geometry_diagnostics%real_fallback_count == 1_int64) then
+                geometry_diagnostics%first_real_message = trim(message)
+                write(*,'(A)') '[box-wing geometry fallback][Real] '//trim(message)
+            end if
+        end if
+    end subroutine record_srp_geometry_fallback
 
     subroutine da_attitude_init(self)
         class(da_attitude_type), intent(inout) :: self
@@ -258,6 +298,13 @@ contains
             call set_message(message, attitude_message)
         else
             call set_message(message, force_message)
+        end if
+        if (status > 0) then
+            if (attitude_status > 0) then
+                call record_srp_geometry_fallback(.true., attitude_message)
+            else
+                call record_srp_geometry_fallback(.true., force_message)
+            end if
         end if
         call attitude%destroy()
     end subroutine compute_srp_from_ephemerides_da
@@ -606,19 +653,21 @@ contains
         logical, intent(out) :: success
         real(DP), intent(in) :: tolerance
         type(DA) :: magnitude
+        real(DP) :: constant_vector(3)
         integer :: i
 
-        call vector_norm2_sub(vector, magnitude)
-        success = magnitude%cons() > tolerance
+        constant_vector = vector%cons()
+        success = sqrt(sum(constant_vector*constant_vector)) > tolerance
         call unit_vector%init(3)
         if (success) then
+            call vector_norm2_sub(vector, magnitude)
             do i = 1, 3
                 unit_vector%elements(i) = vector%elements(i)/magnitude
             end do
+            call magnitude%destroy()
         else
             unit_vector = 0.0_DP
         end if
-        call magnitude%destroy()
     end subroutine da_normalize_vector
 
     subroutine da_normalize_vector_inplace(vector, success, tolerance)
@@ -859,6 +908,13 @@ contains
             call set_message(message, attitude_message)
         else
             call set_message(message, force_message)
+        end if
+        if (status > 0) then
+            if (attitude_status > 0) then
+                call record_srp_geometry_fallback(.false., attitude_message)
+            else
+                call record_srp_geometry_fallback(.false., force_message)
+            end if
         end if
     end subroutine compute_srp_from_ephemerides_real
 
