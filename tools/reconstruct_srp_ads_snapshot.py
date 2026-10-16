@@ -21,7 +21,7 @@ POSITION_VERIFY_TOL_KM = 1.0e-8
 VELOCITY_VERIFY_TOL_KMS = 1.0e-11
 STATE_NAMES = ("x_km", "y_km", "z_km", "vx_kms", "vy_kms", "vz_kms")
 ERROR_NAMES = ("dx_km", "dy_km", "dz_km", "dvx_kms", "dvy_kms", "dvz_kms")
-PRIMES = (2, 3, 5, 7, 11, 13, 17)
+PRIMES = (2, 3, 5, 7, 11, 13, 17, 19)
 
 
 class SnapshotError(RuntimeError):
@@ -49,7 +49,7 @@ class Patch:
         )
 
     def global_to_local(self, point, n_variables):
-        local = [0.0] * 7
+        local = [0.0] * len(self.center)
         for i in range(n_variables):
             if self.width[i] <= 0.0:
                 raise SnapshotError(
@@ -59,7 +59,7 @@ class Patch:
         return tuple(local)
 
     def local_to_global(self, local, n_variables):
-        point = [0.0] * 7
+        point = [0.0] * len(self.center)
         for i in range(n_variables):
             point[i] = self.center[i] + 0.5 * self.width[i] * local[i]
         return tuple(point)
@@ -80,7 +80,8 @@ class Patch:
 
 class Snapshot:
     def __init__(self, prefix, n_variables, da_order, domain_sigma,
-                 eta_sigma, time_seconds, patches, source_files):
+                 eta_sigma, time_seconds, patches, source_files, schema_version=1,
+                 parameterization=None, mode_hashes=None):
         self.prefix = prefix
         self.n_variables = n_variables
         self.da_order = da_order
@@ -89,12 +90,16 @@ class Snapshot:
         self.time_seconds = time_seconds
         self.patches = tuple(sorted(patches, key=lambda patch: patch.patch_id))
         self.source_files = source_files
+        self.schema_version=schema_version
+        self.storage_variables=len(self.patches[0].center)
+        self.parameterization=parameterization or ('SRP_ETA' if n_variables==7 else 'NONE')
+        self.mode_hashes=mode_hashes or {}
 
     def evaluate_global(self, point):
-        if len(point) not in (self.n_variables, 7):
+        if len(point) not in (self.n_variables, self.storage_variables):
             raise SnapshotError(
                 f"point has {len(point)} coordinates; expected "
-                f"{self.n_variables} or 7"
+                f"{self.n_variables} or {self.storage_variables}"
             )
         for patch in self.patches:
             if patch.contains(point, self.n_variables):
@@ -103,9 +108,16 @@ class Snapshot:
         raise SnapshotError("point is outside every saved ADS patch")
 
     def physical_eta(self, normalized_eta):
+        if self.parameterization=='SRP_MODES':
+            raise SnapshotError('mode coordinates are not scalar eta')
         if self.n_variables == 6:
             return 0.0
         return self.domain_sigma * self.eta_sigma * normalized_eta
+
+    def physical_modes(self,q7,q8):
+        if self.parameterization!='SRP_MODES' or not all(math.isfinite(q) and abs(q)<=1+1e-13 for q in (q7,q8)):
+            raise SnapshotError('invalid mode unit coordinates')
+        return tuple(0.5*(1+max(-1,min(1,q))) for q in (q7,q8))
 
 
 def _finite_float(value, label):
@@ -135,13 +147,14 @@ def _read_csv(path):
         return list(reader)
 
 
-def replay_split_history(entries, n_variables):
+def replay_split_history(entries, n_variables, storage_variables=None):
     """Return global unit-box center and width after signed splits."""
-    if n_variables not in (6, 7):
+    if n_variables not in (6, 7, 8):
         raise SnapshotError(f"unsupported ADS dimension {n_variables}")
-    center = [0.0] * 7
-    width = [2.0] * 7
-    if n_variables == 6:
+    columns=storage_variables or max(7,n_variables)
+    center = [0.0] * columns
+    width = [2.0] * columns
+    if n_variables == 6 and storage_variables is None:
         width[6] = 0.0
     for entry in entries:
         direction = abs(int(entry))
@@ -162,7 +175,8 @@ def _map_values(rows):
         if not key:
             raise SnapshotError("empty key in snapshot map")
         if key in values:
-            if key in {"da_order", "domain_sigma", "eta_sigma"}:
+            if key in {"da_order", "domain_sigma", "eta_sigma", "schema_version", "n_variables", "da_variables",
+                       "parameterization", "mode_csv_sha256", "mode_metadata_sha256"}:
                 raise SnapshotError(f"duplicate scalar snapshot map key {key}")
             continue
         values[key] = (row.get("value") or "").strip()
@@ -180,7 +194,8 @@ def load_snapshot(prefix):
     meta_rows = _read_csv(files["meta"])
     coeff_rows = _read_csv(files["coeff"])
     split_rows = _read_csv(files["splits"])
-    mapping = _map_values(_read_csv(files["map"]))
+    map_rows=_read_csv(files['map'])
+    mapping = _map_values(map_rows)
     if not meta_rows:
         raise SnapshotError("snapshot contains no patches")
     for key in ("da_order", "domain_sigma", "eta_sigma"):
@@ -200,6 +215,32 @@ def load_snapshot(prefix):
             "domain_sigma must be positive and eta_sigma must be non-negative"
         )
     n_variables = 7 if eta_sigma > 0.0 else 6
+    version=_integer(mapping.get('schema_version','1'),'schema_version')
+    columns=7
+    parameterization='SRP_ETA' if n_variables==7 else 'NONE'
+    mode_hashes={}
+    if version not in (1,2):
+        raise SnapshotError('unsupported snapshot schema')
+    if version==2:
+        n_variables=_integer(mapping.get('n_variables',''),'n_variables')
+        columns=_integer(mapping.get('da_variables',''),'da_variables')
+        parameterization=mapping.get('parameterization')
+        expected_dim={'NONE':6,'SRP_ETA':7,'SRP_MODES':8}.get(parameterization)
+        if n_variables!=expected_dim or not n_variables<=columns<=8:
+            raise SnapshotError('v2 parameterization/dimensions disagree')
+        if (parameterization=='SRP_ETA') != (eta_sigma>0):
+            raise SnapshotError('v2 eta scale and parameterization disagree')
+        roles=[row for row in map_rows if row['key']=='variable_role']
+        expected_roles=['x','y','z','vx','vy','vz']+({'NONE':[], 'SRP_ETA':['eta'], 'SRP_MODES':['s','u']}[parameterization])
+        expected_roles+=['inactive']*(columns-n_variables)
+        if len(roles)!=columns or sorted((_integer(row['i'],'role index'),row['value']) for row in roles)!=list(enumerate(expected_roles,1)):
+            raise SnapshotError('v2 variable roles do not match parameterization')
+        if parameterization=='SRP_MODES':
+            for key in ('mode_csv_sha256','mode_metadata_sha256'):
+                value=mapping.get(key,'')
+                if re.fullmatch('[0-9a-fA-F]{64}',value) is None:
+                    raise SnapshotError(f'invalid v2 {key}')
+                mode_hashes[key]=value.lower()
 
     meta = {}
     common_time = None
@@ -212,18 +253,18 @@ def load_snapshot(prefix):
         )
         center = tuple(
             _finite_float(row.get(f"center{i}", ""), f"center{i}")
-            for i in range(1, 8)
+            for i in range(1, columns+1)
         )
         width = tuple(
             _finite_float(row.get(f"width{i}", ""), f"width{i}")
-            for i in range(1, 8)
+            for i in range(1, columns+1)
         )
         split_count = _integer(row.get("split_count", ""), "split_count")
         if split_count < 0:
             raise SnapshotError(f"negative split_count for patch {patch_id}")
         if any(width[i] <= 0.0 for i in range(n_variables)):
             raise SnapshotError(f"patch {patch_id} has non-positive active width")
-        if n_variables == 6 and (
+        if version==1 and n_variables == 6 and (
             abs(center[6]) > 1.0e-14 or abs(width[6]) > 1.0e-14
         ):
             raise SnapshotError(
@@ -261,12 +302,12 @@ def load_snapshot(prefix):
             )
         entries = tuple(item[1] for item in ordered)
         replay_center, replay_width = replay_split_history(
-            entries, n_variables
+            entries, n_variables,columns if version==2 else None
         )
         if any(
             abs(center[i] - replay_center[i]) > 1.0e-12
             or abs(width[i] - replay_width[i]) > 1.0e-12
-            for i in range(7)
+            for i in range(columns)
         ):
             raise SnapshotError(
                 f"split history does not reproduce metadata for patch {patch_id}"
@@ -287,13 +328,13 @@ def load_snapshot(prefix):
             raise SnapshotError(f"invalid state component {component}")
         powers = tuple(
             _integer(row.get(f"power{i}", ""), f"power{i}")
-            for i in range(1, 8)
+            for i in range(1, columns+1)
         )
         if any(power < 0 for power in powers) or sum(powers) > da_order:
             raise SnapshotError(
                 f"polynomial power exceeds DA order for patch {patch_id}"
             )
-        if n_variables == 6 and powers[6] != 0:
+        if any(powers[n_variables:]):
             raise SnapshotError(
                 "6D control snapshot contains a non-zero power7 term"
             )
@@ -318,7 +359,7 @@ def load_snapshot(prefix):
         )
     return Snapshot(
         prefix, n_variables, da_order, domain_sigma, eta_sigma,
-        common_time, patches, files
+        common_time, patches, files,version,parameterization,mode_hashes
     )
 
 
@@ -333,12 +374,12 @@ def _halton(index, base):
 
 
 def _padded(values, n_variables):
-    return tuple(values[:n_variables]) + (0.0,) * (7 - n_variables)
+    return tuple(values[:n_variables]) + (0.0,) * (max(7,n_variables) - n_variables)
 
 
 def generate_local_samples(n_variables, count, boundary_fraction):
     """Make deterministic local points including every corner and axis."""
-    if n_variables not in (6, 7):
+    if n_variables not in (6, 7, 8):
         raise SnapshotError(f"unsupported ADS dimension {n_variables}")
     minimum = 2**n_variables + 2 * n_variables + 1
     if count < minimum:
@@ -360,7 +401,7 @@ def generate_local_samples(n_variables, count, boundary_fraction):
             values = [0.0] * n_variables
             values[dimension] = sign
             samples.append(Sample("axis", _padded(values, n_variables)))
-    samples.append(Sample("center", (0.0,) * 7))
+    samples.append(Sample("center", (0.0,) * max(7,n_variables)))
 
     extra = count - len(samples)
     face_count = int(round(extra * boundary_fraction))
@@ -460,7 +501,7 @@ def _verify_saved_cloud(snapshot, run_prefix, nominal):
             raise SnapshotError(f"duplicate initial point_id {point_id}")
         points[point_id] = tuple(
             _finite_float(row.get(f"u{i}", ""), f"u{i}")
-            for i in range(1, 8)
+            for i in range(1, snapshot.storage_variables+1)
         )
 
     hour = snapshot.time_seconds / 3600.0
@@ -608,14 +649,17 @@ def reconstruct_snapshot(
     samples = generate_local_samples(
         snapshot.n_variables, points_per_patch, boundary_fraction
     )
+    samples = [Sample(sample.kind, sample.coordinates[:snapshot.storage_variables] +
+                      (0.0,) * max(0, snapshot.storage_variables-len(sample.coordinates)))
+               for sample in samples]
     state_min = [math.inf] * 6
     state_max = [-math.inf] * 6
     error_min = [math.inf] * 6
     error_max = [-math.inf] * 6
     header = ["patch_id", "sample_id", "sample_kind"]
-    header += [f"local{i}" for i in range(1, 8)]
-    header += [f"u{i}" for i in range(1, 8)]
-    header += ["eta", *STATE_NAMES]
+    header += [f"local{i}" for i in range(1, snapshot.storage_variables+1)]
+    header += [f"u{i}" for i in range(1, snapshot.storage_variables+1)]
+    header += (['s','u'] if snapshot.parameterization=='SRP_MODES' else ['eta']) + list(STATE_NAMES)
     if nominal is not None:
         header += list(ERROR_NAMES)
 
@@ -626,6 +670,8 @@ def reconstruct_snapshot(
                     sample.coordinates, snapshot.n_variables
                 )
                 state = patch.evaluate_local(sample.coordinates)
+                physical_parameters=snapshot.physical_modes(point[6],point[7]) if snapshot.parameterization=='SRP_MODES' else \
+                    (snapshot.physical_eta(point[6] if snapshot.n_variables>6 else 0),)
                 for i in range(6):
                     state_min[i] = min(state_min[i], state[i])
                     state_max[i] = max(state_max[i], state[i])
@@ -633,9 +679,9 @@ def reconstruct_snapshot(
                     patch.patch_id,
                     sample_id,
                     sample.kind,
-                    *sample.coordinates,
+                    *sample.coordinates[:snapshot.storage_variables],
                     *point,
-                    snapshot.physical_eta(point[6]),
+                    *physical_parameters,
                     *state,
                 ]
                 if nominal is not None:
@@ -651,8 +697,8 @@ def reconstruct_snapshot(
     _write_csv_atomic(output_path, header, rows())
 
     report = {
-        "format_version": FORMAT_VERSION,
-        "output_schema_version": FORMAT_VERSION,
+        "format_version": snapshot.schema_version,
+        "output_schema_version": snapshot.schema_version,
         "n_variables": snapshot.n_variables,
         "snapshot_prefix": str(prefix),
         "output_file": str(output_path),
@@ -696,6 +742,8 @@ def reconstruct_snapshot(
         report["nominal_state"] = dict(zip(STATE_NAMES, nominal))
         report["deviation_min"] = dict(zip(ERROR_NAMES, error_min))
         report["deviation_max"] = dict(zip(ERROR_NAMES, error_max))
+    if snapshot.schema_version==2:
+        report.update(parameterization=snapshot.parameterization,mode_hashes=snapshot.mode_hashes)
     _write_json_atomic(json_path, report)
     return report
 

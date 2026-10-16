@@ -1,0 +1,115 @@
+# POD Fortran 配置文件
+# 生成时间: 2026-05-14 16:23:47
+
+# 轨道传播参数
+LU = 384400.0
+TU = 375190.26189464843
+MU = 6.045626292270688E+24
+VU = 1.024546847401753
+AccU = 2.730739444643263E-06
+propagation_step = 60.0
+propagation_abs_tol = 1.0e-12
+propagation_rel_tol = 1.0e-12
+max_propagation_steps = 10000
+rk4_step_size = 60.0
+rkf45_abs_tol = 1.0e-12
+rkf45_rel_tol = 1.0e-12
+rkf45_min_step = 1.0e-6
+rkf45_max_step = 3600.0
+rkf78_abs_tol = 1.0e-12
+rkf78_rel_tol = 1.0e-12
+rkf78_min_step = 1.0e-6
+rkf78_max_step = 3600.0
+
+# 轨道改进参数
+convergence_tolerance = 1.0e-8
+max_iterations = 100
+damping_factor = 0.1
+use_adaptive_damping = true
+
+# 坐标系统参数
+reference_frame = J2000
+central_body = EARTH
+time_system = UTC
+use_precession = true
+use_nutation = true
+
+# 输出参数
+verbose_output = true
+save_results = true
+output_format = CSV
+date_format = YYYY-MM-DD HH:MM:SS
+number_format = F20.12
+scientific_notation = false
+output_precision = 12
+
+# 数值计算参数
+gravitational_constant = 398600.4418
+numerical_tolerance = 1.0e-15
+max_matrix_size = 1000
+
+# 性能参数
+max_threads = 1
+parallel_computation = false
+memory_limit = 1.0e9
+use_gpu = false
+
+# 力模型参数 (地月空间 Cislunar 特化)
+use_earth_nspheric = true
+use_moon_nspheric = true
+use_third_body = true
+use_srp = true
+use_drag = false
+use_relativity = true
+earth_degree = 10
+moon_degree = 10
+active_planets = 3,10,11
+
+# SRP 参数；炮弹球固定采用 Cr=1.2213、A=30 m^2、m=1200 kg
+srp_model = time_varying_modes
+srp_attitude_mode = earth
+srp_roll_reference = orbit_normal
+srp_primary_axis_body = 0.0 0.0 1.0
+srp_secondary_axis_body = 0.0 1.0 0.0
+srp_cannonball_cr = 1.2213
+srp_cannonball_area_m2 = 30.0
+srp_mass_kg = 1200.0
+srp_box_dimensions_m = 2.0 3.0 4.0
+srp_box_optical = 0.30 0.40 0.30
+srp_array_total_area_m2 = 24.0
+srp_array_tracking_mode = single_axis
+srp_array_hinge_axis_body = 0.0 1.0 0.0
+srp_array_reference_normal_body = 1.0 0.0 0.0
+srp_array_front_optical = 0.85 0.08 0.07
+srp_array_back_optical = 0.60 0.20 0.20
+srp_pressure_1au_n_m2 = 4.559821181419152e-6
+srp_geometry_tolerance = 1.0e-12
+srp_scale_da_span = 0.0
+srp_attitude_bias_span_arcsec = 0.0 0.0 0.0
+srp_array_angle_span_deg = 0.0
+
+# 测量模型参数
+measurement_noise_std = 1.0e-3
+use_measurement_weights = true
+outlier_threshold = 3.0
+
+# 滤波器噪声参数
+measurement_noise_ra_arcsec = 1
+measurement_noise_dec_arcsec = 1
+process_noise_sigma_a = 1.0e-11
+use_process_noise = true
+gmm_weight_floor = 1.0e-8
+
+# 文件I/O参数
+data_directory = ./data/
+results_directory = ./results/
+auto_backup = true
+backup_interval = 3600
+
+# 调试参数
+debug_mode = false
+debug_level = 1
+save_intermediate_results = false
+debug_directory = ./debug/
+srp_mode_table_file = SRP/boxwing_modes_DRO-2_init_half_hour/boxwing_modes.csv
+srp_mode_metadata_file = SRP/boxwing_modes_DRO-2_init_half_hour/boxwing_modes_meta.json

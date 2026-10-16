@@ -463,7 +463,7 @@ contains
         integer,intent(in) :: local_index,global_index
         write(unit_events,'(*(G0,:,","))') previous_hour,current_hour,global_index,local_index, &
             event%bfs_iteration,event%parent_depth,event%component,event%direction,event%errors, &
-            event%tolerances,event%excess,event%direction_scores,event%parent_center,event%parent_width
+            event%tolerances,event%excess,event%direction_scores(1:7),event%parent_center(1:7),event%parent_width(1:7)
     end subroutine write_split_event
 
     subroutine write_snapshot(use_previous,time_seconds)
@@ -568,9 +568,9 @@ contains
         call write_json_array(output_unit,'truncation_estimates',first_split%errors,.true.,8)
         call write_json_array(output_unit,'component_tolerances',first_split%tolerances,.true.,8)
         call write_json_array(output_unit,'positive_excess',first_split%excess,.true.,8)
-        call write_json_array(output_unit,'direction_scores',first_split%direction_scores,.true.,8)
-        call write_json_array(output_unit,'parent_unit_center',first_split%parent_center,.true.,8)
-        call write_json_array(output_unit,'parent_unit_width',first_split%parent_width,.false.,8)
+        call write_json_array(output_unit,'direction_scores',first_split%direction_scores(1:7),.true.,8)
+        call write_json_array(output_unit,'parent_unit_center',first_split%parent_center(1:7),.true.,8)
+        call write_json_array(output_unit,'parent_unit_width',first_split%parent_width(1:7),.false.,8)
         write(output_unit,'(A)') '      }'
         write(output_unit,'(A)',advance='no') '    }'
     end subroutine write_first_split

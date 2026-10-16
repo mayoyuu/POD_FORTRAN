@@ -1,11 +1,13 @@
-!> Fixed 7D study grid, independent SRP truth probes, and history diagnostics.
+!> Dimension-aware study grids, independent SRP probes, and history diagnostics.
 module pod_srp_ads_history_module
     use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
     use pod_global, only: DP
     use pod_config, only: config
     use pod_uq_hfem_ads_module, only: hfem_ads_options_type
     use pod_force_model_module, only: set_propagation_epoch, &
-        set_srp_scale_error, clear_srp_scale_error
+        set_srp_scale_error, clear_srp_scale_error, &
+        set_srp_mode_coefficients_real,clear_srp_mode_coefficients_real
+    use pod_srp_mode_module, only: interpolate_srp_modes
     use pod_integrator_module, only: adaptive_step_integrate, METHOD_RKF78
     use pod_uncertainty_diagnostics_module, only: compute_covariance_axes
     implicit none
@@ -14,33 +16,41 @@ module pod_srp_ads_history_module
     integer, parameter, public :: VALIDATION_COUNT = 207
     public :: build_study_points, assess_accuracy, advance_real_probes
     public :: compute_shape_metrics, validate_json_opm_fields
+    public :: advance_real_mode_probes
 
 contains
 
-    subroutine build_study_points(points, validation_ids)
+    subroutine build_study_points(points, validation_ids,n_variables)
         real(DP), allocatable, intent(out) :: points(:,:)
         integer, allocatable, intent(out) :: validation_ids(:)
-        integer, parameter :: primes(7) = [2,3,5,7,11,13,17]
-        integer :: j, k
+        integer,intent(in),optional :: n_variables
+        integer, parameter :: primes(8) = [2,3,5,7,11,13,17,19]
+        integer :: j,k,n,ncorners,nbase,nvalidation
 
-        allocate(points(7,SHAPE_COUNT), validation_ids(VALIDATION_COUNT))
+        n=7
+        if(present(n_variables)) n=n_variables
+        if(n<6 .or. n>8) error stop 'study grid supports 6, 7 or 8 variables'
+        ncorners=2**n; nbase=ncorners+2*n+1
+        nvalidation=VALIDATION_COUNT
+        if(n==8) nvalidation=nbase+64
+        allocate(points(n,SHAPE_COUNT), validation_ids(nvalidation))
         points = 0.0_DP
-        do j = 0, 127
-            do k = 1, 7
+        do j = 0, ncorners-1
+            do k = 1, n
                 points(k,j+1) = merge(1.0_DP,-1.0_DP,btest(j,k-1))
             end do
         end do
-        do k = 1, 7
-            points(k,128+2*k-1) = -1.0_DP
-            points(k,128+2*k) = 1.0_DP
+        do k = 1, n
+            points(k,ncorners+2*k-1) = -1.0_DP
+            points(k,ncorners+2*k) = 1.0_DP
         end do
-        ! Point 143 is the center. Interior points start at 144.
-        do j = 1, SHAPE_COUNT-143
-            do k = 1, 7
-                points(k,143+j) = 2.0_DP*halton(j,primes(k))-1.0_DP
+        ! Legacy 7D retains center=143 and every existing Halton point.
+        do j = 1, SHAPE_COUNT-nbase
+            do k = 1, n
+                points(k,nbase+j) = 2.0_DP*halton(j,primes(k))-1.0_DP
             end do
         end do
-        validation_ids = [(j,j=1,VALIDATION_COUNT)]
+        validation_ids = [(j,j=1,nvalidation)]
     end subroutine build_study_points
 
     pure real(DP) function halton(index_value, base) result(value)
@@ -136,6 +146,51 @@ contains
         end do
         call clear_srp_scale_error()
     end subroutine advance_real_probes
+
+    subroutine advance_real_mode_probes(states,s_values,u_values,epoch0,t_start,t_end,options,status,message)
+        real(DP),intent(inout) :: states(:,:)
+        real(DP),intent(in) :: s_values(:),u_values(:),epoch0,t_start,t_end
+        type(hfem_ads_options_type),intent(in) :: options
+        integer,intent(out) :: status
+        character(len=*),intent(out) :: message
+        real(DP) :: nondim(6),eE(3),eM(3)
+        real(DP),allocatable :: times(:),integrated(:,:),working(:,:)
+        integer :: j,n_steps
+        call clear_srp_scale_error(); call clear_srp_mode_coefficients_real()
+        status=-1; message='real mode probe dimensions do not match'
+        if(size(states,1)/=6 .or. size(states,2)/=size(s_values) .or. size(s_values)/=size(u_values)) return
+        status=-2; message='real mode probes require finite state, coefficients and forward time'
+        if(.not.all(ieee_is_finite(states)) .or. .not.all(ieee_is_finite(s_values)) .or. &
+           .not.all(ieee_is_finite(u_values)) .or. .not.all(ieee_is_finite([epoch0,t_start,t_end]))) return
+        if(t_end<t_start .or. any(s_values<0) .or. any(s_values>1) .or. any(u_values<0) .or. any(u_values>1)) return
+        status=-3; message='invalid Real mode integration options or force model'
+        if(trim(config%srp_model)/='time_varying_modes') return
+        if(options%max_steps<2 .or. .not.all(ieee_is_finite([options%rel_tol,options%abs_tol, &
+            options%dt_min,options%dt_max])) .or. min(options%rel_tol,options%abs_tol,options%dt_min)<=0 .or. &
+            options%dt_max<options%dt_min) return
+        call interpolate_srp_modes(epoch0+t_start,eE,eM,status,message)
+        if(status/=0) return
+        call interpolate_srp_modes(epoch0+t_end,eE,eM,status,message)
+        if(status/=0 .or. t_start==t_end) return
+        working=states
+        call set_propagation_epoch(epoch0)
+        do j=1,size(s_values)
+            call set_srp_mode_coefficients_real(s_values(j),u_values(j))
+            nondim(1:3)=states(1:3,j)/config%LU; nondim(4:6)=states(4:6,j)/config%VU
+            call adaptive_step_integrate(nondim,t_start/config%TU,t_end/config%TU,METHOD_RKF78, &
+                times,integrated,n_steps,options%max_steps,options%rel_tol,options%abs_tol,options%dt_min,options%dt_max)
+            status=-4; message='Real mode probe integration did not reach a finite end state'
+            if(n_steps<1 .or. .not.allocated(times) .or. .not.allocated(integrated)) exit
+            if(n_steps>size(times) .or. n_steps>size(integrated,1)) exit
+            if(.not.all(ieee_is_finite(integrated(n_steps,:)))) exit
+            if(abs(times(n_steps)-t_end/config%TU)>1000*epsilon(1.0_DP)*max(1.0_DP,abs(t_end/config%TU))) exit
+            working(1:3,j)=integrated(n_steps,1:3)*config%LU
+            working(4:6,j)=integrated(n_steps,4:6)*config%VU
+            status=0; message=''
+        end do
+        call clear_srp_mode_coefficients_real(); call clear_srp_scale_error()
+        if(status==0) states=working
+    end subroutine
 
     subroutine compute_shape_metrics(states, nominal, lower, upper, &
             max_position, max_velocity, position_axes, velocity_axes, status)

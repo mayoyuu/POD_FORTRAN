@@ -131,6 +131,8 @@ module pod_config
 
         ! Simplified box-wing SRP geometry and uncertainty configuration.
         character(len=MAX_STRING_LEN) :: srp_model = 'cannonball'
+        character(len=MAX_STRING_LEN) :: srp_mode_table_file = ''
+        character(len=MAX_STRING_LEN) :: srp_mode_metadata_file = ''
         character(len=MAX_STRING_LEN) :: srp_attitude_mode = 'sun'
         character(len=MAX_STRING_LEN) :: srp_roll_reference = 'orbit_normal'
         real(DP) :: srp_primary_axis_body(3) = [0.0_DP, 0.0_DP, 1.0_DP]
@@ -310,6 +312,8 @@ contains
         config%use_drag = .false.
         config%use_relativity = .true.
         config%srp_model = 'cannonball'
+        config%srp_mode_table_file = ''
+        config%srp_mode_metadata_file = ''
         config%srp_attitude_mode = 'sun'
         config%srp_roll_reference = 'orbit_normal'
         config%srp_primary_axis_body = [0.0_DP, 0.0_DP, 1.0_DP]
@@ -471,6 +475,8 @@ contains
         write(unit, '(A)') 'moon_degree = 10'
         write(unit, '(A)') 'active_planets = 3, 10, 11'
         write(unit, '(A)') 'srp_model = cannonball'
+        write(unit, '(A)') 'srp_mode_table_file = '
+        write(unit, '(A)') 'srp_mode_metadata_file = '
         write(unit, '(A)') 'srp_attitude_mode = sun'
         write(unit, '(A)') 'srp_roll_reference = orbit_normal'
         write(unit, '(A)') 'srp_primary_axis_body = 0.0 0.0 1.0'
@@ -676,6 +682,10 @@ contains
                 call parse_active_planets(value)
             case ('srp_model')
                 config%srp_model = trim(value)
+            case ('srp_mode_table_file')
+                config%srp_mode_table_file = trim(value)
+            case ('srp_mode_metadata_file')
+                config%srp_mode_metadata_file = trim(value)
             case ('srp_attitude_mode')
                 config%srp_attitude_mode = trim(value)
             case ('srp_roll_reference')
@@ -935,6 +945,7 @@ contains
     logical function validate_config()
         real(DP) :: primary_norm, secondary_norm
         real(DP) :: hinge_norm, reference_norm
+        logical :: table_exists, metadata_exists
 
         validate_config = .true.
         
@@ -1073,9 +1084,18 @@ contains
         end if
 
         ! Simplified box-wing SRP validation.
-        if (trim(config%srp_model) /= 'cannonball' .and. trim(config%srp_model) /= 'box_wing') then
-            write(*, *) '错误: srp_model 必须为 cannonball 或 box_wing'
+        if (trim(config%srp_model) /= 'cannonball' .and. trim(config%srp_model) /= 'box_wing' .and. &
+            trim(config%srp_model) /= 'time_varying_modes') then
+            write(*, *) '错误: srp_model 必须为 cannonball、box_wing 或 time_varying_modes'
             validate_config = .false.
+        else if (trim(config%srp_model) == 'time_varying_modes') then
+            inquire(file=trim(config%srp_mode_table_file),exist=table_exists)
+            inquire(file=trim(config%srp_mode_metadata_file),exist=metadata_exists)
+            if(len_trim(config%srp_mode_table_file)==0 .or. len_trim(config%srp_mode_metadata_file)==0 .or. &
+               .not.table_exists .or. .not.metadata_exists .or. config%srp_cannonball_cr<=0.0_DP) then
+                write(*, *) '错误: SRP modes 需要有效表/元数据路径和正 Cannonball Cr'
+                validate_config=.false.
+            end if
         else if (trim(config%srp_model) == 'box_wing') then
             if (trim(config%srp_attitude_mode) /= 'sun' .and. &
                 trim(config%srp_attitude_mode) /= 'earth' .and. &

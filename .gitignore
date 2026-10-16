@@ -34,6 +34,14 @@ lib/*.so
 # Worktrees
 .worktrees/
 
+# Local runtime links and ephemeral execution environments (also match symlinks).
+/OPM
+/SRP
+/kernels
+/lib
+/.superpowers/
+/.venv-probability/
+
 # SPICE Kernels
 kernels/
 *.bsp
