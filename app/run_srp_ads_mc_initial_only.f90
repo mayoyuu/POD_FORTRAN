@@ -1,4 +1,4 @@
-!> Initial-state-only ADS evaluation on a fixed Monte Carlo design for box-wing SRP.
+!> Initial-state-only ADS evaluation on a fixed Monte Carlo design.
 program run_srp_ads_mc_initial_only
     use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
     use pod_global, only: DP, MAX_STRING_LEN
@@ -136,16 +136,21 @@ program run_srp_ads_mc_initial_only
     call read_srp_mc_samples(trim(sample_file),n,z,u,status,message)
     if(status/=0) call fatal('MC sample input: '//trim(message))
     call pod_engine_init(trim(config_file))
-    if(trim(config%srp_model)/='box_wing') call fatal('requires srp_model=box_wing')
-    if(trim(config%srp_attitude_mode)/='earth'.and.trim(config%srp_attitude_mode)/='moon') &
-        call fatal('requires earth or moon attitude')
     if(config%srp_scale_da_span/=0.0_DP) call fatal('SRP scale uncertainty must be zero')
     if(any(config%srp_attitude_bias_span_arcsec/=0.0_DP)) &
         call fatal('SRP attitude uncertainty must be zero')
     if(config%srp_array_angle_span_deg/=0.0_DP) &
         call fatal('SRP array-angle uncertainty must be zero')
-    config%use_srp=.true.
-    attitude_mode=trim(config%srp_attitude_mode)
+    if(config%use_srp) then
+        if(trim(config%srp_model)/='box_wing') call fatal( &
+            'enabled SRP requires srp_model=box_wing')
+        if(trim(config%srp_attitude_mode)/='earth'.and. &
+           trim(config%srp_attitude_mode)/='moon') call fatal( &
+            'enabled SRP requires earth or moon attitude')
+        attitude_mode=trim(config%srp_attitude_mode)
+    else
+        attitude_mode='no_srp'
+    end if
     call reset_srp_geometry_diagnostics()
     call load_initial_opm(trim(opm_file),epoch0,nominal0,cov)
 
@@ -485,7 +490,11 @@ contains
         write(report_unit,'(A)') '{'
         write(report_unit,'(A)') '  "output_schema_version": "srp_ads_mc_initial_only_v1",'
         write(report_unit,'(A)') '  "method": "fixed-design initial-error-only ADS Monte Carlo evaluation",'
-        write(report_unit,'(A)') '  "nominal_srp_enabled": true,'
+        if(config%use_srp) then
+            write(report_unit,'(A)') '  "nominal_srp_enabled": true,'
+        else
+            write(report_unit,'(A)') '  "nominal_srp_enabled": false,'
+        end if
         write(report_unit,'(A)') '  "srp_parameter_uncertainty_enabled": false,'
         write(report_unit,'(A)') '  "srp_model": "'//trim(config%srp_model)//'",'
         write(report_unit,'(A)') '  "srp_attitude_mode": "'//trim(attitude_mode)//'",'
@@ -633,7 +642,7 @@ contains
 
     subroutine usage()
         write(*,'(A)') 'Usage: run_srp_ads_mc_initial_only -opm INPUT.opm.json -o PREFIX '// &
-            '--mc-samples SAMPLES.csv -cfg BOX_WING_CONFIG [--mc-count 50000] '// &
+            '--mc-samples SAMPLES.csv -cfg CONFIG [--mc-count 50000] '// &
             '[--visualization-count 2048] [--days 15|--hours 360] [--save-hours 1] '// &
             '[--da-order 4] [--max-depth 8] [--pos-tol-km 0.1] [--vel-tol-kms 1e-6]'
     end subroutine usage

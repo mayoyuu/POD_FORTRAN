@@ -23,7 +23,7 @@ class InitialOnlyRunnerTest(unittest.TestCase):
         env["LIBRARY_PATH"] = ":".join(lib_paths + [env.get("LIBRARY_PATH", "")])
         env["LD_LIBRARY_PATH"] = ":".join(lib_paths + [env.get("LD_LIBRARY_PATH", "")])
         return subprocess.run(
-            ["fpm", "run", "--target", "run_srp_ads_mc_initial_only", "--", *arguments],
+            ["fpm", "run", "run_srp_ads_mc_initial_only", "--", *arguments],
             cwd=ROOT,
             env=env,
             text=True,
@@ -117,6 +117,60 @@ class InitialOnlyRunnerTest(unittest.TestCase):
             with Path(str(prefix) + "_split_events.csv").open(newline="") as stream:
                 event_header = next(csv.reader(stream))
             self.assertIn("direction_score7", event_header)
+
+    def test_hour_zero_no_srp_output_disables_nominal_srp(self):
+        opm_candidates = (
+            ROOT / "OPM" / "L1Halo-1" / "L1Halo-1_init.opm.json",
+            ROOT.parent.parent / "OPM" / "L1Halo-1" / "L1Halo-1_init.opm.json",
+        )
+        opm = next((path for path in opm_candidates if path.is_file()), opm_candidates[0])
+        self.assertTrue(opm.is_file())
+
+        with tempfile.TemporaryDirectory() as folder:
+            folder = Path(folder)
+            samples = folder / "samples.csv"
+            manifest = folder / "samples.json"
+            subprocess.run(
+                [
+                    str(PYTHON),
+                    str(ROOT / "tools" / "generate_srp_mc_samples.py"),
+                    "--csv", str(samples),
+                    "--manifest", str(manifest),
+                    "--count", "32",
+                ],
+                cwd=ROOT,
+                check=True,
+                stdout=subprocess.DEVNULL,
+            )
+            prefix = folder / "no_srp"
+            result = self.run_fpm([
+                "-opm", str(opm),
+                "-o", str(prefix),
+                "--mc-samples", str(samples),
+                "--mc-count", "32",
+                "--visualization-count", "16",
+                "--hours", "0",
+                "-cfg", str(ROOT / "config" / "config_no_srp.txt"),
+            ])
+            self.assertEqual(result.returncode, 0, result.stdout[-4000:])
+
+            report = json.loads(Path(str(prefix) + "_mc_report.json").read_text())
+            self.assertFalse(report["nominal_srp_enabled"])
+            self.assertFalse(report["srp_parameter_uncertainty_enabled"])
+            self.assertEqual(report["active_dimensions"], 6)
+            self.assertEqual(report["dace_storage_dimensions"], 6)
+            self.assertEqual(report["srp_eta"], 0.0)
+            self.assertEqual(report["srp_attitude_mode"], "no_srp")
+            diagnostics = report["geometry_fallback_diagnostics"]
+            self.assertEqual(diagnostics["real_count"], 0)
+            self.assertEqual(diagnostics["da_count"], 0)
+
+            with Path(str(prefix) + "_mc_hourly_stats.csv").open(newline="") as stream:
+                hourly = list(csv.DictReader(stream))
+            self.assertEqual(len(hourly), 3)
+            self.assertEqual({row["group"] for row in hourly}, {"no_srp"})
+            self.assertEqual({int(row["active_dimensions"]) for row in hourly}, {6})
+            self.assertEqual({int(row["split_dim7"]) for row in hourly}, {0})
 
     def test_forced_split_records_full_first_event_and_limits(self):
         opm_candidates = (
