@@ -138,6 +138,10 @@ def load_case(folder: Path, max_hour: float = 300) -> dict:
             diagnostic.update(zero_mode_pos_km=hi['zero_mode_pos_km'],zero_mode_vel_kms=hi['zero_mode_vel_kms'],
                               history_original_probe_pos_km=hi['ads_numerical_error_pos_km'],
                               history_original_probe_vel_kms=hi['ads_numerical_error_vel_kms'])
+            history_error_fields = ('zero_mode_pos_km','zero_mode_vel_kms',
+                                    'ads_numerical_error_pos_km','ads_numerical_error_vel_kms')
+            require(all(hi[field] >= 0 for field in history_error_fields),
+                    f'{history_path}: negative history error at hour {h}')
             causes = [name for name, field in ERROR_FIELDS.items() if diagnostic[field] > LIMITS[name]]
             # Both original-probe records are retained; disagreement cannot hide a failure.
             for kind,field in [('position','ads_numerical_error_pos_km'),('velocity','ads_numerical_error_vel_kms')]:

@@ -156,6 +156,17 @@ class AnalysisTests(unittest.TestCase):
                 write_csv(self.root/'c2_probability_hourly_stats.csv',rows)
                 with self.assertRaises(ValueError): self.data.load_case(self.root,2)
 
+    def test_negative_history_errors(self):
+        fields = ('zero_mode_pos_km','zero_mode_vel_kms',
+                  'ads_numerical_error_pos_km','ads_numerical_error_vel_kms')
+        for field in fields:
+            with self.subTest(field=field):
+                _, history = fixture(self.root)
+                history[1][field] = -1e-12
+                write_csv(self.root/'c2_history.csv',history)
+                with self.assertRaisesRegex(ValueError, r'c2_history\.csv.*hour 1'):
+                    self.data.load_case(self.root,2)
+
     def test_csv_and_hdf5_cloud_exact_hour_and_identity(self):
         for use_h5 in (False, True):
             with self.subTest(h5=use_h5):
