@@ -1,0 +1,105 @@
+{
+  "schema_version": "boxwing_srp_modes_v1",
+  "audit_complete": true,
+  "frame": "J2000",
+  "center": "EARTH",
+  "timescale": "TDB",
+  "illumination": "full_sun",
+  "reference_model": "cannonball",
+  "evaluation_contract": "common_reference_state",
+  "units": {
+    "position": "km",
+    "velocity": "km/s",
+    "acceleration": "km/s2",
+    "modes": "dimensionless"
+  },
+  "opm_file": "/home/songyu/fortran_test/POD_Fortran/OPM/L1Halo-1/L1Halo-1_init.opm.json",
+  "config_file": "/home/songyu/fortran_test/POD_Fortran/.worktrees/boxwing-modes-p1/config/config_box_wing_earth.txt",
+  "executable_file": "extractor",
+  "epoch0_tdb_s": 852033729.1839125,
+  "duration_hours": 360.0,
+  "sample_hours": 1.0,
+  "row_count": 361,
+  "max_eE_norm": 0.2746474017389429,
+  "max_eE_time_hours": 349.0,
+  "max_eM_norm": 0.26981803792865594,
+  "max_eM_time_hours": 305.0,
+  "integrator": {
+    "method": "RKF78",
+    "rel_tol": 1e-12,
+    "abs_tol": 1e-12,
+    "dt_min_s": 1e-06,
+    "dt_max_s": 3600.0
+  },
+  "physical_parameters": {
+    "srp_cannonball_cr": 1.2213,
+    "srp_cannonball_area_m2": 30.0,
+    "srp_mass_kg": 1200.0,
+    "srp_box_dimensions_m": [
+      2.0,
+      3.0,
+      4.0
+    ],
+    "srp_box_optical": [
+      0.3,
+      0.4,
+      0.3
+    ],
+    "srp_array_total_area_m2": 24.0,
+    "srp_array_tracking_mode": "single_axis",
+    "srp_array_hinge_axis_body": [
+      0.0,
+      1.0,
+      0.0
+    ],
+    "srp_array_reference_normal_body": [
+      1.0,
+      0.0,
+      0.0
+    ],
+    "srp_array_front_optical": [
+      0.85,
+      0.08,
+      0.07
+    ],
+    "srp_array_back_optical": [
+      0.6,
+      0.2,
+      0.2
+    ],
+    "srp_primary_axis_body": [
+      0.0,
+      0.0,
+      1.0
+    ],
+    "srp_secondary_axis_body": [
+      0.0,
+      1.0,
+      0.0
+    ],
+    "srp_roll_reference": "orbit_normal",
+    "srp_pressure_1au_n_m2": 4.559821181419152e-06,
+    "srp_geometry_tolerance": 1e-12
+  },
+  "geometry_fallback_diagnostics": {
+    "real_count": 0,
+    "first_real_message": ""
+  },
+  "opm_sha256": "618c8f4930b01b170b8e308fc36057d82796378faba8084a83574eb508cb2634",
+  "config_sha256": "a5fa33d6fbb336a5b04440de1406346bf33e7067462c96b7f80350267043d1f3",
+  "executable_sha256": "c0cce6a55ca8b63d45055c710a1a39d4075e68883dc0b9355882df982990a666",
+  "csv_sha256": "362271f20b9ffc87c5a2933714f3165747014300fee6477eac3ebe526aa33bf7",
+  "start_epoch_tdb_s": 852033729.1839125,
+  "end_epoch_tdb_s": 853329729.1839125,
+  "opm_epoch_verified": true,
+  "gate_limit": 0.3,
+  "gate_passed": true,
+  "max_rtn_relative_error": 3.755136528373561e-16,
+  "audit_time_utc": "2026-10-17T07:16:17.721633+00:00",
+  "source_executable_file": "/home/songyu/fortran_test/POD_Fortran/SRP/boxwing_modes_DRO-2_init/extractor",
+  "source_revision": "053347a211c1b0b37f4c1b4b8abd0965fa76b432",
+  "source_files_sha256": {
+    "app/run_boxwing_mode_extract.f90": "cdcc7e7cd24c5705353bc1418b34258c9c3fea8bf9f73b068313a38f3b3c1c35",
+    "tools/audit_boxwing_mode_table.py": "31a391fd8bc50836633cfd209147af7d35c35b299febb0077b6e2a479a013223"
+  }
+}

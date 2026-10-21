@@ -48,6 +48,7 @@
 
 module pod_gravity_model_module
     use pod_global, only: DP
+    use pod_spice, only: get_spice_kernel_path
     use pod_dace_classes
     implicit none
     
@@ -153,8 +154,8 @@ contains
         integer :: i1, i2, nstat, ios
         real(DP), dimension(2) :: tmp
         
-        if (gf%cen_body == 3)  filename = './kernels/gravity_models/GGM05C.GEO'
-        if (gf%cen_body == 10) filename = './kernels/gravity_models/gggrx_0660pm_sha.tab'  
+        if (gf%cen_body == 3)  filename = trim(get_spice_kernel_path()) // 'gravity_models/GGM05C.GEO'
+        if (gf%cen_body == 10) filename = trim(get_spice_kernel_path()) // 'gravity_models/gggrx_0660pm_sha.tab'
         
         cl0 = 0.0_DP; clm = 0.0_DP; slm = 0.0_DP
         

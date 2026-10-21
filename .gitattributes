@@ -12,3 +12,8 @@
 # Build files
 *.toml text
 *.txt text
+
+# Preserve audited input bytes: mode metadata validates SHA256, including EOLs.
+OPM/L1Halo-1/L1Halo-1_init.opm.json -text
+modes/L1Halo-1/boxwing_modes.csv -text
+modes/L1Halo-1/boxwing_modes_meta.json -text
