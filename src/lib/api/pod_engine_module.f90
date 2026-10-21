@@ -3,6 +3,9 @@ module pod_engine_module
     use pod_spice, only: spice_init
     use pod_config, only: load_config, resolve_config_dependencies, print_config
     use pod_force_model_module, only: init_gravity_network
+    use pod_force_model_module, only: clear_srp_mode_coefficients_real
+    use pod_da_force_model_module, only: clear_srp_mode_uncertainty
+    use pod_srp_mode_module, only: clear_srp_mode_table
     
     implicit none
     
@@ -13,6 +16,11 @@ contains
         character(len=*), intent(in) :: config_file
         
         write(*,*) ">>> 正在启动 POD 计算引擎..."
+        ! New OPM/configuration identity must never inherit mode data or s/u from a previous run.
+        ! Loading waits until the caller knows its absolute OPM TDB epoch.
+        call clear_srp_mode_table()
+        call clear_srp_mode_coefficients_real()
+        call clear_srp_mode_uncertainty()
         
         ! 1. 唤醒 SPICE 星历内核 (时间与坐标系基准)
         call spice_init()

@@ -4,6 +4,8 @@ module pod_force_model_module
     use pod_spice, only: get_body_state, pxform, bodvrd, bodvcd,get_frame_transform
     use pod_gravity_model_module, only: gravity_field
     use pod_spacecraft_geometry, only: spacecraft_geometry_type
+    use pod_srp_mode_module, only: interpolate_srp_modes
+    use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
     
     implicit none
 
@@ -12,6 +14,10 @@ module pod_force_model_module
     public :: set_propagation_epoch
     public :: set_srp_scale_error, clear_srp_scale_error
     public :: set_srp_ballistic_parameters, clear_srp_ballistic_parameters
+    public :: set_srp_mode_coefficients_real, clear_srp_mode_coefficients_real
+    logical,private :: mode_coefficients_set=.false.
+    real(DP),private :: mode_s_real=0.0_DP,mode_u_real=0.0_DP
+    private :: cannonball_full_sun_real
     
     ! =========================================================
     ! N 体常量定义
@@ -48,6 +54,26 @@ module pod_force_model_module
 
 
 contains
+    subroutine set_srp_mode_coefficients_real(s,u)
+        real(DP),intent(in) :: s,u
+        if(.not.all(ieee_is_finite([s,u]))) error stop 'SRP mode coefficients must be finite'
+        if(min(s,u)<0.0_DP .or. max(s,u)>1.0_DP) error stop 'SRP mode coefficients must be in [0,1]'
+        mode_s_real=s; mode_u_real=u; mode_coefficients_set=.true.
+    end subroutine
+
+    subroutine clear_srp_mode_coefficients_real()
+        mode_coefficients_set=.false.; mode_s_real=0.0_DP; mode_u_real=0.0_DP
+    end subroutine
+
+    subroutine cannonball_full_sun_real(position,time,Cr,SMR,RP,acceleration)
+        real(DP),intent(in) :: position(3),time,Cr,SMR,RP
+        real(DP),intent(out) :: acceleration(3)
+        real(DP) :: sun_position(3),sun_velocity(3),relative_pos(3),distance
+        call get_body_state('SUN',time,'EARTH',sun_position,sun_velocity)
+        relative_pos=position-sun_position; distance=norm2(relative_pos)
+        acceleration=Cr*SMR*RP*(AU_KM/distance)**2*(relative_pos/distance)
+        acceleration=acceleration*1.0e-3_DP
+    end subroutine
     ! 设置基准历元的接口 (顶层调用)
     subroutine set_propagation_epoch(epoch)
         real(DP), intent(in) :: epoch
@@ -344,13 +370,30 @@ contains
         real(DP), intent(in), optional :: Cr, SMR, RP
         real(DP), dimension(3), intent(in), optional :: velocity
         
-        real(DP) :: solar_distance, reflectivity, area_mass_ratio, nominal_rp
+        real(DP) :: reflectivity, area_mass_ratio, nominal_rp
         real(DP), dimension(3) :: sun_position, sun_velocity
-        real(DP), dimension(3) :: relative_pos, solar_direction
         real(DP), dimension(3) :: moon_position, moon_velocity, earth_position, earth_velocity
         type(spacecraft_geometry_type) :: geometry
+        real(DP) :: eE(3),eM(3),cb(3)
         integer :: status
         character(len=256) :: message
+
+        if(trim(config%srp_model)=='time_varying_modes') then
+            if(.not.mode_coefficients_set) error stop 'SRP mode coefficients are unset'
+            if(srp_scale_error_real/=0.0_DP .or. override_cannonball_cr_real .or. &
+               override_cannonball_smr_real .or. override_cannonball_rp_real .or. &
+               present(Cr) .or. present(SMR) .or. present(RP)) error stop 'SRP modes cannot mix eta/ballistic overrides'
+            call interpolate_srp_modes(time,eE,eM,status,message)
+            if(status/=0) then
+                write(*,'(A)') trim(message); error stop 'SRP mode interpolation failed'
+            end if
+            nominal_rp=DEFAULT_SOLAR_PRESSURE_1AU
+            if(config%srp_pressure_1au_n_m2>0) nominal_rp=config%srp_pressure_1au_n_m2
+            call cannonball_full_sun_real(position,time,config%srp_cannonball_cr, &
+                config%srp_cannonball_area_m2/config%srp_mass_kg,nominal_rp,cb)
+            acceleration=cb+norm2(cb)*(mode_s_real*eE+(1.0_DP-mode_s_real)*mode_u_real*eM)
+            return
+        end if
 
         if (trim(config%srp_model) == 'box_wing') then
             if (.not. present(velocity)) then
@@ -392,17 +435,7 @@ contains
         if (present(SMR)) area_mass_ratio = SMR
         if (present(RP))  nominal_rp = RP
         
-        ! 动态获取太阳位置
-        call get_body_state('SUN', time, 'EARTH', sun_position, sun_velocity)
-        relative_pos = position - sun_position
-        solar_distance = norm2(relative_pos)
-        solar_direction = relative_pos / solar_distance
-        
-        ! 核心炮弹球模型公式 (与 f_SRP 一致)
-        acceleration = reflectivity * area_mass_ratio * nominal_rp * &
-                      (AU_KM / solar_distance)**2 * solar_direction
-        ! 单位转换 m/s² -> km/s²
-        acceleration = acceleration * 1.0e-3_DP
+        call cannonball_full_sun_real(position,time,reflectivity,area_mass_ratio,nominal_rp,acceleration)
         acceleration = (1.0_DP + srp_scale_error_real) * acceleration
         
         ! 如需阴影模型，可在此调用 compute_illumination_factor (已实现，当前未激活)

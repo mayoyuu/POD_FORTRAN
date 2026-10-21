@@ -142,7 +142,7 @@ program run_srp_ads_history
         vel_tolerance,vel_tolerance,vel_tolerance]
     call hfem_ads_history_init(history,nominal0,cov,epoch0,options,status,message)
     if(status/=0) call fatal('ADS init: '//trim(message))
-    call build_study_points(points,validation_ids)
+    call build_study_points(points,validation_ids,7)
     allocate(ads(6,SHAPE_COUNT),found(SHAPE_COUNT),truth(6,VALIDATION_COUNT), &
         truth_initial(6,VALIDATION_COUNT),eta(VALIDATION_COUNT))
     open(newunit=unit_initial,file=trim(prefix)//'_initial_points.csv', &
@@ -247,9 +247,9 @@ program run_srp_ads_history
                 first_split_errors=history%stats%first_split_errors
                 first_split_tolerances=history%stats%first_split_tolerances
                 first_split_excess=history%stats%first_split_excess
-                first_split_direction_scores=history%stats%first_split_direction_scores
-                first_split_parent_center=history%stats%first_split_parent_center
-                first_split_parent_width=history%stats%first_split_parent_width
+                first_split_direction_scores=history%stats%first_split_direction_scores(1:7)
+                first_split_parent_center=history%stats%first_split_parent_center(1:7)
+                first_split_parent_width=history%stats%first_split_parent_width(1:7)
             end if
             if(allocated(history%stats%split_events)) then
                 do step_event_index=1,size(history%stats%split_events)
@@ -274,11 +274,11 @@ program run_srp_ads_history
                         first_eta_split_excess= &
                             history%stats%split_events(step_event_index)%excess
                         first_eta_split_direction_scores= &
-                            history%stats%split_events(step_event_index)%direction_scores
+                            history%stats%split_events(step_event_index)%direction_scores(1:7)
                         first_eta_split_parent_center= &
-                            history%stats%split_events(step_event_index)%parent_center
+                            history%stats%split_events(step_event_index)%parent_center(1:7)
                         first_eta_split_parent_width= &
-                            history%stats%split_events(step_event_index)%parent_width
+                            history%stats%split_events(step_event_index)%parent_width(1:7)
                     end if
                 end do
             end if
@@ -516,7 +516,7 @@ contains
         write(unit_events,'(*(G0,:,","))') previous_hour,current_hour,global_index, &
             local_index,event%bfs_iteration,event%parent_depth,event%component, &
             event%direction,event%errors,event%tolerances,event%excess, &
-            event%direction_scores,event%parent_center,event%parent_width
+            event%direction_scores(1:7),event%parent_center(1:7),event%parent_width(1:7)
     end subroutine write_split_event
 
     subroutine write_json_real_array(u,key,values)

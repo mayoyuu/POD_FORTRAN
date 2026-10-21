@@ -6,6 +6,8 @@ module pod_da_force_model_module
     use pod_gravity_model_module, only: gravity_field
     use pod_dace_classes
     use pod_spacecraft_geometry, only: spacecraft_geometry_type, srp_da_parameter_map_type
+    use pod_srp_mode_module, only: interpolate_srp_modes
+    use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
     implicit none
 
     real(DP), public :: current_epoch0 = 0.0_DP
@@ -23,6 +25,11 @@ module pod_da_force_model_module
     public :: set_srp_scale_uncertainty, clear_srp_scale_uncertainty
     public :: set_srp_ballistic_parameters, clear_srp_ballistic_parameters
     public :: build_srp_da_parameter_map
+    public :: set_srp_mode_uncertainty,clear_srp_mode_uncertainty
+    logical,private :: mode_uncertainty_set=.false.
+    integer,private :: mode_s_index=0,mode_u_index=0
+    real(DP),private :: mode_s_nominal=0.0_DP,mode_s_span=0.0_DP,mode_u_nominal=0.0_DP,mode_u_span=0.0_DP
+    private :: cannonball_full_sun_da
 
     ! =========================================================
     ! N 体常量定义
@@ -71,6 +78,42 @@ module pod_da_force_model_module
     end type ForceModelTempPool
 
 contains
+    subroutine set_srp_mode_uncertainty(s_index,s_nominal,s_span,u_index,u_nominal,u_span)
+        integer,intent(in) :: s_index,u_index
+        real(DP),intent(in) :: s_nominal,s_span,u_nominal,u_span
+        if(s_index<1 .or. u_index<1 .or. s_index==u_index .or. &
+           max(s_index,u_index)>dace_max_variables()) error stop 'invalid SRP mode DA indices'
+        if(.not.all(ieee_is_finite([s_nominal,s_span,u_nominal,u_span]))) &
+            error stop 'SRP mode DA coefficients must be finite'
+        if(min(s_span,u_span)<0 .or. min(s_nominal-s_span,u_nominal-u_span)<0 .or. &
+           max(s_nominal+s_span,u_nominal+u_span)>1) error stop 'SRP mode DA domain must stay in [0,1]'
+        mode_s_index=s_index; mode_u_index=u_index
+        mode_s_nominal=s_nominal; mode_s_span=s_span; mode_u_nominal=u_nominal; mode_u_span=u_span
+        mode_uncertainty_set=.true.
+    end subroutine
+
+    subroutine clear_srp_mode_uncertainty()
+        mode_uncertainty_set=.false.; mode_s_index=0; mode_u_index=0
+        mode_s_nominal=0; mode_s_span=0; mode_u_nominal=0; mode_u_span=0
+    end subroutine
+
+    !> Independent full-sun Cannonball helper, m/s2 before the caller's legacy scale/unit conversion.
+    !! Also leaves its scalar factor in tmp_da2 for the legacy eta path.
+    subroutine cannonball_full_sun_da(position,time,Cr,SMR,RP,acceleration,pool)
+        type(AlgebraicVector),intent(in) :: position
+        real(DP),intent(in) :: time,Cr,SMR,RP
+        type(AlgebraicVector),intent(inout) :: acceleration
+        type(ForceModelTempPool),intent(inout) :: pool
+        real(DP) :: sun_position(3),sun_velocity(3),coefficient
+        call get_body_state('SUN',time,'EARTH',sun_position,sun_velocity)
+        call vec_sub(position,sun_position,pool%relative_pos)
+        call vector_norm2_sub(pool%relative_pos,pool%r_rel_mag)
+        call vec_div(pool%relative_pos,pool%r_rel_mag,pool%solar_direction)
+        coefficient=Cr*SMR*RP*AU_KM**2
+        call da_mul(pool%r_rel_mag,pool%r_rel_mag,pool%tmp_da1)
+        call real_div_da_sub(coefficient,pool%tmp_da1,pool%tmp_da2)
+        call vec_mul(pool%tmp_da2,pool%solar_direction,acceleration)
+    end subroutine
 
     ! =========================================================
     ! 临时变量池初始化
@@ -488,14 +531,52 @@ contains
         real(DP), intent(in), optional :: Cr, SMR, RP   ! 新增可选参数
         type(AlgebraicVector), intent(in), optional :: velocity
         
-        real(DP) :: reflectivity, area_mass_ratio, nominal_rp, srp_coefficient
+        real(DP) :: reflectivity, area_mass_ratio, nominal_rp
         real(DP), dimension(3) :: sun_position, sun_velocity
         real(DP), dimension(3) :: moon_position, moon_velocity, earth_position, earth_velocity
         type(DA) :: srp_scale_da, srp_multiplier_da, srp_factor_da
+        type(DA) :: s_variable,u_variable
+        real(DP) :: eE(3),eM(3)
         type(spacecraft_geometry_type) :: geometry
         type(srp_da_parameter_map_type) :: da_map
         integer :: status
+        integer :: component
         character(len=256) :: message
+
+        if(trim(config%srp_model)=='time_varying_modes') then
+            if(.not.mode_uncertainty_set) error stop 'SRP mode DA coefficients are unset'
+            if(max(mode_s_index,mode_u_index)>dace_max_variables()) error stop 'invalid SRP mode DA indices'
+            if(use_srp_scale_da .or. override_srp_reflectivity .or. override_srp_area_mass .or. &
+               override_srp_pressure .or. present(Cr) .or. present(SMR) .or. present(RP)) &
+                error stop 'SRP modes cannot mix eta/ballistic overrides'
+            call interpolate_srp_modes(time,eE,eM,status,message)
+            if(status/=0) then
+                write(*,'(A)') trim(message); error stop 'SRP mode interpolation failed'
+            end if
+            nominal_rp=SOLAR_CONSTANT/SPEED_OF_LIGHT
+            if(config%srp_pressure_1au_n_m2>0) nominal_rp=config%srp_pressure_1au_n_m2
+            call cannonball_full_sun_da(position,time,config%srp_cannonball_cr, &
+                config%srp_cannonball_area_m2/config%srp_mass_kg,nominal_rp,acceleration,pool)
+            call vec_mul(1e-3_DP,acceleration,acceleration)
+            call vector_norm2_sub(acceleration,pool%tmp_da3)
+            call s_variable%init_var(mode_s_index); call u_variable%init_var(mode_u_index)
+            call da_mul(s_variable,mode_s_span,pool%tmp_da4)
+            call da_add(pool%tmp_da4,mode_s_nominal,pool%tmp_da4)
+            call da_mul(u_variable,mode_u_span,pool%tmp_da5)
+            call da_add(pool%tmp_da5,mode_u_nominal,pool%tmp_da5)
+            call da_mul(pool%tmp_da4,-1.0_DP,pool%tmp_da6)
+            call da_add(pool%tmp_da6,1.0_DP,pool%tmp_da6)
+            call da_mul(pool%tmp_da6,pool%tmp_da5,pool%tmp_da6)
+            do component=1,3
+                call da_mul(pool%tmp_da4,eE(component),pool%tmp_da7)
+                call da_mul(pool%tmp_da6,eM(component),pool%tmp_da8)
+                call da_add(pool%tmp_da7,pool%tmp_da8,pool%tmp_da7)
+                call da_mul(pool%tmp_da3,pool%tmp_da7,pool%tmp_da7)
+                call da_add(acceleration%elements(component),pool%tmp_da7,acceleration%elements(component))
+            end do
+            call s_variable%destroy(); call u_variable%destroy()
+            return
+        end if
 
         if (trim(config%srp_model) == 'box_wing') then
             if (.not. present(velocity)) then
@@ -537,18 +618,7 @@ contains
         if (present(SMR)) area_mass_ratio = SMR
         if (present(RP))  nominal_rp = RP
         
-        ! 动态获取太阳位置
-        call get_body_state('SUN', time, 'EARTH', sun_position, sun_velocity)
-        ! relative_pos = position - sun_position
-        call vec_sub(position, sun_position, pool%relative_pos)
-        call vector_norm2_sub(pool%relative_pos, pool%r_rel_mag)
-        call vec_div(pool%relative_pos, pool%r_rel_mag, pool%solar_direction)
-        
-        ! 核心炮弹球模型公式
-        ! acceleration = reflectivity * area_mass_ratio * nominal_rp * (AU_KM / solar_distance)**2 * solar_direction
-        srp_coefficient = reflectivity * area_mass_ratio * nominal_rp * AU_KM**2
-        call da_mul(pool%r_rel_mag, pool%r_rel_mag, pool%tmp_da1)
-        call real_div_da_sub(srp_coefficient, pool%tmp_da1, pool%tmp_da2)
+        call cannonball_full_sun_da(position,time,reflectivity,area_mass_ratio,nominal_rp,acceleration,pool)
         if (use_srp_scale_da .and. srp_scale_da_index > 0) then
             call srp_scale_da%init_var(srp_scale_da_index)
             call da_mul(srp_scale_da, srp_scale_da_span, srp_multiplier_da)
@@ -558,8 +628,6 @@ contains
             call srp_scale_da%destroy()
             call srp_multiplier_da%destroy()
             call srp_factor_da%destroy()
-        else
-            call vec_mul(pool%tmp_da2, pool%solar_direction, acceleration)
         end if
         ! 单位转换 m/s² -> km/s²
         call vec_mul(1.0e-3_DP, acceleration, acceleration)
