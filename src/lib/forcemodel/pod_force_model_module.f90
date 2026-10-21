@@ -61,8 +61,8 @@ contains
     subroutine set_srp_scale_error(scale_error)
         real(DP), intent(in) :: scale_error
 
-        if (scale_error <= -1.0_DP) then
-            error stop 'SRP scale error must be greater than -1'
+        if (scale_error < -1.0_DP) then
+            error stop 'SRP scale error must be no less than -1'
         end if
         srp_scale_error_real = scale_error
     end subroutine set_srp_scale_error

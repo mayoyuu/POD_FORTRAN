@@ -21,7 +21,7 @@ program test_srp_real_scale_error
     real(DP), parameter :: ATOL = 1.0e-25_DP
 
     real(DP) :: position(3), velocity(3), epoch
-    real(DP) :: nominal(3), plus(3), minus(3), restored(3)
+    real(DP) :: nominal(3), plus(3), minus(3), zero_srp(3), restored(3)
 
     call pod_engine_init(CONFIG_FILE)
     call str2et(TEST_EPOCH, epoch)
@@ -61,6 +61,11 @@ contains
         call compute_solar_radiation_pressure(position, epoch, minus, &
                                               Cr=CR, SMR=SMR, RP=RP, velocity=velocity)
         call assert_vector_close(minus, 0.9_DP*nominal, label//' -10 percent')
+
+        call set_srp_scale_error(-1.0_DP)
+        call compute_solar_radiation_pressure(position, epoch, zero_srp, &
+                                              Cr=CR, SMR=SMR, RP=RP, velocity=velocity)
+        call assert_vector_close(zero_srp, 0.0_DP*nominal, label//' -100 percent')
 
         call clear_srp_scale_error()
         call compute_solar_radiation_pressure(position, epoch, restored, &

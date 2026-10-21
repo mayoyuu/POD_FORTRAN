@@ -23,6 +23,7 @@ scripts/
 analysis/
 SRP/
 docs/
+20261005SRP/
 
 # Compiled static libraries (Optional, but recommended to ignore)
 lib/*.a
