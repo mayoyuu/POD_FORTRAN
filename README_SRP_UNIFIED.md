@@ -1,5 +1,37 @@
 # Unified SRP propagation (main branch)
 
+## Required compiler: gfortran >= 13.3.0
+
+**GNU Fortran 13.3.0 or newer is required. Older versions are unsupported;
+do not use them for long-running or batch DA/ADS/DAMC propagation because
+missing finalization can cause severe, sustained native-memory leaks.**
+
+The scalar operator-result/defined-assignment diagnostic reproduced missing
+temporary finalizers on gfortran 11.4.0 (100 expressions, 100 unreleased mock
+handles). The same source released all temporary handles with gfortran 13.3.0
+at both `-O0` and `-O3`. Other versions below 13.3.0 have not all been tested;
+13.3.0 is the project's supported minimum, not a claim that every older release
+has the same defect. Numerically correct output is not proof of memory safety.
+
+Choose the actual compiler before building or launching batch scripts:
+
+```bash
+gfortran-13 --version                   # Must report >= 13.3.0
+export FPM_FC="$(command -v gfortran-13)"   # Or use its full installed path
+"$FPM_FC" --version
+```
+
+Check the version itself: a binary named `gfortran-13` can still be older than
+13.3.0. Keep existing dependency/link settings, back up the old build directory,
+and rebuild all project Fortran sources, including the DA module, with this
+compiler. Do not mix old `.mod`, `.o`, project archives or executables into the
+new build. Rebuilding only the C++ `dace_wrapper` does not restore missing
+Fortran finalizer calls. Already-built binaries and running processes do not
+change when a compiler is installed or an environment variable is exported.
+First verify real DA handle cleanup with a short run before resuming a long
+campaign; the version requirement alone does not certify all paths leak-free.
+See the compiler and memory-leak warning in [the main README](README.md).
+
 ## Location and Git integration
 
 The active project is `/home/songyu/fortran_test/POD_Fortran`, branch `main`.
@@ -180,7 +212,7 @@ Use `--opm` / `--opm-root`, `--mode-root`, `--kernel-dir` as needed. The shipped
 mode table is specific to L1Halo-1; do not relabel it for another orbit. Its CSV,
 audit metadata and the required L1Halo-1 OPM are explicitly versioned in main.
 
-On a server, install fpm/gfortran and provide compatible SPICE, DACE C++ wrapper
+On a server, install fpm and gfortran >= 13.3.0, and provide compatible SPICE, DACE C++ wrapper
 and OpenBLAS libraries. Preserve/rebuild `lib/` for the target ABI; binary
 libraries and kernels are not necessarily part of a Git clone. Two data files are
 mandatory and are fatal when absent: `kernels/gravity_models/GGM05C.GEO` (Earth,

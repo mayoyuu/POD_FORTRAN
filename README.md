@@ -6,6 +6,30 @@ POD System 是一个基于 Fortran 开发的高精度轨道传播、定轨（Orb
 
 本项目不仅支持传统的高精度数值积分与**无迹卡尔曼滤波 (UKF)**，还深度集成了**微分代数 (Differential Algebra, DA)** 技术。通过集成 **EMDAC-n ** 滤波器，能够高效处理高阶状态转移矩阵（STM）计算、非线性误差传播分析以及复杂动力学环境下的高精度定轨任务。
 
+## ⚠️ 编译器要求与严重内存泄漏风险
+
+> **必须使用 GNU Fortran（gfortran）13.3.0 或更高版本。低于 13.3.0 的版本不受支持，请勿用于本项目的 DA / ADS / DAMC 长时或批量传播。**
+
+DA 运算符会创建持有 DACE 原生句柄的临时对象，其释放依赖 Fortran 自动析构（finalization）。已在 **gfortran 11.4.0** 上复现函数返回临时对象未执行析构：100 次表达式后仍遗留 100 个模拟句柄；同一检查在 **13.3.0** 的 `-O0` / `-O3` 下均正常释放。此类问题在真实 DA 计算中可能造成持续、严重的内存泄漏，即使数值结果正常也不能认为内存安全。13.3.0 是本项目当前支持下限，并非声称所有更低版本均已逐一测试。
+
+多版本可以共存，无需修改系统默认编译器。先确认所选编译器的实际版本，再让 fpm 明确使用它（`gfortran-13` 的名称本身不保证版本已达到 13.3.0）：
+
+```bash
+gfortran-13 --version                  # 确认版本 >= 13.3.0
+export FPM_FC="$(command -v gfortran-13)"  # 或填写新编译器的完整路径
+export FC="$FPM_FC"                   # 同时供 CMake 等工具使用
+"$FPM_FC" --version
+```
+
+在项目根目录加载原有依赖环境后，使用选定编译器构建：
+
+```bash
+source ./setup_env.sh
+fpm build --compiler "$FPM_FC" --profile release --flag "-ffree-line-length-none"
+```
+
+**升级后必须重新编译全部项目 Fortran 源码（包括 DA 模块）**，不要混用旧编译器的 `.mod`、`.o`、项目静态库或可执行文件；旧构建目录可先改名备份。仅重编 C++ `dace_wrapper`、更换运行库或设置环境变量不会修复旧可执行文件中的析构调用。新终端及后台批量任务也需选择相同编译器，并先进行短时真实 DA 资源释放检查，再启动长时传播。满足版本要求不等于已经排除所有内存泄漏。
+
 ## ✨ Key Features
 
 - **多模式轨道传播** — 支持真实物理量积分与无量纲化动力学方程积分
@@ -78,7 +102,7 @@ git clone --recursive https://github.com/mayoyuu/POD_FORTRAN.git
 cd POD_FORTRAN
 source ./setup_env.sh          # 激活环境
 mkdir build && cd build
-cmake ..
+cmake -DCMAKE_Fortran_COMPILER="$FPM_FC" ..
 make
 ```
 
