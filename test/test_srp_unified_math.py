@@ -17,6 +17,19 @@ class JointPropagationMathTests(unittest.TestCase):
         self.assertTrue(np.all((a[:, 7:] >= 0) & (a[:, 7:] <= 1)))
         self.assertTrue(np.all(np.std(a, axis=0) > 0))
 
+    def test_uniform_eta_prior_keeps_state_design_and_is_bounded(self):
+        normal = shared_design(4000, 20261021, 3.0)
+        uniform = shared_design(4000, 20261021, 3.0, 'uniform')
+        np.testing.assert_array_equal(uniform[:, :6], normal[:, :6])
+        np.testing.assert_array_equal(uniform[:, 7:], normal[:, 7:])
+        np.testing.assert_array_equal(uniform, shared_design(4000, 20261021, 3.0, 'uniform'))
+        z7 = uniform[:, 6]
+        self.assertTrue(np.all(np.abs(z7) <= 3))
+        self.assertGreater(np.abs(z7).max(), 2.9)
+        self.assertLess(abs(z7.mean()), .1)
+        self.assertTrue(1.6 < z7.std() < 1.85)
+        self.assertAlmostEqual(np.mean(np.abs(z7) <= 1), 1/3, delta=.02)
+
     def test_joint_ut_recovers_correlated_state_and_parameter_moments(self):
         rng = np.random.default_rng(71)
         x = rng.normal(size=(3000, 8))
@@ -64,6 +77,7 @@ class JointPropagationMathTests(unittest.TestCase):
     def test_validation_rejects_invalid_inputs(self):
         with self.assertRaises(ValueError): shared_design(1, 5)
         with self.assertRaises(ValueError): shared_design(5, 5, -1)
+        with self.assertRaises(ValueError): shared_design(10, 5, 3.0, 'cauchy')
         with self.assertRaises(ValueError): joint_sigma_points(np.full((3, 2), np.nan))
 
 

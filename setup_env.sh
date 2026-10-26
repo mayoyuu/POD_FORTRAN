@@ -8,9 +8,15 @@
 PROJECT_ROOT="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 
 # DACE 微分代数库
-export CPLUS_INCLUDE_PATH="$HOME/local_dace/include:$CPLUS_INCLUDE_PATH"
-export LIBRARY_PATH="$HOME/local_dace/lib:$LIBRARY_PATH"
-export LD_LIBRARY_PATH="$HOME/local_dace/lib:$LD_LIBRARY_PATH"
+export DACE_ROOT="${DACE_ROOT:-$HOME/local_dace}"
+export CPLUS_INCLUDE_PATH="$DACE_ROOT/include:$CPLUS_INCLUDE_PATH"
+export LIBRARY_PATH="$DACE_ROOT/lib:$LIBRARY_PATH"
+export LD_LIBRARY_PATH="$DACE_ROOT/lib:$LD_LIBRARY_PATH"
+
+# SPICE Toolkit (Fortran) —— 提供 libspicelib.a
+export SPICE_ROOT="${SPICE_ROOT:-$HOME/spice_fortran/toolkit}"
+export LIBRARY_PATH="$SPICE_ROOT/lib:$LIBRARY_PATH"
+export LD_LIBRARY_PATH="$SPICE_ROOT/lib:$LD_LIBRARY_PATH"
 
 # OpenBLAS 线性代数库
 export LIBRARY_PATH="$HOME/local_openblas/lib:$LIBRARY_PATH"
@@ -21,6 +27,7 @@ export LIBRARY_PATH="$PROJECT_ROOT/lib:$LIBRARY_PATH"
 export LD_LIBRARY_PATH="$PROJECT_ROOT/lib:$LD_LIBRARY_PATH"
 
 echo "✅ POD_Fortran 开发环境已激活"
-echo "   DACE:      $HOME/local_dace"
+echo "   DACE:      $DACE_ROOT"
 echo "   OpenBLAS:  $HOME/local_openblas"
+echo "   SPICE:     $SPICE_ROOT"
 echo "   Project:   $PROJECT_ROOT"

@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-from run_srp_unified import resolve_case, parse_method, read_opm, population_for_case, parser
+from run_srp_unified import resolve_case, parse_method, read_opm, population_for_case, parser, load_samples
 from srp_unified_math import shared_design
 
 
@@ -39,6 +39,29 @@ class RunnerContractTests(unittest.TestCase):
         for p in pops[1:]: np.testing.assert_array_equal(p[:, :6], pops[0][:, :6])
         np.testing.assert_array_equal(pops[4][:, 6], .3*design[:, 6])
         np.testing.assert_array_equal(pops[5][:, 7:], design[:, 7:])
+
+    def test_uniform_eta_prior_population_is_bounded_and_shares_state(self):
+        design, physical, ids = load_samples(None, 4000, 20261021, 3.0, 1/3, 'uniform')
+        self.assertIsNone(physical)
+        np.testing.assert_array_equal(ids, np.arange(1, 4001))
+        pops = [population_for_case(design, np.zeros(6), np.eye(6), 1/3, resolve_case(c))
+                for c in ('C0', 'C1', 'C2', 'C3', 'T1')]
+        for p in pops[:4]: self.assertTrue(np.all(p[:, 6] == 0))
+        np.testing.assert_array_equal(pops[4][:, 6], (1/3)*design[:, 6])
+        self.assertLessEqual(np.abs(pops[4][:, 6]).max(), 1+1e-12)
+        self.assertGreater(np.abs(pops[4][:, 6]).max(), .99)
+        self.assertAlmostEqual(pops[4][:, 6].std(), 1/np.sqrt(3), delta=.02)
+        self.assertTrue(.002 < np.mean(1+pops[4][:, 6] <= .01) < .012)
+        for p in pops[1:]: np.testing.assert_array_equal(p[:, :6], pops[0][:, :6])
+
+    def test_uniform_eta_prior_outside_physical_support_is_rejected(self):
+        with self.assertRaises(ValueError): load_samples(None, 100, 1, 3.0, .5, 'uniform')
+        design, _, _ = load_samples(None, 100, 1, 3.0, .3, 'uniform')
+        self.assertLessEqual(np.abs(design[:, 6]).max(), 3)
+
+    def test_eta_prior_cli_defaults_to_normal_and_accepts_uniform(self):
+        self.assertEqual(parser().parse_args(['--build-only']).eta_prior, 'normal')
+        self.assertEqual(parser().parse_args(['--build-only', '--eta-prior', 'uniform']).eta_prior, 'uniform')
 
     def test_opm_reads_full_covariance_and_validates_spd(self):
         root = Path(__file__).resolve().parents[1]

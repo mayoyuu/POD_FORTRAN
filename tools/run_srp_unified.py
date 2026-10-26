@@ -88,8 +88,11 @@ def write_points(path, pop, ids, wm, wc):
     np.savetxt(path, data, delimiter=',', header=POINT_HEADER, comments='', fmt=['%d']+['%.17e']*11)
 
 
-def load_samples(path, n, seed, sigma_limit, eta_sigma=.3):
-    if path is None: return shared_design(n, seed, sigma_limit), None, np.arange(1, n+1)
+def load_samples(path, n, seed, sigma_limit, eta_sigma=.3, eta_prior='normal'):
+    if eta_prior == 'uniform' and sigma_limit*eta_sigma > 1+1e-12:
+        raise ValueError('uniform eta prior support exceeds the physical SRP bound [-1,1]')
+    if path is None:
+        return shared_design(n, seed, sigma_limit, eta_prior), None, np.arange(1, n+1)
     with Path(path).open(encoding='utf-8-sig') as f:
         first = f.readline()
     rows = np.genfromtxt(path, delimiter=',', names=True, dtype=float,
@@ -100,7 +103,7 @@ def load_samples(path, n, seed, sigma_limit, eta_sigma=.3):
     ids = rows['sample_id'] if 'sample_id' in fields else np.arange(1, n+1)
     if not np.all(np.isfinite(ids)) or not np.all(ids == ids.astype(np.int64)) or len(np.unique(ids)) != n:
         raise ValueError('sample ids must be unique finite integers')
-    design = shared_design(n, seed, sigma_limit)
+    design = shared_design(n, seed, sigma_limit, eta_prior)
     physical = None
     if all(f'z{i}' in fields for i in range(1, 7)):
         for i in range(6): design[:, i] = rows[f'z{i+1}']
@@ -157,7 +160,8 @@ def prepare_case(args, orbit, name, directory, design, physical, ids, opm):
                    max_threads='1', parallel_computation='false', verbose_output='false')
     provenance = dict(case=case, orbit=orbit, epoch=metadata['EPOCH'], opm_sha256=sha(opm),
                       input_state_sha256=array_sha(pop[:, :6]), joint_population_sha256=array_sha(pop),
-                      population_count=len(pop))
+                      population_count=len(pop), eta_prior=args.eta_prior,
+                      eta_support=args.domain_sigma*args.eta_sigma)
     if case['error'] == 'attitude':
         mode_dir = args.mode_root/orbit
         table, meta = mode_dir/'boxwing_modes.csv', mode_dir/'boxwing_modes_meta.json'
@@ -355,6 +359,8 @@ def parser():
     p.add_argument('--srp-model', choices=('off', 'cannonball', 'box_wing', 'time_varying_modes'))
     p.add_argument('--attitude', choices=('sun', 'moon', 'earth'))
     p.add_argument('--srp-error', choices=('none', 'eta', 'attitude'))
+    p.add_argument('--eta-prior', choices=('normal', 'uniform'), default='normal',
+                   help="T1 eta prior: truncated normal (legacy) or uniform on the ADS domain")
     for key, default in (('hours', 24.), ('save-hours', 1.), ('eta-sigma', .3), ('state-scale', 1.),
                          ('domain-sigma', 3.), ('pos-tol-km', .1), ('vel-tol-kms', 1e-6),
                          ('ut-alpha', .5), ('ut-beta', 2.), ('ut-kappa', 0.), ('hz-alpha', .05)):
@@ -388,7 +394,8 @@ def main(argv=None):
         raise ValueError('duplicate cases/orbits')
     if args.opm and len(args.orbits) != 1: raise ValueError('--opm supports one orbit at a time')
     args.output.mkdir(parents=True, exist_ok=False)
-    design, physical, ids = load_samples(args.samples, args.count, args.seed, args.domain_sigma, args.eta_sigma)
+    design, physical, ids = load_samples(args.samples, args.count, args.seed, args.domain_sigma,
+                                         args.eta_sigma, args.eta_prior)
     np.savez_compressed(args.output/'input_design.npz', design=design, sample_id=ids)
     env = environment()
     jobs = []
@@ -408,7 +415,8 @@ def main(argv=None):
     exe, build_seconds = build_executable(args, env)
     campaign = dict(schema='srp_unified_campaign_v1', source_base='boxwing-modes-p1 3f41851 plus portable driver',
                     executable_sha256=sha(exe), build_seconds=build_seconds, input_design_sha256=array_sha(design),
-                    seed=args.seed, count=args.count, command=invocation, jobs=[])
+                    seed=args.seed, count=args.count, eta_prior=args.eta_prior,
+                    eta_support=args.domain_sigma*args.eta_sigma, command=invocation, jobs=[])
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
         futures = [pool.submit(run_one, job, args, exe, env) for job in jobs]
         for future in concurrent.futures.as_completed(futures):

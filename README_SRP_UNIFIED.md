@@ -96,11 +96,58 @@ No 15-day run is started automatically by the integration or unit tests.
   and propagates the same sigma trajectories without hourly re-Gaussianization.
 
 Case definitions: C0 no SRP; C1 cannonball; C2 moon-pointing box-wing; C3
-earth-pointing box-wing; T1 cannonball eta error (sigma=0.3); T2 existing bounded
+earth-pointing box-wing; T1 cannonball scale error `eta`; T2 existing bounded
 time-varying attitude mode **surrogate**, not a live physical box-wing attitude
 error model. L1Halo-1 mode data cover exactly 360 hours and retain original audit
 hashes. UT/MC outputs have no independent truncation-error certificate; ADS uses
 finite probes and a depth cap, not a global mathematical error guarantee.
+
+T1 `eta` prior (`--eta-prior`, default `normal`): `--eta-prior normal` keeps the
+legacy truncated-normal design, `z7 ~ N(0,1)`, `|z7| <= --domain-sigma`, so
+`eta = --eta-sigma * z7` and the SRP scale factor is `1+eta`. `--eta-prior
+uniform` makes `z7` uniform on `[-domain-sigma, +domain-sigma]`, i.e. `eta`
+uniform on `+-domain-sigma*--eta-sigma`; the support must stay inside the
+physical bound `eta >= -1`, enforced as `domain-sigma*eta-sigma <= 1`. With the
+common `--domain-sigma 3 --eta-sigma 1/3` the support is exactly `[-1,+1]`, so
+SRP=0 (5% of the mass within 10% of zero SRP) is represented instead of sitting
+on the 3-sigma edge. The prior only changes `z7`; `z1..z6,s,u` and therefore the
+C0-C3 populations are bit-identical to the normal design, and `eta_prior` plus
+`eta_support` are recorded in `campaign.json` and every `population.json`.
+Uniform-prior T1 results are not directly comparable with legacy sigma=0.3 T1
+results.
+
+## Verifying a campaign
+
+Two read-only checkers audit an existing campaign directory without propagating
+anything; both exit nonzero on failure and can write a JSON report.
+
+Before propagation (works on a `--prepare-only` tree):
+
+```bash
+python3 tools/check_t1_eta_prior.py --root /absolute/output --eta-sigma 0.3333333333333333
+```
+
+It checks the recorded `eta_prior`/`eta_support`, the `[-1,1]` physical bound and
+the ADS domain, a Kolmogorov-Smirnov test of eta against `U(-a,+a)` (default
+alpha 1e-3, so 17 orbits still have a small false-alarm rate), the uniform
+standard deviation, and that the SRP~0 tail at `eta=-1` is populated at the rate
+`(a-0.99)/(2a)`. It also proves C0-C3 keep `eta=0` and share one bit-identical
+6D design hash with T1, so the prior switch cannot hide inside the states.
+
+After propagation, with `hourly_moments.csv` present:
+
+```bash
+python3 tools/check_t1_c0_coverage.py --root /absolute/output --methods UT ADS
+```
+
+Per hour it reports the 6D Mahalanobis shift of the C0 mean (m6), the smallest
+eigenvalue of the C0-whitened `Sigma_T1 - Sigma_C0` (0 = equal variance, +1 =
+T1 doubles the C0 variance, negative = T1 tighter than C0) and the covariance
+volume ratio. Defaults: m6 <= 6, whitened lambda >= -0.05 for Monte-Carlo noise,
+volume ratio >= 0.9. A T1 prior that truly reaches SRP~0 must contain C0, so a
+negative `lambda` beyond noise or `m6` above the limit is a real regression.
+
+Both tools are covered by `test/test_srp_unified_checks.py`.
 
 ## Direct interface and migration
 
@@ -109,6 +156,11 @@ bash app/run.sh --help
 bash app/run.sh --build-only
 bash app/run.sh --methods UT ADS --cases C0 C1 C2 C3 T1 T2 \
   --hours 360 --save-hours 1 --count 50000 --jobs 3 --output /absolute/new/output
+
+# T1 with a bounded uniform eta prior on [-1,1] instead of the legacy normal one:
+bash app/run.sh --methods UT ADS --cases C0 C1 C2 C3 T1 --eta-prior uniform \
+  --eta-sigma 0.3333333333333333 --domain-sigma 3 \
+  --hours 360 --save-hours 1 --count 50000 --jobs 5 --output /absolute/new/uniform
 
 # Single custom physical model; explicit case label required for provenance:
 bash app/run.sh --methods UT ADS --cases C3 --srp-model box_wing \
@@ -130,8 +182,15 @@ audit metadata and the required L1Halo-1 OPM are explicitly versioned in main.
 
 On a server, install fpm/gfortran and provide compatible SPICE, DACE C++ wrapper
 and OpenBLAS libraries. Preserve/rebuild `lib/` for the target ABI; binary
-libraries and kernels are not necessarily part of a Git clone. Install Python
-dependencies into a local virtual environment:
+libraries and kernels are not necessarily part of a Git clone. Two data files are
+mandatory and are fatal when absent: `kernels/gravity_models/GGM05C.GEO` (Earth,
+WGS84/GGM05C, fully normalized, first record `GM R` in SI units) and
+`kernels/gravity_models/gggrx_0660pm_sha.tab` (Moon). `kernels/spk/de440.bsp`
+alone is not enough for the default `earth_degree = 10`, `moon_degree = 10`
+configuration. A `libspicelib.a` built by an older compiler can link but crash
+inside `furnsh`; rebuild it from the matching SPICE toolkit sources with the
+same gfortran as the application. Install Python dependencies into a local
+virtual environment:
 
 ```bash
 python3 -m venv .venv-srp

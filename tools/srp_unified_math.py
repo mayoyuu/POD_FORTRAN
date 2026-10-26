@@ -8,18 +8,32 @@ import math
 import numpy as np
 
 
-def shared_design(n: int, seed: int, sigma_limit: float = 3.0) -> np.ndarray:
+def shared_design(n: int, seed: int, sigma_limit: float = 3.0,
+                  eta_prior: str = 'normal') -> np.ndarray:
+    """Columns z1..z7,s,u. z1..z6,s,u never depend on eta_prior; only z7 does.
+
+    eta_prior='normal': z7 is truncated like the state, |z7| <= sigma_limit.
+    eta_prior='uniform': z7 is uniform on [-sigma_limit, +sigma_limit], hence
+    eta = eta_sigma*z7 is uniform on [-domain_sigma*eta_sigma, +domain_sigma*eta_sigma]
+    (the ADS domain), which places the physical SRP=0 point inside the prior
+    support instead of at its 3-sigma edge.
+    """
     if n < 2 or not math.isfinite(sigma_limit) or sigma_limit <= 0:
         raise ValueError('sample count must be >=2 and sigma limit positive')
-    state_rng, mode_rng = [np.random.Generator(np.random.PCG64DXSM(s))
-                           for s in np.random.SeedSequence(seed).spawn(2)]
+    if eta_prior not in ('normal', 'uniform'):
+        raise ValueError("eta prior must be 'normal' or 'uniform'")
+    state_rng, mode_rng, eta_rng = [np.random.Generator(np.random.PCG64DXSM(s))
+                                    for s in np.random.SeedSequence(seed).spawn(3)]
     chunks, left = [], n
     while left:
         z = state_rng.standard_normal((max(128, math.ceil(left*1.1)), 7))
         z = z[np.max(np.abs(z), axis=1) <= sigma_limit][:left]
         chunks.append(z)
         left -= len(z)
-    return np.column_stack((np.concatenate(chunks), mode_rng.random((n, 2))))
+    design = np.column_stack((np.concatenate(chunks), mode_rng.random((n, 2))))
+    if eta_prior == 'uniform':
+        design[:, 6] = sigma_limit*(2*eta_rng.random(n)-1)
+    return design
 
 
 def weighted_moments(points, wm, wc):

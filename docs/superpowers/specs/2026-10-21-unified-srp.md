@@ -6,7 +6,9 @@
 
 初版在本文件所在独立目录暂存；用户随后要求合入原 POD_Fortran 的 main。以原仓库为最终运行位置，不替换其 fpm.toml、不删除 Git 库或 worktree。复用 boxwing-modes-p1 的动力学、积分器、6/7/8D ADS、模式表加载器。一个 app/run.sh 调用 tools/run_srp_unified.py，后者组织样本、构建配置、批处理和 HZ；一个 app/run_srp_unified.f90 负责全部传播方法。旧入口的几何研究/历史兼容功能不删除，不继续复制其逐案例运行循环。
 
-案例：C0 无 SRP；C1 标称 cannonball；C2 对月 box-wing；C3 对地 box-wing；T1 cannonball 加 eta 误差；T2 现有 time_varying_modes 姿态模式代理。T2 与实时 box-wing 模型区别必须写入结果元数据。
+案例：C0 无 SRP；C1 标称 cannonball；C2 对月 box-wing；C3 对地 box-wing；T1 cannonball 加 eta 尺度误差；T2 现有 time_varying_modes 姿态模式代理。T2 与实时 box-wing 模型区别必须写入结果元数据。
+
+T1 的 eta 先验由 `--eta-prior` 选择（默认 `normal` 保留历史口径：`z7` 逐维截断正态，|z7|≤domain_sigma，eta=eta_sigma·z7）。`--eta-prior uniform` 令 z7 ~ U(−domain_sigma, +domain_sigma)，即 eta ~ U(−domain_sigma·eta_sigma, +domain_sigma·eta_sigma)；支撑必须落在物理界 eta≥−1 内，由 `domain_sigma*eta_sigma ≤ 1` 强制。取 `--domain-sigma 3 --eta-sigma 1/3` 时支撑恰为 [−1,+1]，SRP 因子 1+eta ∈ [0,2]，SRP=0 处有真实概率质量（1% 以内约 0.5%，10% 以内约 5%），而不是贴在 3σ 边界上。该先验只改 z7；z1..z6,s,u 及 C0–C3 的总体逐位不变，先验名与支撑同时写入 campaign.json 与各 population.json。均匀先验下的 T1 结果与历史 σ=0.3 高斯 T1 不可直接比较。
 
 ## 方法
 
@@ -31,6 +33,10 @@ ADS splits.csv 保存每个事件的区间、方向、父深度、六分量截�
 路径从脚本位置解析，星历和外部库通过 --kernel-dir、DACE_ROOT、OPENBLAS_ROOT、SPICE_LIB_DIR 指定。默认单线程外层作业，可用 --jobs 控制进程并发；进程内状态不跨作业共享。构建一次，案例批量复用同一可执行文件。保存 resolved_config、输入哈希、源码来源、运行命令和逐案例状态。
 
 首轮验收 L1Halo-1，UT/ADS × C0 C1 C2 C3 T1 T2，0..2 h，每小时保存，N=50000、2000 点输出。用户要求测试简短有效并明确取消额外压力测试：不再运行一阶/极严格阈值压力测试，不扩展 24 h 测试。主分支仅补必要短时入口检查；360 h 脚本与 GNU parallel/内置进程池命令由用户自行启动。不得将短时冒烟通过称为 15 天数值精度认证。
+
+T1 的 eta 先验由 `--eta-prior` 选择：默认 `normal` 保持旧截断正态（`|z7| <= domain-sigma`，SRP 比例因子 `1+eta`）；`uniform` 令 `z7` 在 `[-domain-sigma, domain-sigma]` 上均匀，要求 `domain-sigma*eta-sigma <= 1` 以保证 `eta >= -1`。两种先验下 `z1..z6,s,u` 与 `z1..z6` 逐位相同，因此 C0-C3 位相同，只有 T1 的 eta 列改变；先验名和支撑写入 `campaign.json` 与每个 `population.json`。uniform 的 T1 与旧 `sigma=0.3` 结果不可直接比较。
+
+只读验收工具（不传播、失败返回非零）：`tools/check_t1_eta_prior.py --root DIR` 校验记录的先验/支撑、`[-1,1]` 物理界与 ADS 域、KS 均匀性（默认 alpha 1e-3，避免 17 轨道上的假警报）、均匀标准差，以及 `eta=-1` 处 SRP~0 尾部质量 `(a-0.99)/(2a)`，并验证 C0-C3 的 eta 恒为 0 且与 T1 共享同一 `input_state_sha256`；`tools/check_t1_c0_coverage.py --root DIR --methods UT ADS` 逐小时输出 C0 均值的 6D Mahalanobis 距离、C0 白化的 `Sigma_T1-Sigma_C0` 最小特征值（>=0 表示 T1 方差不小于 C0）和协方差体积比。两者由 `test/test_srp_unified_checks.py` 覆盖。
 
 ## 来源
 

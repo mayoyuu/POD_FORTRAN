@@ -1,0 +1,168 @@
+diff --git a/external/dace_build/CMakeLists.txt b/external/dace_build/CMakeLists.txt
+index eeefcf7..ca8e0fe 100644
+--- a/external/dace_build/CMakeLists.txt
++++ b/external/dace_build/CMakeLists.txt
+@@ -5,20 +5,46 @@ project(DaceWrapper CXX)
+ set(CMAKE_CXX_STANDARD 14)
+ set(CMAKE_CXX_STANDARD_REQUIRED ON)
+ 
+-# 告诉 CMake 你的 DACE 根目录在哪里
+-set(DACE_ROOT "/home/songyu/dace")
++# 未指定构建类型时默认 RelWithDebInfo（与 DACE 导出的 CMake 配置一致）
++if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
++    set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Build type" FORCE)
++endif()
+ 
+ # ==========================================
+-# 核心：将所有 DACE 相关的头文件路径一网打尽
++# DACE 根目录：默认 $HOME/local_dace，可用 -DDACE_ROOT=... 覆盖
++# 可通过 setup_env.sh 中的 DACE_ROOT 环境变量指定
+ # ==========================================
+-include_directories(
+-    ${DACE_ROOT}/interfaces/cxx/include  # 解决 <dace/dace.h>
+-    ${DACE_ROOT}/core/include            # 解决 <dace/dacecore.h>
+-    ${DACE_ROOT}/include                 # 备用核心路径
+-    ${DACE_ROOT}/build/core/include           # 解决 <dace/config.h> (如果你之前编译在 build 下)
+-)
++if(NOT DACE_ROOT)
++    if(DEFINED ENV{DACE_ROOT})
++        set(DACE_ROOT "$ENV{DACE_ROOT}")
++    else()
++        set(DACE_ROOT "$ENV{HOME}/local_dace")
++    endif()
++endif()
++set(DACE_ROOT "${DACE_ROOT}" CACHE PATH "DACE 安装根目录")
++
++if(NOT EXISTS "${DACE_ROOT}/include/dace/dace.h")
++    message(FATAL_ERROR
++        "在 ${DACE_ROOT} 下找不到 include/dace/dace.h。\n"
++        "请用 -DDACE_ROOT=/path/to/dace 指定正确的 DACE 安装路径。")
++endif()
+ 
+ # 生成我们要的静态库：libdace_wrapper.a
+ add_library(dace_wrapper STATIC dace_wrapper.cpp)
+ 
++# 优先使用 DACE 安装时导出的 CMake 包（daceConfig.cmake -> dace::dace / dace::dace_s）
++list(APPEND CMAKE_PREFIX_PATH "${DACE_ROOT}")
++find_package(dace CONFIG QUIET)
++
++if(dace_FOUND)
++    # 与 fpm.toml 中链接的 dace_s（静态库）保持一致
++    target_link_libraries(dace_wrapper PUBLIC dace::dace_s)
++    message(STATUS "DaceWrapper: 使用 DACE CMake 包 (${DACE_ROOT})")
++else()
++    # 回退：手工指定头文件与库
++    target_include_directories(dace_wrapper PUBLIC "${DACE_ROOT}/include")
++    target_link_libraries(dace_wrapper PUBLIC "${DACE_ROOT}/lib/libdace_s.a")
++    message(STATUS "DaceWrapper: 未找到 DACE CMake 包，回退到手工路径 (${DACE_ROOT})")
++endif()
++
+ message(STATUS "DaceWrapper 配置完成，准备编译！")
+\ No newline at end of file
+diff --git a/tools/run_srp_unified.py b/tools/run_srp_unified.py
+index 1e4b6fa..db5df6d 100644
+--- a/tools/run_srp_unified.py
++++ b/tools/run_srp_unified.py
+@@ -88,8 +88,11 @@ def write_points(path, pop, ids, wm, wc):
+     np.savetxt(path, data, delimiter=',', header=POINT_HEADER, comments='', fmt=['%d']+['%.17e']*11)
+ 
+ 
+-def load_samples(path, n, seed, sigma_limit, eta_sigma=.3):
+-    if path is None: return shared_design(n, seed, sigma_limit), None, np.arange(1, n+1)
++def load_samples(path, n, seed, sigma_limit, eta_sigma=.3, eta_prior='normal'):
++    if eta_prior == 'uniform' and sigma_limit*eta_sigma > 1+1e-12:
++        raise ValueError('uniform eta prior support exceeds the physical SRP bound [-1,1]')
++    if path is None:
++        return shared_design(n, seed, sigma_limit, eta_prior), None, np.arange(1, n+1)
+     with Path(path).open(encoding='utf-8-sig') as f:
+         first = f.readline()
+     rows = np.genfromtxt(path, delimiter=',', names=True, dtype=float,
+@@ -100,7 +103,7 @@ def load_samples(path, n, seed, sigma_limit, eta_sigma=.3):
+     ids = rows['sample_id'] if 'sample_id' in fields else np.arange(1, n+1)
+     if not np.all(np.isfinite(ids)) or not np.all(ids == ids.astype(np.int64)) or len(np.unique(ids)) != n:
+         raise ValueError('sample ids must be unique finite integers')
+-    design = shared_design(n, seed, sigma_limit)
++    design = shared_design(n, seed, sigma_limit, eta_prior)
+     physical = None
+     if all(f'z{i}' in fields for i in range(1, 7)):
+         for i in range(6): design[:, i] = rows[f'z{i+1}']
+@@ -157,7 +160,8 @@ def prepare_case(args, orbit, name, directory, design, physical, ids, opm):
+                    max_threads='1', parallel_computation='false', verbose_output='false')
+     provenance = dict(case=case, orbit=orbit, epoch=metadata['EPOCH'], opm_sha256=sha(opm),
+                       input_state_sha256=array_sha(pop[:, :6]), joint_population_sha256=array_sha(pop),
+-                      population_count=len(pop))
++                      population_count=len(pop), eta_prior=args.eta_prior,
++                      eta_support=args.domain_sigma*args.eta_sigma)
+     if case['error'] == 'attitude':
+         mode_dir = args.mode_root/orbit
+         table, meta = mode_dir/'boxwing_modes.csv', mode_dir/'boxwing_modes_meta.json'
+@@ -355,6 +359,8 @@ def parser():
+     p.add_argument('--srp-model', choices=('off', 'cannonball', 'box_wing', 'time_varying_modes'))
+     p.add_argument('--attitude', choices=('sun', 'moon', 'earth'))
+     p.add_argument('--srp-error', choices=('none', 'eta', 'attitude'))
++    p.add_argument('--eta-prior', choices=('normal', 'uniform'), default='normal',
++                   help="T1 eta prior: truncated normal (legacy) or uniform on the ADS domain")
+     for key, default in (('hours', 24.), ('save-hours', 1.), ('eta-sigma', .3), ('state-scale', 1.),
+                          ('domain-sigma', 3.), ('pos-tol-km', .1), ('vel-tol-kms', 1e-6),
+                          ('ut-alpha', .5), ('ut-beta', 2.), ('ut-kappa', 0.), ('hz-alpha', .05)):
+@@ -388,7 +394,8 @@ def main(argv=None):
+         raise ValueError('duplicate cases/orbits')
+     if args.opm and len(args.orbits) != 1: raise ValueError('--opm supports one orbit at a time')
+     args.output.mkdir(parents=True, exist_ok=False)
+-    design, physical, ids = load_samples(args.samples, args.count, args.seed, args.domain_sigma, args.eta_sigma)
++    design, physical, ids = load_samples(args.samples, args.count, args.seed, args.domain_sigma,
++                                         args.eta_sigma, args.eta_prior)
+     np.savez_compressed(args.output/'input_design.npz', design=design, sample_id=ids)
+     env = environment()
+     jobs = []
+@@ -408,7 +415,8 @@ def main(argv=None):
+     exe, build_seconds = build_executable(args, env)
+     campaign = dict(schema='srp_unified_campaign_v1', source_base='boxwing-modes-p1 3f41851 plus portable driver',
+                     executable_sha256=sha(exe), build_seconds=build_seconds, input_design_sha256=array_sha(design),
+-                    seed=args.seed, count=args.count, command=invocation, jobs=[])
++                    seed=args.seed, count=args.count, eta_prior=args.eta_prior,
++                    eta_support=args.domain_sigma*args.eta_sigma, command=invocation, jobs=[])
+     with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
+         futures = [pool.submit(run_one, job, args, exe, env) for job in jobs]
+         for future in concurrent.futures.as_completed(futures):
+diff --git a/tools/srp_unified_math.py b/tools/srp_unified_math.py
+index f5c4234..2cd82b9 100644
+--- a/tools/srp_unified_math.py
++++ b/tools/srp_unified_math.py
+@@ -8,18 +8,32 @@ import math
+ import numpy as np
+ 
+ 
+-def shared_design(n: int, seed: int, sigma_limit: float = 3.0) -> np.ndarray:
++def shared_design(n: int, seed: int, sigma_limit: float = 3.0,
++                  eta_prior: str = 'normal') -> np.ndarray:
++    """Columns z1..z7,s,u. z1..z6,s,u never depend on eta_prior; only z7 does.
++
++    eta_prior='normal': z7 is truncated like the state, |z7| <= sigma_limit.
++    eta_prior='uniform': z7 is uniform on [-sigma_limit, +sigma_limit], hence
++    eta = eta_sigma*z7 is uniform on [-domain_sigma*eta_sigma, +domain_sigma*eta_sigma]
++    (the ADS domain), which places the physical SRP=0 point inside the prior
++    support instead of at its 3-sigma edge.
++    """
+     if n < 2 or not math.isfinite(sigma_limit) or sigma_limit <= 0:
+         raise ValueError('sample count must be >=2 and sigma limit positive')
+-    state_rng, mode_rng = [np.random.Generator(np.random.PCG64DXSM(s))
+-                           for s in np.random.SeedSequence(seed).spawn(2)]
++    if eta_prior not in ('normal', 'uniform'):
++        raise ValueError("eta prior must be 'normal' or 'uniform'")
++    state_rng, mode_rng, eta_rng = [np.random.Generator(np.random.PCG64DXSM(s))
++                                    for s in np.random.SeedSequence(seed).spawn(3)]
+     chunks, left = [], n
+     while left:
+         z = state_rng.standard_normal((max(128, math.ceil(left*1.1)), 7))
+         z = z[np.max(np.abs(z), axis=1) <= sigma_limit][:left]
+         chunks.append(z)
+         left -= len(z)
+-    return np.column_stack((np.concatenate(chunks), mode_rng.random((n, 2))))
++    design = np.column_stack((np.concatenate(chunks), mode_rng.random((n, 2))))
++    if eta_prior == 'uniform':
++        design[:, 6] = sigma_limit*(2*eta_rng.random(n)-1)
++    return design
+ 
+ 
+ def weighted_moments(points, wm, wc):

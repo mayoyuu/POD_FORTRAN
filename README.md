@@ -44,6 +44,23 @@ make -j4
 make PREFIX=$HOME/local_openblas install
 ```
 
+### 4. 项目本地静态库 (`lib/`)
+
+`fpm.toml` 通过 `link = ["spicelib", "m", "dace_wrapper", "dace_s", ...]` 链接静态库，
+而 `setup_env.sh` 只把 `$PROJECT_ROOT/lib` 加入 `LIBRARY_PATH`，因此需要在该目录准备三份库文件：
+
+```bash
+# 1) 编译 DACE 的 C++ 包装库（首次或 wrapper 改动后执行）
+cd "$PROJECT_ROOT/external/dace_build"
+mkdir -p build && cd build && cmake .. && make dace_wrapper && cd "$PROJECT_ROOT"
+
+# 2) 建立链接（链接真实文件即可，便于后续更新）
+mkdir -p "$PROJECT_ROOT/lib"
+ln -sfn "$PROJECT_ROOT/external/dace_build/build/libdace_wrapper.a" "$PROJECT_ROOT/lib/libdace_wrapper.a"
+ln -sfn "$HOME/local_dace/lib/libdace_s.a"                          "$PROJECT_ROOT/lib/libdace_s.a"
+ln -sfn "$HOME/spice_fortran/toolkit/lib/spicelib.a"                "$PROJECT_ROOT/lib/libspicelib.a"
+```
+
 ## 🚀 Installation
 
 ### 环境配置

@@ -12,6 +12,7 @@ dace_build/*.a
 dace_build/*.o
 
 # 日志与输出数据
+.venv-srp/
 logs/
 output/
 fort.*
