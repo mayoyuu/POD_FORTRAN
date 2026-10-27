@@ -327,7 +327,9 @@ contains
     subroutine PlmX(n, zr, plm)
         integer, intent(in) :: n
         real(DP), intent(in) :: zr
-        real(DP), intent(out) :: plm(n,n)
+        ! f_tesseral reads P(n,n+1) with a zero multiplier at l=m=n.
+        ! Initialize that sentinel too: zero times an undefined NaN is still NaN.
+        real(DP), intent(out) :: plm(n,n+1)
         integer :: l, m
         real(DP) :: eta, w1, w2, l2
         

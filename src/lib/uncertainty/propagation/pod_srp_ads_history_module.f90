@@ -141,6 +141,32 @@ contains
                 message = 'real SRP probe integration produced a nonfinite state'
                 return
             end if
+            ! A finite last checkpoint is not sufficient after an aborted RK step.
+            if (.not. allocated(times)) then
+                call clear_srp_scale_error()
+                status = -3
+                message = 'real SRP probe integration produced no end time'
+                return
+            end if
+            if (n_steps > size(times)) then
+                call clear_srp_scale_error()
+                status = -3
+                message = 'real SRP probe integration produced an invalid end time'
+                return
+            end if
+            if (.not. ieee_is_finite(times(n_steps))) then
+                call clear_srp_scale_error()
+                status = -3
+                message = 'real SRP probe integration produced a nonfinite end time'
+                return
+            end if
+            if (abs(times(n_steps)-t_end/config%TU) > &
+                1000*epsilon(1.0_DP)*max(1.0_DP,abs(t_end/config%TU))) then
+                call clear_srp_scale_error()
+                status = -3
+                message = 'real SRP probe integration did not reach requested end time'
+                return
+            end if
             states(1:3,j) = integrated(n_steps,1:3)*config%LU
             states(4:6,j) = integrated(n_steps,4:6)*config%VU
         end do

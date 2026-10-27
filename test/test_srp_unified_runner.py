@@ -71,4 +71,38 @@ class RunnerContractTests(unittest.TestCase):
         self.assertEqual(data['ASL_CAT_ID'], 'L1Halo-1')
 
 
+
+class CompilerBuildDiscoveryTests(unittest.TestCase):
+    def check_selected_build(self, selected_mtime, unrelated_mtime):
+        import os
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        import run_srp_unified as runner
+
+        with tempfile.TemporaryDirectory(prefix='srp build ') as tmp:
+            root = Path(tmp)
+            unrelated = root/'build/gfortran_old/app/run_srp_unified'
+            selected = root/'build/gfortran-13_current/app/run_srp_unified'
+            for binary in (unrelated, selected):
+                binary.parent.mkdir(parents=True)
+                binary.write_text('test executable')
+                binary.chmod(0o755)
+            os.utime(unrelated, (unrelated_mtime, unrelated_mtime))
+            os.utime(selected, (selected_mtime, selected_mtime))
+
+            def fake_fpm(*args, **kwargs):
+                kwargs['stdout'].write('__POD_UNIFIED_TARGET__ '+str(selected)+'\n')
+                return SimpleNamespace(returncode=0)
+
+            with patch.object(runner, 'ROOT', root), patch.object(runner.subprocess, 'run', fake_fpm):
+                executable, _ = runner.build_executable(SimpleNamespace(executable=None), {})
+            self.assertEqual(executable, selected.resolve())
+
+    def test_build_finds_named_gfortran_compiler_instead_of_stale_binary(self):
+        self.check_selected_build(selected_mtime=200, unrelated_mtime=100)
+
+    def test_cached_selected_build_wins_over_newer_unrelated_binary(self):
+        self.check_selected_build(selected_mtime=100, unrelated_mtime=200)
+
+
 if __name__ == '__main__': unittest.main()

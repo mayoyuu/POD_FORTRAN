@@ -211,13 +211,23 @@ def build_executable(args, env):
     log_path = build_dir/'unified-build.log'
     with log_path.open('w') as log:
         result = subprocess.run(['fpm', 'run', '--target', 'run_srp_unified', '--profile', 'release',
-                                 '--flag', '-ffree-line-length-none', '--', '--help'],
+                                 '--flag', '-ffree-line-length-none',
+                                 '--runner', 'echo __POD_UNIFIED_TARGET__'],
                                 cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT)
     if result.returncode:
         raise RuntimeError('Fortran build failed: '+log_path.read_text()[-4000:])
-    binaries = list((ROOT/'build').glob('gfortran_*/app/run_srp_unified'))
-    if not binaries: raise RuntimeError('fpm did not produce run_srp_unified')
-    return max(binaries, key=lambda p: p.stat().st_mtime).resolve(), time.perf_counter()-begin
+    # Ask fpm for its selected target; a cached build may be older than an
+    # unrelated compiler/profile binary, so file timestamps cannot identify it.
+    marker = '__POD_UNIFIED_TARGET__ '
+    targets = [line.strip()[len(marker):] for line in log_path.read_text().splitlines()
+               if line.strip().startswith(marker)]
+    if len(targets) != 1: raise RuntimeError('fpm did not report exactly one run_srp_unified target')
+    binary = Path(targets[0])
+    if not binary.is_absolute(): binary = ROOT/binary
+    binary = binary.resolve(strict=True)
+    if not binary.is_file() or not os.access(binary, os.X_OK):
+        raise RuntimeError('fpm target is not an executable file: '+str(binary))
+    return binary, time.perf_counter()-begin
 
 
 def environment():
