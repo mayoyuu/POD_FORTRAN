@@ -1,11 +1,11 @@
 ! Shared, file-driven uncertainty propagation. All physical states are km, km/s.
 program run_srp_unified
-    use, intrinsic :: iso_fortran_env, only: int64, error_unit
+    use, intrinsic :: iso_fortran_env, only: int64, error_unit, output_unit
     use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
     use pod_global, only: DP
     use pod_config, only: config
     use pod_engine_module, only: pod_engine_init
-    use pod_spice, only: set_spice_kernel_path
+    use pod_spice, only: set_spice_kernel_path, str2et
     use pod_data_format_module, only: load_initial_opm
     use pod_srp_mode_module, only: load_srp_mode_table
     use pod_srp_ads_history_module, only: advance_real_probes, advance_real_mode_probes, &
@@ -20,10 +20,13 @@ program run_srp_unified
     integer, parameter :: PATH_LEN=4096
     character(len=PATH_LEN) :: opm_file='', config_file='', points_file='', outdir='', kernel_dir=''
     character(len=16) :: method='', error_kind=''
+    character(len=128) :: end_utc=''
+    real(DP) :: end_et
+    integer :: requested_saved_points=2000, requested_final_only=0, span_unit
     real(DP) :: hours=-1, save_hours=-1, eta_sigma=-1, state_scale=-1, domain_sigma=-1
     real(DP) :: pos_tol=-1, vel_tol=-1
     integer :: order=-1, max_order=-1, adaptive=-1, requested_probes=-1
-    logical :: seen(18)=.false., is_map, is_modes, accuracy_valid=.true., precision_confirmed=.true.
+    logical :: seen(21)=.false., is_map, is_modes, accuracy_valid=.true., precision_confirmed=.true.
     type(hfem_ads_options_type) :: options
     type(hfem_ads_history_type) :: history
     type(ads_physical_parameters_type) :: parameters
@@ -52,6 +55,17 @@ program run_srp_unified
     call require_ok('OPM preflight')
     call load_initial_opm(trim(opm_file),epoch0,nominal,initial_cov)
     if(.not.all(ieee_is_finite([epoch0,nominal]))) call fail('nonfinite OPM state/epoch')
+    if(len_trim(end_utc)>0) then
+        call str2et(trim(end_utc),end_et)
+        if(.not.ieee_is_finite(end_et) .or. end_et<=epoch0) call fail('end UTC must be after OPM epoch')
+        hours=(end_et-epoch0)/3600.0_DP
+    else
+        end_et=epoch0+3600.0_DP*hours
+    end if
+    call open_output('time_span.csv',span_unit)
+    write(span_unit,'(a)') 'start_et,end_et,duration_hours'
+    write(span_unit,'(3(es24.16e3,:,","))') epoch0,end_et,hours
+    close(span_unit)
     initial_cov=initial_cov*state_scale**2
     is_modes=trim(config%srp_model)=='time_varying_modes'
     if(is_modes) then
@@ -96,7 +110,8 @@ program run_srp_unified
             unit_points(:,i)=max(-1.0_DP,min(1.0_DP,one_unit))
         end do
     end if
-    nm=min(2000,n)
+    nm=n
+    if(requested_saved_points>0) nm=min(requested_saved_points,n)
     if(method=='UT') nm=n
     allocate(saved_ids(nm))
     call evenly_spaced(n,saved_ids)
@@ -123,7 +138,11 @@ program run_srp_unified
     validation_pos=0; validation_vel=0; current=0
     patches=0; depth_limited=0
     if(is_map) patches=history%stats%n_patches
-    call save_output()
+    if(requested_final_only==0 .or. nsteps==0) then
+        call save_output()
+    else
+        call write_progress()
+    end if
 
     do step=1,nsteps
         previous=current
@@ -173,7 +192,12 @@ program run_srp_unified
                 io_seconds=io_seconds+wall_seconds()-mark
             end if
         end if
-        if(save_at(step)) call save_output()
+        if(save_at(step) .and. (requested_final_only==0 .or. step==nsteps)) then
+            call save_output()
+        else if(requested_final_only==1) then
+            ! Progress is independent of particle snapshots in terminal-only runs.
+            call write_progress()
+        end if
     end do
     if(is_map) call hfem_ads_history_destroy(history)
     mark=wall_seconds()
@@ -212,7 +236,8 @@ contains
         write(*,'(a)') '  --hours REAL --save-hours REAL --error none|eta|attitude --eta-sigma REAL'
         write(*,'(a)') '  --state-scale REAL --domain-sigma REAL --order INT --max-order INT --adaptive 0|1'
         write(*,'(a)') '  --probes INT --pos-tol-km REAL --vel-tol-kms REAL [--kernel-dir PATH]'
-        write(*,'(a)') 'All options except --kernel-dir are required; --help loads no engine.'
+        write(*,'(a)') '  [--saved-points INT (0=all; default 2000)] [--end-utc ISO-UTC] [--final-only 0|1]'
+        write(*,'(a)') 'Base options except --kernel-dir are required; --end-utc overrides --hours.'
     end subroutine
 
     subroutine parse_arguments()
@@ -248,6 +273,9 @@ contains
             case('--pos-tol-km'); idx=16
             case('--vel-tol-kms'); idx=17
             case('--kernel-dir'); idx=18
+            case('--saved-points'); idx=19
+            case('--end-utc'); idx=20
+            case('--final-only'); idx=21
             case default
                 call fail('unknown option '//trim(key))
             end select
@@ -275,6 +303,9 @@ contains
             case(16); read(value,*,iostat=rc) pos_tol
             case(17); read(value,*,iostat=rc) vel_tol
             case(18); kernel_dir=trim(value)
+            case(19); read(value,*,iostat=rc) requested_saved_points
+            case(20); end_utc=trim(value)
+            case(21); read(value,*,iostat=rc) requested_final_only
             end select
             if(rc/=0) call fail('invalid value for '//trim(key))
             arg=arg+2
@@ -286,8 +317,9 @@ contains
             call fail('numeric options must be finite')
         if(hours<0 .or. save_hours<=0 .or. eta_sigma<0 .or. state_scale<=0 .or. domain_sigma<=0 .or. &
             pos_tol<=0 .or. vel_tol<=0) call fail('invalid numeric option range')
-        if(order<1 .or. max_order<order .or. requested_probes<0 .or. &
+        if(order<1 .or. max_order<order .or. requested_probes<0 .or. requested_saved_points<0 .or. &
             (adaptive/=0 .and. adaptive/=1)) call fail('invalid integer option range')
+        if(requested_final_only/=0 .and. requested_final_only/=1) call fail('invalid final-only flag')
         if(error_kind=='eta' .and. eta_sigma<=0) call fail('eta error requires positive eta-sigma')
     end subroutine
 
@@ -366,10 +398,11 @@ contains
         capacity=ceiling(hours)+ceiling(hours/save_hours)+2
         allocate(schedule(capacity),save_at(capacity))
         next_hour=3600.0_DP; next_save=3600.0_DP*save_hours; finish=3600.0_DP*hours
-        tol=1e-9_DP*max(1.0_DP,finish)
+        tol=100*epsilon(1.0_DP)*max(1.0_DP,finish)
         nsteps=0
         do while(min(next_hour,next_save,finish)>0)
             next_time=min(next_hour,next_save,finish)
+            if(abs(next_time-finish)<=tol) next_time=finish
             nsteps=nsteps+1; schedule(nsteps)=next_time
             save_at(nsteps)=abs(next_time-next_save)<=tol .or. abs(next_time-finish)<=tol
             if(abs(next_time-next_hour)<=tol) next_hour=next_hour+3600.0_DP
@@ -490,6 +523,12 @@ contains
         flush(splits_unit)
     end subroutine
 
+    subroutine write_progress()
+        write(*,'(a,a,a,f10.4,a,i0,a,i0,a,i0)') 'unified ',trim(method),' hour=',current/3600.0_DP, &
+            ' order=',order,' patches=',patches,' accuracy_valid=',merge(1,0,accuracy_valid)
+        flush(output_unit)
+    end subroutine
+
     subroutine save_output()
         integer :: member,a,b
         real(DP) :: begin,deviation(6),mean_correction(6),term(6),adjusted(6),next_mean(6),anchor(6)
@@ -526,8 +565,7 @@ contains
                 trim(sample_ids(a)),states(:,a),eta(a),s(a),u(a),wm(a),wc(a)
         end do
         flush(moments_unit); flush(points_unit)
-        write(*,'(a,a,a,f10.4,a,i0,a,i0,a,i0)') 'unified ',trim(method),' hour=',current/3600.0_DP, &
-            ' order=',order,' patches=',patches,' accuracy_valid=',merge(1,0,accuracy_valid)
+        call write_progress()
         io_seconds=io_seconds+wall_seconds()-begin
     end subroutine
 end program run_srp_unified

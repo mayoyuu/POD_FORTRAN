@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import csv
+from datetime import datetime
 import hashlib
 import json
 import math
@@ -144,6 +145,14 @@ def prepare_case(args, orbit, name, directory, design, physical, ids, opm):
     if (case['model'] == 'time_varying_modes') != (case['error'] == 'attitude'):
         raise ValueError('time_varying_modes and attitude error must be selected together')
     mean, cov, metadata = read_opm(opm, args.state_scale)
+    duration = args.hours
+    if args.end_utc:
+        stop = datetime.fromisoformat(args.end_utc.replace('Z', '+00:00'))
+        start = datetime.fromisoformat(metadata['EPOCH'].replace('Z', '+00:00'))
+        if stop.tzinfo is None or stop.utcoffset().total_seconds() != 0:
+            raise ValueError('--end-utc must explicitly use UTC')
+        duration = (stop-start).total_seconds()/3600
+        if duration <= 0: raise ValueError('--end-utc must be after OPM epoch')
     pop = population_for_case(design, mean, cov, args.eta_sigma, case)
     if physical is not None:
         pop[:, :6] = physical
@@ -170,7 +179,7 @@ def prepare_case(args, orbit, name, directory, design, physical, ids, opm):
             raise ValueError('mode table hash or OPM identity mismatch')
         if m.get('gate_passed') is not True or m.get('audit_complete') is not True:
             raise ValueError('mode table has not passed its original audit')
-        if args.hours > m['duration_hours']: raise ValueError('mode table does not cover requested duration')
+        if duration > m['duration_hours']: raise ValueError('mode table does not cover requested duration')
         changes.update(srp_mode_table_file=table.resolve(), srp_mode_metadata_file=meta.resolve())
         provenance.update(mode_table_sha256=sha(table), mode_metadata_sha256=sha(meta),
                           physical_model='existing time-varying surrogate; not live Box-Wing truth')
@@ -245,8 +254,18 @@ def validate_and_diagnose(directory, method, args, expected_points):
     begin = time.perf_counter()
     moments = np.atleast_1d(np.genfromtxt(directory/'hourly_moments.csv', delimiter=',', names=True))
     points = np.atleast_1d(np.genfromtxt(directory/'points.csv', delimiter=',', names=True))
-    grid = np.arange(math.floor(args.hours/args.save_hours+1e-10)+1)*args.save_hours
-    if len(grid) == 0 or not np.isclose(grid[-1], args.hours): grid = np.append(grid, args.hours)
+    duration = args.hours
+    span = None
+    if args.end_utc:
+        span = np.atleast_1d(np.genfromtxt(directory/'time_span.csv', delimiter=',', names=True))
+        if len(span) != 1 or not all(np.all(np.isfinite(span[k])) for k in span.dtype.names):
+            raise ValueError('invalid absolute endpoint time span')
+        duration = float(span['duration_hours'][0])
+        if duration <= 0 or not np.isclose(span['end_et'][0]-span['start_et'][0], duration*3600, rtol=0, atol=1e-6):
+            raise ValueError('inconsistent absolute endpoint time span')
+    grid = np.arange(math.floor(duration/args.save_hours+1e-10)+1)*args.save_hours
+    if len(grid) == 0 or not np.isclose(grid[-1], duration, rtol=0, atol=1e-10): grid = np.append(grid, duration)
+    if args.final_only: grid = np.array([duration])
     if len(moments) != len(grid) or not np.allclose(moments['hour'], grid, rtol=0, atol=1e-8):
         raise ValueError('hourly output time grid is incomplete or duplicated')
     for table in (moments, points):
@@ -259,6 +278,8 @@ def validate_and_diagnose(directory, method, args, expected_points):
         raise ValueError('output covariance is not symmetric')
     hz, cloud, reference, ids0 = [], [], [], None
     hz_seconds = 0.
+    diagnostic_count = min(2000, expected_points)
+    diagnostic_ids = np.rint(np.linspace(0, expected_points-1, diagnostic_count)).astype(int)
     for h in grid:
         p = points[np.isclose(points['hour'], h, rtol=0, atol=1e-8)]
         if len(p) != expected_points or len(np.unique(p['sample_id'])) != expected_points:
@@ -274,10 +295,10 @@ def validate_and_diagnose(directory, method, args, expected_points):
         if method == 'UT':
             diag = dict(status='not_applicable_weighted_sigma_points', n=len(p), dimension=6,
                         alpha=args.hz_alpha, statistic=None, p_value=None, reject_normal=None, rank=None)
-        elif len(p) <= 7:
+        elif diagnostic_count <= 7:
             diag = dict(status='insufficient_samples', n=len(p), dimension=6,
                         alpha=args.hz_alpha, statistic=None, p_value=None, reject_normal=None, rank=None)
-        else: diag = henze_zirkler(x, args.hz_alpha)
+        else: diag = henze_zirkler(x[diagnostic_ids], args.hz_alpha)
         hz_seconds += time.perf_counter()-mark
         hz.append(dict(hour=float(h), **diag))
     load_check_seconds = time.perf_counter()-begin-hz_seconds
@@ -289,7 +310,10 @@ def validate_and_diagnose(directory, method, args, expected_points):
         f.attrs.update(schema='srp_unified_v1', method=method, state_units='km,km/s',
                        covariance_units='rr:km^2;rv:km^2/s;vv:km^2/s^2',
                        reference='same initial OPM cannonball Real nominal',
-                       hz_sample_count=expected_points, hz_is_full_population=False)
+                       final_only=args.final_only, hz_sample_count=diagnostic_count,
+                       hz_is_full_population=(method != 'UT' and diagnostic_count == args.count))
+        if args.end_utc:
+            f.attrs.update(end_utc=args.end_utc, start_et=float(span['start_et'][0]), end_et=float(span['end_et'][0]))
         f.create_dataset('hour', data=grid)
         f.create_dataset('mean', data=means)
         f.create_dataset('covariance', data=covariance)
@@ -304,7 +328,8 @@ def validate_and_diagnose(directory, method, args, expected_points):
     post_io_seconds = time.perf_counter()-io_start
     valid = (moments['accuracy_valid'] == 1) & (moments['precision_confirmed'] == 1)
     valid = np.logical_and.accumulate(valid)
-    timing = next(csv.DictReader((directory/'timing.csv').open()))
+    with (directory/'timing.csv').open() as timing_file:
+        timing = next(csv.DictReader(timing_file))
     timing = {k: float(v) for k, v in timing.items()}
     timing.update(hz_seconds=hz_seconds, postprocess_seconds=load_check_seconds,
                   postprocess_io_seconds=post_io_seconds,
@@ -319,7 +344,7 @@ def run_one(job, args, exe, env):
     directory = base/label
     directory.mkdir(exist_ok=False)
     point_file = full_points
-    expected = min(2000, args.count)
+    expected = min(args.saved_points, args.count) if args.saved_points else args.count
     if method == 'UT':
         point_file = directory/'initial_sigma_points.csv'
         mean, cov, _ = read_opm(opm, args.state_scale)
@@ -332,6 +357,11 @@ def run_one(job, args, exe, env):
                        ('pos-tol-km', args.pos_tol_km), ('vel-tol-kms', args.vel_tol_kms),
                        ('kernel-dir', str(args.kernel_dir.resolve())+'/')):
         cmd += ['--'+key, str(value)]
+    cmd += ['--saved-points', str(args.saved_points)]
+    if args.final_only: cmd += ['--final-only', '1']
+    if args.end_utc:
+        stop = datetime.fromisoformat(args.end_utc.replace('Z', '+00:00'))
+        cmd += ['--end-utc', stop.isoformat(timespec='microseconds').replace('+00:00', 'Z')]
     (directory/'command.sh').write_text('#!/usr/bin/env bash\nset -euo pipefail\n'+shlex.join(cmd)+'\n', encoding='utf-8')
     started = time.perf_counter()
     result = {**provenance, 'orbit': orbit, 'case': case_name,
@@ -366,6 +396,9 @@ def parser():
     p.add_argument('--build-only', action='store_true', help='build once, print executable path, do not propagate')
     p.add_argument('--kernel-dir', type=Path, default=Path(os.environ.get('POD_KERNEL_DIR', ROOT/'kernels')))
     p.add_argument('--executable', type=Path)
+    p.add_argument('--saved-points', type=int, default=2000, help='saved points per epoch; 0 saves the full population')
+    p.add_argument('--final-only', action='store_true', help='save only the final epoch distribution')
+    p.add_argument('--end-utc', help='absolute final UTC epoch; overrides --hours in Fortran')
     p.add_argument('--srp-model', choices=('off', 'cannonball', 'box_wing', 'time_varying_modes'))
     p.add_argument('--attitude', choices=('sun', 'moon', 'earth'))
     p.add_argument('--srp-error', choices=('none', 'eta', 'attitude'))
@@ -390,6 +423,7 @@ def main(argv=None):
     if args.output is None: raise ValueError('--output is required unless --build-only is selected')
     for key in ('hours', 'save_hours', 'eta_sigma', 'state_scale', 'domain_sigma', 'pos_tol_km', 'vel_tol_kms', 'ut_alpha'):
         if not math.isfinite(getattr(args, key)) or getattr(args, key) <= 0: raise ValueError(f'{key} must be positive and finite')
+    if args.saved_points < 0: raise ValueError('--saved-points must be nonnegative')
     if args.count < 2 or args.jobs < 1 or args.probes < 1 or args.order < 1 or args.max_order < args.order:
         raise ValueError('invalid count/jobs/probes/order limits')
     if any((args.srp_model, args.attitude, args.srp_error)) and len(args.cases) != 1:
