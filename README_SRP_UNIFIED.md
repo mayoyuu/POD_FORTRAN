@@ -42,8 +42,16 @@ The modes branch is merged, then the new files are committed to main. There is
 no remote push in this workflow.
 
 New common entry: `app/run.sh` -> `tools/run_srp_unified.py` ->
-`app/run_srp_unified.f90`. Older SRP runners remain as research/compatibility
-entry points; new campaigns need not copy their per-case loops.
+`app/run_srp_unified.f90`. Superseded standalone legacy campaign launchers
+have been removed. The common Python entry remains because it also performs
+OPM covariance sampling, joint UT sigma-point generation, output validation,
+HZ diagnostics and HDF5 packing. Mode-specific mixed execution/audit tools
+remain dependencies of the offline mode analysis.
+
+Task-specific background/parallel Bash files belong outside this repository.
+Assume the user has rebuilt the executable, state that in a Bash comment, and
+pass its explicit path through `--executable`; do not compile implicitly in
+those commands.
 
 ## Run 15 days yourself
 
@@ -153,10 +161,14 @@ results.
 Two read-only checkers audit an existing campaign directory without propagating
 anything; both exit nonzero on failure and can write a JSON report.
 
+These standalone analysis tools and their tests now live outside this repository
+in `POD_Fortran_analysis`. Set `SRP_ANALYSIS_ROOT` to that directory before
+using the commands below.
+
 Before propagation (works on a `--prepare-only` tree):
 
 ```bash
-python3 tools/check_t1_eta_prior.py --root /absolute/output --eta-sigma 0.3333333333333333
+python3 "$SRP_ANALYSIS_ROOT/tools/check_t1_eta_prior.py" --root /absolute/output --eta-sigma 0.3333333333333333
 ```
 
 It checks the recorded `eta_prior`/`eta_support`, the `[-1,1]` physical bound and
@@ -169,7 +181,7 @@ standard deviation, and that the SRP~0 tail at `eta=-1` is populated at the rate
 After propagation, with `hourly_moments.csv` present:
 
 ```bash
-python3 tools/check_t1_c0_coverage.py --root /absolute/output --methods UT ADS
+python3 "$SRP_ANALYSIS_ROOT/tools/check_t1_c0_coverage.py" --root /absolute/output --methods UT ADS
 ```
 
 Per hour it reports the 6D Mahalanobis shift of the C0 mean (m6), the smallest
@@ -179,7 +191,7 @@ volume ratio. Defaults: m6 <= 6, whitened lambda >= -0.05 for Monte-Carlo noise,
 volume ratio >= 0.9. A T1 prior that truly reaches SRP~0 must contain C0, so a
 negative `lambda` beyond noise or `m6` above the limit is a real regression.
 
-Both tools are covered by `test/test_srp_unified_checks.py`.
+Both tools are covered by `test/test_srp_unified_checks.py` in the external analysis directory.
 
 ## Direct interface and migration
 

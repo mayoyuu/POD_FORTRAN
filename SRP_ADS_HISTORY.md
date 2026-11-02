@@ -53,8 +53,8 @@ For output prefix `PREFIX`:
 - `PREFIX_report.json`: format version, ADS dimension, nominal/uncertain SRP
   flags, first arbitrary split, first η-direction split, first maximum-depth
   warning, first validation failure and previous passing hour, plus the full
-  decision diagnostics for the first events. Batch execution adds OPM,
-  configuration, executable hashes and the source revision.
+  decision diagnostics for the first events. Historical batch reports may
+  also contain OPM/configuration/executable hashes and the source revision.
 - `PREFIX_patch_sXXXXXXX_{meta,coeff,splits,map}.csv`: sparse patch
   polynomials and split histories at the start, end, first split, first η
   split, first validation failure, or first unconfirmed checkpoint and its
@@ -77,68 +77,22 @@ All ranges, principal axes, RMS values, and 95% quantiles described here are
 fixed-design sampling metrics. They are not probability confidence intervals
 or continuous-domain guarantees.
 
-## Paired 15-day batch
+## Batch execution
 
-The batch scanner accepts only
-`OPM/<one-orbit-directory>/*_init.opm[.json]`. It therefore ignores nested
-supplementary batch directories. It also rejects OPMs whose covariance RSS is
-not 10 km and 0.03 m/s.
-
-Audit current treatment results for the new schema, hashes, and split log:
-
-```sh
-bash tools/run_srp_ads_batch.sh \
-  --output-root SRP/SRP_UCERTAINTY_PROP_WITHINIT \
-  --eta-sigma 0.3 --audit-only
-```
-
-Refresh only missing, legacy, or incompatible treatment results. Each orbit is
-written to a unique temporary prefix and replaces the old result only after
-the new report passes the complete compatibility audit:
-
-```sh
-bash tools/run_srp_ads_batch.sh \
-  --output-root SRP/SRP_UCERTAINTY_PROP_WITHINIT \
-  --eta-sigma 0.3 --jobs 4 --refresh-incompatible
-```
-
-Run the η=0 control campaign:
-
-```sh
-bash tools/run_srp_ads_batch.sh \
-  --output-root SRP/SRP_UCERTAINTY_PROP_WITHINIT_ETA0 \
-  --eta-sigma 0 --jobs 4 --refresh-incompatible
-```
-
-The batch stages an immutable copy of the executable so a later build cannot
-change binaries midway through a running campaign. Its root files are
-`batch_preflight.csv`, `batch_compatibility_audit.csv`,
-`batch_results.csv`, `batch_summary.json`, and `batch_build.log`.
-
-To run a campaign in the background:
-
-```sh
-mkdir -p SRP/logs
-nohup bash tools/run_srp_ads_batch.sh \
-  --output-root SRP/SRP_UCERTAINTY_PROP_WITHINIT_ETA0 \
-  --eta-sigma 0 --jobs 4 --refresh-incompatible \
-  > SRP/logs/eta0_batch.log 2>&1 &
-echo $! > SRP/logs/eta0_batch.pid
-```
-
-Monitor it with:
-
-```sh
-tail -f SRP/logs/eta0_batch.log
-ps -fp "$(cat SRP/logs/eta0_batch.pid)"
-```
+The legacy Python campaign launcher and its Bash wrappers have been removed.
+Use the already compiled `run_srp_ads_history` executable for native history
+runs. Supply task-specific parallel/background commands as short Bash files
+outside the repository; they should assume the executable has already been
+rebuilt and state that assumption in a comment. The native output files and
+the offline comparison/reconstruction tools described below remain available.
 
 ## Paired effect comparison
 
-After both roots are complete:
+After both roots are complete, set `SRP_ANALYSIS_ROOT` to the external
+`POD_Fortran_analysis` directory containing the migrated comparison tool:
 
 ```sh
-python3 tools/compare_srp_ads_pairs.py \
+python3 "$SRP_ANALYSIS_ROOT/tools/compare_srp_ads_pairs.py" \
   --treatment-root SRP/SRP_UCERTAINTY_PROP_WITHINIT \
   --control-root SRP/SRP_UCERTAINTY_PROP_WITHINIT_ETA0 \
   --output-root SRP/SRP_UCERTAINTY_EFFECT_WITHINIT

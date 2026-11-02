@@ -244,6 +244,41 @@ git checkout -b feature-new-algo
 
 ---
 
+## OPM 轨道传播
+
+`app/run_orbit_propagation.f90` 参考 `test_orbit_output`，使用 RKF78 输出逐小时星历和末时刻 OPM。
+在项目根目录运行（需已配置项目的链接库和 SPICE 内核）：
+
+```bash
+fpm run --target run_orbit_propagation --profile release -- \
+  --opm input/FAC_2604_1.opm --config config/dummy_test_config.txt \
+  --hours 24 --output output/falcon_24h
+
+# 也可以把 --hours 24 换成 --end-utc '2026-08-08T07:20:00.000'
+```
+
+- `--hours`、`--seconds`、`--end-utc` 三选一；支持零时长，不支持向后传播。
+- 输入沿用项目的 **JSON OPM**，单位 km、km/s，地心 J2000/GCRF，历元 UTC。
+  缺少坐标系字段时按这一约定解释；不进行其他坐标系转换。
+- 输出 `PREFIX_ephemeris.csv`：初始时刻、从初始时刻起每隔 3600 秒及精确末时刻。
+  包含 UTC、经过秒数和六维状态；有协方差时另含 21 个下三角分量，单位为 km²、km²/s、km²/s²。
+- 输出 `PREFIX_final.opm.json`：末时刻状态、传播后的协方差（若有），可继续作为输入。
+  保留输入的对象标识和质量/面积等元数据，不复制旧的 GMM、拟合残差或观测结果。
+- 有完整初始协方差时默认 UT，使用现有模块的 `kappa=0.5`，初始生成 13 个 sigma 点并连续传播；
+  星历和末时刻 OPM 的状态为 **UT 均值**。无协方差时传播单条标称轨道，不写虚构协方差。
+  协方差须正定或全零；缺项、非有限值和非正定矩阵会报错。
+- 力模型、积分容差、光压参数均取自 `--config`（默认 `config/config.txt`），不会从 OPM 元数据覆盖配置。
+  仅传播初始状态不确定性，不额外注入过程噪声或光压参数不确定性。
+- `--output` 默认是输入路径去扩展名后加 `_propagated`；输出目录需存在，不覆盖已有结果。
+  `--kernel-dir DIR` 可指定内核目录，`--help` 显示参数。
+
+原生集成测试（使用已编译的可执行文件，不自动编译）：
+
+```bash
+POD_ORBIT_EXE=/absolute/path/to/run_orbit_propagation \
+  python3 -m unittest discover -s test -p test_run_orbit_propagation.py -v
+```
+
 ## 📝 License & Citation
 
 本项目采用 MIT 开源协议。引用本项目请注明作者及 GitHub 地址。
