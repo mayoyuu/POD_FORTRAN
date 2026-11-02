@@ -15,6 +15,7 @@ dace_build/*.o
 .venv-srp/
 logs/
 output/
+results/
 fort.*
 pipeline_res/
 OPM/
@@ -25,7 +26,6 @@ analysis/
 SRP/
 docs/
 20261005SRP/
-tools/
 
 # Compiled static libraries (Optional, but recommended to ignore)
 lib/*.a

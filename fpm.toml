@@ -51,6 +51,11 @@ name = "run_uq_radec"
 source-dir = "app"
 main = "run_uq_radec.f90"
 
+[[executable]]
+name = "run_crtbp_srp_study"
+source-dir = "app"
+main = "run_crtbp_srp_study.f90"
+
 
 [[test]]
 name = "test_sample_particles_from_gmm"
@@ -76,6 +81,21 @@ main = "test_ads_core_dynamic_dimensions.f90"
 name = "test_hfem_ads_propagation"
 source-dir = "test"
 main = "test_hfem_ads_propagation.f90"
+
+[[test]]
+name = "test_crtbp_srp_study_integrator"
+source-dir = "test"
+main = "test_crtbp_srp_study_integrator.f90"
+
+[[test]]
+name = "test_crtbp_srp_study_ads"
+source-dir = "test"
+main = "test_crtbp_srp_study_ads.f90"
+
+[[test]]
+name = "test_crtbp_srp_study_convergence"
+source-dir = "test"
+main = "test_crtbp_srp_study_convergence.f90"
 
 
 [[test]]
