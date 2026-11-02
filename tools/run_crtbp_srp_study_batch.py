@@ -253,6 +253,8 @@ def run_one(job, args, exe: Path, env: dict) -> dict:
         record["n_splits_total"] = res.get("n_splits_total")
         record["n_max_active"] = res.get("n_max_active")
         record["first_split_time"] = res.get("first_split_time")
+        record["n_diverged"] = res.get("n_diverged")
+        record["first_divergence_time"] = res.get("first_divergence_time")
         record["split_count_dir"] = res.get("split_count_dir")
         record["t_end_days"] = res.get("t_end_days")
         record["has_beta_sens"] = res.get("beta_sensitivity") is not None
@@ -272,9 +274,9 @@ def parser():
                    help="subset of phase_index values (default: all)")
     p.add_argument("--solar-phases", type=float, nargs="+", default=[0.0],
                    help="solar initial phases alpha0 in radians (default: 0.0)")
-    p.add_argument("--da-order", type=int, default=6)
-    p.add_argument("--err-toll", type=float, default=1.0e-9)
-    p.add_argument("--n-split-max", type=int, default=8)
+    p.add_argument("--da-order", type=int, default=8)
+    p.add_argument("--err-toll", type=float, default=1.0e-8)
+    p.add_argument("--n-split-max", type=int, default=12)
     p.add_argument("--jobs", type=int, default=1)
     p.add_argument("--limit", type=int, default=0,
                    help="stop after N cases (0 = no limit); useful for smoke tests")
@@ -351,6 +353,7 @@ def main(argv=None) -> int:
     fields = ("config", "orbit", "family", "libration_point", "phase_index",
               "solar_phase_rad", "status", "elapsed_s", "wall_time_s", "app_status",
               "n_patches", "n_splits_total", "n_max_active", "first_split_time",
+              "n_diverged", "first_divergence_time",
               "t_end_days", "has_beta_sens")
     with (args.outdir / "campaign_summary.csv").open("w", newline="") as f:
         writer = csv.DictWriter(f, fields, extrasaction="ignore")

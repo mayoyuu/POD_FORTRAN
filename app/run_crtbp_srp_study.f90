@@ -118,7 +118,8 @@ program run_crtbp_srp_study
         beta_lower, beta_upper, tilt_max_deg, chi_lower, chi_upper, da_order, err_toll, &
         n_split_max, t_end, t_end*TU_S/86400.0_DP, result_manifold%n_patches, &
         log%n_splits_total, n_split_dir, log%n_max_active, log%first_split_time, &
-        mean_state, cov_state, beta_sens, beta_lower == 0.0_DP, wall_t1 - wall_t0, status)
+        log%n_diverged, log%first_divergence_time, &
+        mean_state, cov_state, beta_sens, beta_lower == 0.0_DP, wall_t1 - wall_t0, status, log)
 
     call mf_destroy(result_manifold)
 
@@ -157,14 +158,18 @@ contains
     subroutine write_json(path, x0, mu, period_nd, alpha0_rad, model, &
             beta_lower, beta_upper, tilt_max_deg, chi_lower, chi_upper, da_order, err_toll, &
             n_split_max, t_end_nd, t_end_days, n_patches, n_splits, split_dir, n_max_active, &
-            first_split_time, mean_state, cov_state, beta_sens, has_beta_sens, wall_s, status)
+            first_split_time, n_diverged, first_divergence_time, &
+            mean_state, cov_state, beta_sens, has_beta_sens, wall_s, status, log)
         character(len=*), intent(in) :: path, model
         real(DP), intent(in) :: x0(6), mu, period_nd, alpha0_rad
         real(DP), intent(in) :: beta_lower, beta_upper, tilt_max_deg, chi_lower, chi_upper
-        real(DP), intent(in) :: err_toll, t_end_nd, t_end_days, first_split_time, wall_s
-        integer, intent(in) :: da_order, n_split_max, n_patches, n_splits, n_max_active, status
+        real(DP), intent(in) :: err_toll, t_end_nd, t_end_days, first_split_time, &
+            first_divergence_time, wall_s
+        integer, intent(in) :: da_order, n_split_max, n_patches, n_splits, n_max_active, &
+            n_diverged, status
         real(DP), intent(in) :: split_dir(4), mean_state(6), cov_state(6,6), beta_sens(6)
         logical, intent(in) :: has_beta_sens
+        type(study_ads_log), intent(in) :: log
         integer :: u, i, j
 
         open(newunit=u, file=trim(path), status='replace', action='write')
@@ -187,6 +192,8 @@ contains
         write(u, '(A,I0,A)') '  "n_splits_total": ', n_splits, ','
         write(u, '(A,I0,A)') '  "n_max_active": ', n_max_active, ','
         write(u, '(A,ES20.12,A)') '  "first_split_time": ', first_split_time, ','
+        write(u, '(A,I0,A)') '  "n_diverged": ', n_diverged, ','
+        write(u, '(A,ES20.12,A)') '  "first_divergence_time": ', first_divergence_time, ','
         write(u, '(A,ES20.12,A)') '  "wall_time_s": ', wall_s, ','
         write(u, '(A,I0,A)') '  "status": ', status, ','
         write(u, '(A)', advance='no') '  "x0": ['
@@ -212,13 +219,40 @@ contains
         if (has_beta_sens) then
             write(u, '(A)', advance='no') '  "beta_sensitivity": ['
             call write_real_array(u, beta_sens, 6)
-            write(u, '(A)') ']'
+            write(u, '(A)') '],'
         else
-            write(u, '(A)') '  "beta_sensitivity": null'
+            write(u, '(A)') '  "beta_sensitivity": null,'
         end if
+        write(u, '(A)') '  "split_events": ['
+        call write_split_events(u, log)
+        write(u, '(A)') ']'
         write(u, '(A)') '}'
         close(u)
     end subroutine write_json
+
+    subroutine write_split_events(u, log)
+        integer, intent(in) :: u
+        type(study_ads_log), intent(in) :: log
+        integer :: i
+        do i = 1, log%n_splits_total
+            write(u, '(A)', advance='no') '    {'
+            write(u, '(A,I0,A)', advance='no') '"i":', i, ','
+            write(u, '(A,ES13.6,A)', advance='no') '"t":', log%split_events(i)%time_nd, ','
+            write(u, '(A,ES13.6,A)', advance='no') '"td":', &
+                log%split_events(i)%time_nd*TU_S/86400.0_DP, ','
+            write(u, '(A,I0,A)', advance='no') '"ax":', log%split_events(i)%axis, ','
+            write(u, '(A,I0,A)', advance='no') '"d":', log%split_events(i)%depth, ','
+            write(u, '(A,I0,A)', advance='no') '"na":', log%split_events(i)%n_active, ','
+            write(u, '(A,ES13.6,A)', advance='no') '"c":', log%split_events(i)%center, ','
+            write(u, '(A,ES13.6,A)', advance='no') '"w":', log%split_events(i)%halfwidth, ','
+            write(u, '(A,ES13.6)', advance='no') '"crit":', log%split_events(i)%criterion
+            if (i < log%n_splits_total) then
+                write(u, '(A)') '},'
+            else
+                write(u, '(A)') '}'
+            end if
+        end do
+    end subroutine write_split_events
 
     subroutine write_real_array(u, a, n)
         integer, intent(in) :: u, n

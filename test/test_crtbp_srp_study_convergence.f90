@@ -1,9 +1,7 @@
-!> Convergence and cost validation for the SRP study ADS engine.
-!! For each representative orbit (one per family) we sweep DA order and
-!! truncation-error threshold, and report the max |ADS - direct integration|
-!! endpoint state error, the patch/split counts, and wall time. This is the
-!! M1/M2 gate before the full batch: it pins down order, err_toll and the
-!! per-case cost so the Python dispatcher can be sized correctly.
+!> Validation for the SRP study ADS engine at the fixed design
+!! (DA order 8, err_tol 1e-8, n_split_max 12). For each representative orbit
+!! (one per family) we report the max |ADS - direct integration| endpoint
+!! state error, the patch/split/divergence counts, and wall time.
 program test_crtbp_srp_study_convergence
     use pod_global, only: DP
     use pod_dace_classes, only: dace_max_variables, active_da_count
@@ -22,7 +20,7 @@ program test_crtbp_srp_study_convergence
     real(DP), parameter :: DT_MIN = 1.0e-13_DP
     integer,  parameter :: MAX_STEPS = 100000
     integer,  parameter :: N_SEGMENTS = 48
-    integer,  parameter :: N_SPLIT_MAX = 8
+    integer,  parameter :: N_SPLIT_MAX = 12
     integer,  parameter :: N_ORBITS = 5
 
     type :: orbit_t
@@ -32,8 +30,7 @@ program test_crtbp_srp_study_convergence
     end type
 
     type(orbit_t) :: orbits(N_ORBITS)
-    integer :: i, order, n_fail
-    real(DP), parameter :: tolls(4) = [1.0e-7_DP, 1.0e-8_DP, 1.0e-9_DP, 1.0e-10_DP]
+    integer :: i, n_fail
 
     call set_crtbp_mu(MU)
 
@@ -50,34 +47,25 @@ program test_crtbp_srp_study_convergence
 
     n_fail = 0
     write(*,'(A)') '# SRP study ADS convergence'
-    write(*,'(A12,1X,A4,1X,A2,1X,A5,1X,A8,1X,A9,1X,A8,1X,A7,1X,A9,1X,A7,1X,A7)') &
-        'orbit', 'dim', 'mdl', 'order', 'toll', 'max_err', 'patches', 'splits', &
-        't_split_d', 'nmax', 'wall_s'
+    write(*,'(A12,1X,A4,1X,A2,1X,A5,1X,A8,1X,A9,1X,A9,1X,A8,1X,A7,1X,A9,1X,A7,1X,A9,1X,A7,1X,A7,1X,A7)') &
+        'orbit', 'dim', 'mdl', 'order', 'toll', 'rel_pos', 'rel_vel', 'patches', 'splits', &
+        't_split_d', 'nmax', 't_div_d', 'ndiv', 'wall_s', 'nout'
 
-    ! Q1 1D cannonball: order sweep + threshold sweep (all orbits).
+    ! Q1 1D cannonball at fixed design (order 8, err_tol 1e-8, all orbits).
     do i = 1, N_ORBITS
-        do order = 2, 8, 2
-            call run_case(orbits(i), '1D', 'CB', order, 1.0e-9_DP, &
-                srp_study_domain(0.0_DP, 0.1_DP))
-        end do
-        do order = 1, size(tolls)
-            if (tolls(order) == 1.0e-9_DP) cycle  ! already covered above
-            call run_case(orbits(i), '1D', 'CB', 6, tolls(order), &
-                srp_study_domain(0.0_DP, 0.1_DP))
-        end do
+        call run_case(orbits(i), '1D', 'CB', 8, 1.0e-8_DP, &
+            srp_study_domain(0.0_DP, 0.1_DP))
     end do
 
-    ! Q2 3D flatplate: order sweep on the two extremes (DRO, Halo L1).
+    ! Q2 3D flatplate at fixed design (DRO, Halo L1).
     do i = 1, N_ORBITS
         if (i /= 1 .and. i /= 2) cycle
-        do order = 4, 6, 2
-            call run_case(orbits(i), '3D', 'FP', order, 1.0e-9_DP, &
-                srp_study_domain(0.08_DP, 0.12_DP, tilt_max_deg=10.0_DP))
-        end do
+        call run_case(orbits(i), '3D', 'FP', 8, 1.0e-8_DP, &
+            srp_study_domain(0.08_DP, 0.12_DP, tilt_max_deg=10.0_DP))
     end do
 
-    ! Q4 4D flatplate: single confirmation on Halo L1 (the slow path).
-    call run_case(orbits(2), '4D', 'FP', 6, 1.0e-9_DP, &
+    ! Q4 4D flatplate at fixed design (Halo L1).
+    call run_case(orbits(2), '4D', 'FP', 8, 1.0e-8_DP, &
         srp_study_domain(0.08_DP, 0.12_DP, tilt_max_deg=10.0_DP, &
         chi_lower=0.4_DP, chi_upper=0.8_DP))
 
@@ -116,9 +104,9 @@ contains
         type(CrtbpSrpStudyConfig) :: cfg
         type(manifold_type) :: result_manifold
         type(study_ads_log) :: log
-        integer :: index_map(4), nvar, n_samples, status, l, j
+        integer :: index_map(4), nvar, n_samples, status, l, j, n_outside
         real(DP) :: err_toll_vec(6), tend, dt_max, c(4), h(4), p(4), xout(6)
-        real(DP) :: state_err, max_state_err
+        real(DP) :: max_rel_pos, max_rel_vel, dr_norm, dv_norm, r_norm, v_norm
         real(DP), allocatable :: xi(:,:), values(:,:)
         logical, allocatable :: found(:)
         real(DP) :: wall_t0, wall_t1
@@ -149,11 +137,12 @@ contains
         call check(status == 0, dim//' manifold evaluate ok')
 
         c = domain%center(); h = domain%halfwidth()
-        max_state_err = 0.0_DP
+        max_rel_pos = 0.0_DP
+        max_rel_vel = 0.0_DP
+        n_outside = 0
         do l = 1, n_samples
             if (.not. found(l)) then
-                n_fail = n_fail + 1
-                print '(A,A,A,I0)', 'FAIL: sample outside manifold: ', dim, ' #', l
+                n_outside = n_outside + 1
                 cycle
             end if
             p = c
@@ -162,14 +151,19 @@ contains
             end do
             call study_adaptive_integrate_real(orbit%x0, 0.0_DP, tend, REL_TOL, ABS_TOL, &
                 DT_MIN, dt_max, MAX_STEPS, cfg, p, xout)
-            state_err = maxval(abs(values(1:6, l) - xout))
-            max_state_err = max(max_state_err, state_err)
+            dr_norm = norm2(values(1:3, l) - xout(1:3))
+            dv_norm = norm2(values(4:6, l) - xout(4:6))
+            r_norm = norm2(xout(1:3))
+            v_norm = norm2(xout(4:6))
+            max_rel_pos = max(max_rel_pos, dr_norm / r_norm)
+            max_rel_vel = max(max_rel_vel, dv_norm / v_norm)
         end do
 
-        write(*,'(A12,1X,A4,1X,A2,1X,I5,1X,ES8.1,1X,ES9.2,1X,I8,1X,I7,1X,F9.2,1X,I7,1X,F7.2)') &
-            trim(orbit%label), dim, mdl, da_order, toll, max_state_err, &
+        write(*,'(A12,1X,A4,1X,A2,1X,I5,1X,ES8.1,1X,ES9.2,1X,ES9.2,1X,I8,1X,I7,1X,F9.2,1X,I7,1X,F9.2,1X,I7,1X,F7.2,1X,I7)') &
+            trim(orbit%label), dim, mdl, da_order, toll, max_rel_pos, max_rel_vel, &
             result_manifold%n_patches, log%n_splits_total, &
-            log%first_split_time*TU_S/86400.0_DP, log%n_max_active, wall_t1 - wall_t0
+            log%first_split_time*TU_S/86400.0_DP, log%n_max_active, &
+            log%first_divergence_time*TU_S/86400.0_DP, log%n_diverged, wall_t1 - wall_t0, n_outside
 
         call mf_destroy(result_manifold)
         deallocate(xi, values, found)

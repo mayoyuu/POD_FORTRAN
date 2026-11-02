@@ -17,18 +17,39 @@ module pod_crtbp_srp_study_ads_module
     use pod_crtbp_srp_study_module, only: CrtbpSrpStudyConfig
     use pod_crtbp_srp_study_integrator_module, only: StudyIntegratorTempPool, &
         study_adaptive_integrate_da
+    use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
     implicit none
     private
 
     integer, parameter :: N_STATE = 6, N_PARAM = 4, N_TOTAL = 10
+
+    !> Divergence threshold, distinct from the split threshold. A patch is
+    !! dropped (recorded as diverged) once its truncation-error estimate
+    !! exceeds this or is non-finite; err_toll only decides whether a finite,
+    !! bounded patch must be split further.
+    real(DP), parameter :: DIV_TOL = 1.0_DP
+
+    !> One ADS split event, recorded for the Q3 split-direction question.
+    type, public :: study_ads_split_event
+        real(DP) :: time_nd = 0.0_DP     ! nondimensional split time
+        integer  :: axis = 0             ! physical axis: 1=beta, 2=chi, 3=u, 4=v
+        integer  :: depth = 0            ! patch depth before this split
+        integer  :: n_active = 0         ! active patches after this split
+        real(DP) :: center = 0.0_DP      ! patch center in the split dim (global xi)
+        real(DP) :: halfwidth = 0.0_DP   ! patch halfwidth in the split dim (global xi)
+        real(DP) :: criterion = 0.0_DP   ! max truncation error that triggered the split
+    end type
 
     !> Split diagnostics collected during one ADS propagation.
     type, public :: study_ads_log
         integer  :: n_splits_total = 0
         integer  :: split_count_dir(4) = 0   ! per physical axis: beta, chi, u, v
         integer  :: n_max_active = 0         ! largest number of live patches
+        integer  :: n_diverged = 0           ! patches dropped at max depth still over toll
         real(DP) :: first_split_time = -1.0_DP
+        real(DP) :: first_divergence_time = -1.0_DP
         real(DP) :: t_end = 0.0_DP
+        type(study_ads_split_event), allocatable :: split_events(:)
     end type
 
     public :: study_ads_propagate
@@ -143,9 +164,10 @@ contains
         type(patch_type) :: p, left, right
         type(AlgebraicVector) :: root_da_vec
         type(StudyIntegratorTempPool) :: pool
-        real(DP), allocatable :: scores(:)
-        real(DP) :: tau0, tau1, dtau, errors(6), top, toll
+        real(DP), allocatable :: scores(:), gc(:), gw(:)
+        real(DP) :: tau0, tau1, dtau, errors(6), top, toll, max_err
         integer :: nvar, i, j, dir, axis, depth, k
+        logical :: diverged
 
         nvar = domain%n_variables()
         if (nvar < 1) error stop 'study_ads: domain has no active parameter'
@@ -166,8 +188,11 @@ contains
         log%n_splits_total = 0
         log%split_count_dir = 0
         log%n_max_active = active%n_patches
+        log%n_diverged = 0
         log%first_split_time = -1.0_DP
+        log%first_divergence_time = -1.0_DP
         log%t_end = t_end
+        allocate(log%split_events(max(1, 2**n_split_max - 1)))
         toll = maxval(err_toll)
 
         dtau = t_end / real(n_segments, DP)
@@ -188,14 +213,34 @@ contains
                 do i = 1, N_STATE
                     call da_estim_norm(p%da_vec%elements(i)%handle, 0, da_order, errors(i))
                 end do
+                max_err = maxval(errors)
 
                 depth = sh_count(p%history, 0)
 
-                if (maxval(errors) <= toll .or. depth >= n_split_max) then
+                diverged = .false.
+                do i = 1, N_STATE
+                    if (.not. ieee_is_finite(errors(i))) diverged = .true.
+                end do
+                if (max_err > DIV_TOL) diverged = .true.
+
+                if (diverged) then
+                    log%n_diverged = log%n_diverged + 1
+                    if (log%first_divergence_time < 0.0_DP) log%first_divergence_time = tau1
+                    if (verbose) then
+                        write(*,'(A,I0,A,I0,A,ES10.3)') '[study ADS] t=', k, &
+                            ' DIVERGED depth=', depth, ' err=', max_err
+                    end if
+                else if (max_err <= toll) then
                     call mf_push(next_active, p)
                     if (verbose) then
                         write(*,'(A,I0,A,I0,A,ES10.3)') '[study ADS] t=', k, &
-                            ' depth=', depth, ' err=', maxval(errors)
+                            ' depth=', depth, ' err=', max_err
+                    end if
+                else if (depth >= n_split_max) then
+                    call mf_push(next_active, p)
+                    if (verbose) then
+                        write(*,'(A,I0,A,I0,A,ES10.3)') '[study ADS] t=', k, &
+                            ' MAXDEPTH depth=', depth, ' err=', max_err
                     end if
                 else
                     scores = 0.0_DP
@@ -206,6 +251,8 @@ contains
                         end do
                     end do
                     dir = maxloc(scores, dim=1)
+                    gc = sh_center(p%history)
+                    gw = sh_width(p%history)
                     call patch_split(p, dir, left, right)
                     axis = physical_axis_of_dir(dir, index_map)
                     log%n_splits_total = log%n_splits_total + 1
@@ -213,6 +260,13 @@ contains
                     if (log%first_split_time < 0.0_DP) log%first_split_time = tau1
                     call mf_push(next_active, left)
                     call mf_push(next_active, right)
+                    log%split_events(log%n_splits_total)%time_nd = tau1
+                    log%split_events(log%n_splits_total)%axis = axis
+                    log%split_events(log%n_splits_total)%depth = depth
+                    log%split_events(log%n_splits_total)%n_active = next_active%n_patches
+                    log%split_events(log%n_splits_total)%center = gc(dir)
+                    log%split_events(log%n_splits_total)%halfwidth = 0.5_DP * gw(dir)
+                    log%split_events(log%n_splits_total)%criterion = max_err
                     if (verbose) then
                         write(*,'(A,I0,A,I0,A,A,A,I0,A,I0)') '[study ADS] t=', k, &
                             ' split dir=', dir, ' (', trim(SRP_PARAMETER_NAMES(axis)), &
@@ -232,6 +286,8 @@ contains
         call move_manifold(active, result_manifold)
 
         deallocate(scores)
+        if (allocated(gc)) deallocate(gc)
+        if (allocated(gw)) deallocate(gw)
         call pool%destroy()
 
         if (verbose) then
