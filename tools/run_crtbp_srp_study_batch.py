@@ -158,10 +158,13 @@ def enumerate_cases(args, orbits: list):
     """Yield (case_key, orbit, phase, phase_index, solar_phase, cfg_id, cfg)."""
     orbit_filter = None if not args.orbits else set(args.orbits)
     phase_filter = None if not args.phases else set(args.phases)
+    prefix = args.orbit_prefix
     count = 0
     for orbit in orbits:
         oid = orbit.get("orbit_id")
         if orbit_filter is not None and oid not in orbit_filter:
+            continue
+        if prefix and not oid.startswith(prefix):
             continue
         mu = orbit.get("mu")
         period_nd = orbit.get("period_nd")
@@ -287,6 +290,8 @@ def parser():
     p.add_argument("--configs", nargs="+", default=list(CONFIGS), choices=list(CONFIGS),
                    help="experiment configs to run")
     p.add_argument("--orbits", nargs="+", help="subset of orbit_id values (default: all)")
+    p.add_argument("--orbit-prefix", type=str, default=None,
+                   help="only orbits whose orbit_id starts with this prefix (e.g. PL1)")
     p.add_argument("--phases", type=int, nargs="+",
                    help="subset of phase_index values (default: all)")
     p.add_argument("--solar-phases", type=float, nargs="+", default=[0.0],
