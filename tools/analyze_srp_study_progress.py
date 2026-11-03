@@ -6,8 +6,9 @@ as each case finishes, so it is a reliable snapshot of partial progress. This sc
 reads that snapshot and, for one orbit family (default Halo North L1, orbit_id prefix
 ``H1N`` = 16 amplitudes x 24 phases = 384 cases per config), produces per-config:
 
-  * a heatmap of ``first_split_time`` (days) over amplitude x phase
+  * heatmaps of ``first_split_time`` (days) and ``n_splits_total`` over amplitude x phase
   * a per-case table of split statistics (total splits + per-axis split counts)
+  * a per-config split-direction summary (beta/chi/u/v totals)
 
 If matplotlib + numpy are available the heatmap is saved as PNG; otherwise a plain
 ASCII grid is printed instead, so the script always works on a bare server.
@@ -227,67 +228,106 @@ def png_heatmap(amps, phases, matrix, title, path, fmt="{:.1f}"):
     plt.close(fig)
 
 
-def ascii_heatmap(amps, phases, raw_grid, title, stream):
+def ascii_heatmap(amps, phases, str_matrix, title, legend, stream):
     width = 7
     print(f"\n=== {title} ===", file=stream)
     header = "amp\\ph " + "".join(f"{p:>{width}}" for p in phases)
     print(header, file=stream)
     print("-" * len(header), file=stream)
-    for a in amps:
+    for i, a in enumerate(amps):
         row = f"{a/1000:>5.1f}k "
-        for p in phases:
-            v = raw_grid[a][p]
-            if v is None:
-                cell = "  .   "  # missing / not yet completed
-            elif float(v) < 0.0:
-                cell = "  inf  "  # completed, never split
-            else:
-                cell = f"{float(v)*ND_TO_DAYS:{width}.2f}"
-            row += cell
+        for j in range(len(phases)):
+            row += str_matrix[i][j]
         print(row, file=stream)
-    print("(. = not completed; inf = completed but never split; else first_split_time in days)",
-          file=stream)
+    print(legend, file=stream)
 
 
-def render_config(jobs, outdir: Path, png: bool) -> None:
+def _emit_heatmap(metric, title, amps, phases, float_matrix, str_matrix, cfg, outdir,
+                  png, fmt, legend):
+    if png and HAS_MPL:
+        path = outdir / f"heatmap_{metric}_{cfg}.png"
+        png_heatmap(amps, phases, float_matrix, title, path, fmt=fmt)
+        print(f"  {metric} heatmap -> {path}")
+    else:
+        ascii_heatmap(amps, phases, str_matrix, title, legend, sys.stdout)
+        if png and not HAS_MPL:
+            print("  (matplotlib not installed; install it to get PNG heatmaps)",
+                  file=sys.stderr)
+
+
+def render_direction_summary(jobs) -> dict:
+    cfg = jobs[0]["config"]
+    total = 0
+    dirs = [0, 0, 0, 0]
+    n_div = 0
+    for j in jobs:
+        scd = j.get("split_count_dir") or [0, 0, 0, 0]
+        for k in range(4):
+            dirs[k] += int(scd[k])
+            total += int(scd[k])
+        n_div += int(j.get("n_diverged") or 0)
+    names = ["beta", "chi", "u", "v"]
+    parts = "  ".join(f"{n}={dirs[k]}" for k, n in enumerate(names))
+    print(f"  split directions (total={total} splits across {len(jobs)} cases): {parts}; "
+          f"diverged={n_div}")
+    return {"config": cfg, "n_cases": len(jobs), "total_splits": total,
+            "split_beta": dirs[0], "split_chi": dirs[1],
+            "split_u": dirs[2], "split_v": dirs[3], "n_diverged": n_div}
+
+
+def render_config(jobs, outdir: Path, png: bool) -> dict:
     cfg = jobs[0]["config"]
     amps = sorted_amplitudes(jobs)
     phases = sorted_phases(jobs)
     n_total = len(amps) * len(phases)
+    n_done = len(jobs)
 
+    print(f"\nconfig {cfg}: {n_done}/{n_total} cases completed "
+          f"(amplitudes {amps[0]}..{amps[-1]} km, phases {phases[0]}..{phases[-1]})")
+
+    # ---- first_split_time (days) ----
     fs_grid = build_grid(jobs, "first_split_time")
-    matrix = []
+    fs_float, fs_str = [], []
     n_no_split = 0
     for a in amps:
-        row = []
+        frow, srow = [], []
         for p in phases:
             v = fs_grid[a][p]
             if v is None:
-                row.append(float("nan"))
-                continue
-            v = float(v)
-            if v < 0.0:
-                row.append(float("nan"))
-                n_no_split += 1
+                frow.append(float("nan")); srow.append("  .   ")
             else:
-                row.append(v * ND_TO_DAYS)
-        matrix.append(row)
+                v = float(v)
+                if v < 0.0:
+                    frow.append(float("nan")); srow.append("  inf  "); n_no_split += 1
+                else:
+                    d = v * ND_TO_DAYS
+                    frow.append(d); srow.append(f"{d:7.2f}")
+        fs_float.append(frow); fs_str.append(srow)
+    _emit_heatmap("first_split_time",
+                  f"{cfg}: first_split_time (days) [{n_done}/{n_total} completed, "
+                  f"{n_no_split} never split]",
+                  amps, phases, fs_float, fs_str, cfg, outdir, png, "{:.1f}",
+                  "(. = not completed; inf = completed but never split; else days)")
 
-    n_done = sum(1 for j in jobs)
-    title = f"{cfg}: first_split_time (days)  [{n_done}/{n_total} completed]"
-    print(f"\nconfig {cfg}: {n_done}/{n_total} cases completed "
-          f"(amplitudes {amps[0]}..{amps[-1]} km, phases {phases[0]}..{phases[-1]}, "
-          f"{n_no_split} never split)")
+    # ---- n_splits_total ----
+    ns_grid = build_grid(jobs, "n_splits_total")
+    ns_float, ns_str = [], []
+    for a in amps:
+        frow, srow = [], []
+        for p in phases:
+            v = ns_grid[a][p]
+            if v is None:
+                frow.append(float("nan")); srow.append("  .   ")
+            else:
+                n = int(v)
+                frow.append(float(n)); srow.append(f"{n:7d}")
+        ns_float.append(frow); ns_str.append(srow)
+    _emit_heatmap("n_splits_total",
+                  f"{cfg}: n_splits_total [{n_done}/{n_total} completed]",
+                  amps, phases, ns_float, ns_str, cfg, outdir, png, "{:.0f}",
+                  "(. = not completed; else n_splits_total)")
 
-    if png and HAS_MPL:
-        png_path = outdir / f"heatmap_first_split_{cfg}.png"
-        png_heatmap(amps, phases, matrix, title, png_path)
-        print(f"  heatmap -> {png_path}")
-    else:
-        ascii_heatmap(amps, phases, fs_grid, title, sys.stdout)
-        if png and not HAS_MPL:
-            print("  (matplotlib not installed; install it to get PNG heatmaps)",
-                  file=sys.stderr)
+    return render_direction_summary(jobs)
 
 
 # ---------------------------------------------------------------------------
@@ -340,10 +380,19 @@ def main(argv=None) -> int:
     write_stats_csv(sel, stats_path)
     print(f"split statistics table -> {stats_path}")
 
-    # Per-config heatmap
+    # Per-config heatmap + direction summary
+    dir_summaries = []
     for cfg in configs:
-        render_config([j for j in sel if j["config"] == cfg],
-                      args.outdir, png=not args.no_png)
+        summary = render_config([j for j in sel if j["config"] == cfg],
+                                args.outdir, png=not args.no_png)
+        dir_summaries.append(summary)
+
+    dir_path = args.outdir / f"direction_summary_{args.orbit_prefix}.csv"
+    with dir_path.open("w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=list(dir_summaries[0].keys()))
+        w.writeheader()
+        w.writerows(dir_summaries)
+    print(f"\nsplit direction summary -> {dir_path}")
 
     return 0
 
