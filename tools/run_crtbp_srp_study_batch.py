@@ -218,14 +218,27 @@ def read_app_result(path: Path) -> dict:
         return {}
 
 
+def _fill_from_result(record: dict, res: dict) -> None:
+    """Copy app-derived fields out of a per-case result JSON into a campaign record."""
+    record["app_status"] = res.get("status")
+    record["wall_time_s"] = res.get("wall_time_s")
+    record["n_patches"] = res.get("n_patches")
+    record["n_splits_total"] = res.get("n_splits_total")
+    record["n_max_active"] = res.get("n_max_active")
+    record["first_split_time"] = res.get("first_split_time")
+    record["n_diverged"] = res.get("n_diverged")
+    record["first_divergence_time"] = res.get("first_divergence_time")
+    record["split_count_dir"] = res.get("split_count_dir")
+    record["t_end_days"] = res.get("t_end_days")
+    record["has_beta_sens"] = res.get("beta_sensitivity") is not None
+
+
 def run_one(job, args, exe: Path, env: dict) -> dict:
     key, orbit, phase, pi, solar_phase, cfg_id, cfg = job
     oid = orbit.get("orbit_id")
     out_path = args.outdir / "results" / cfg_id / oid / f"p{int(pi):02d}__a{fmt(solar_phase)}.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    cmd = build_command(exe, orbit, phase, pi, solar_phase, cfg_id, cfg, args, out_path)
-    (out_path.parent / (out_path.stem + ".sh")).write_text(
-        "#!/usr/bin/env bash\nset -euo pipefail\n" + shlex.join(cmd) + "\n", encoding="utf-8")
+
     record = {
         "config": cfg_id, "layer": cfg["layer"], "model": cfg["model"],
         "orbit": oid, "family": orbit.get("family"),
@@ -236,6 +249,20 @@ def run_one(job, args, exe: Path, env: dict) -> dict:
         "da_order": args.da_order, "err_toll": args.err_toll,
         "n_split_max": args.n_split_max, "result_path": str(out_path.relative_to(args.outdir)),
     }
+
+    if args.skip_existing and out_path.is_file():
+        res = read_app_result(out_path)
+        if res and res.get("status") == 0:
+            record["status"] = "skipped_existing"
+            record["elapsed_s"] = 0.0
+            _fill_from_result(record, res)
+            print(f"{cfg_id} {oid} p{int(pi):02d} a={fmt(solar_phase)}: "
+                  f"skipped_existing (already on disk)", flush=True)
+            return record
+
+    cmd = build_command(exe, orbit, phase, pi, solar_phase, cfg_id, cfg, args, out_path)
+    (out_path.parent / (out_path.stem + ".sh")).write_text(
+        "#!/usr/bin/env bash\nset -euo pipefail\n" + shlex.join(cmd) + "\n", encoding="utf-8")
     started = time.perf_counter()
     with (out_path.parent / (out_path.stem + ".log")).open("w") as log:
         proc = subprocess.run(cmd, cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT)
@@ -247,17 +274,7 @@ def run_one(job, args, exe: Path, env: dict) -> dict:
     else:
         res = read_app_result(out_path)
         record["status"] = "completed" if res else "no_output"
-        record["app_status"] = res.get("status")
-        record["wall_time_s"] = res.get("wall_time_s")
-        record["n_patches"] = res.get("n_patches")
-        record["n_splits_total"] = res.get("n_splits_total")
-        record["n_max_active"] = res.get("n_max_active")
-        record["first_split_time"] = res.get("first_split_time")
-        record["n_diverged"] = res.get("n_diverged")
-        record["first_divergence_time"] = res.get("first_divergence_time")
-        record["split_count_dir"] = res.get("split_count_dir")
-        record["t_end_days"] = res.get("t_end_days")
-        record["has_beta_sens"] = res.get("beta_sensitivity") is not None
+        _fill_from_result(record, res)
     print(f"{cfg_id} {oid} p{int(pi):02d} a={fmt(solar_phase)}: "
           f"{record['status']}; {elapsed:.2f}s", flush=True)
     return record
@@ -280,6 +297,8 @@ def parser():
     p.add_argument("--jobs", type=int, default=1)
     p.add_argument("--limit", type=int, default=0,
                    help="stop after N cases (0 = no limit); useful for smoke tests")
+    p.add_argument("--skip-existing", action="store_true",
+                   help="reuse existing per-case result JSONs (status==0) instead of recomputing")
     p.add_argument("--outdir", type=Path, default=ROOT / "results" / "srp_sensitivity")
     p.add_argument("--executable", type=Path, help="path to run_crtbp_srp_study (skip fpm build)")
     p.add_argument("--dry-run", action="store_true", help="print commands without running")
@@ -359,7 +378,7 @@ def main(argv=None) -> int:
         writer = csv.DictWriter(f, fields, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(campaign["jobs"])
-    failed = [j for j in campaign["jobs"] if j.get("status") != "completed"]
+    failed = [j for j in campaign["jobs"] if j.get("status") not in ("completed", "skipped_existing")]
     print(f"done: {len(campaign['jobs'])} cases, {len(failed)} not completed, "
           f"{campaign['total_elapsed_s']:.1f}s wall", flush=True)
     return 1 if failed else 0
