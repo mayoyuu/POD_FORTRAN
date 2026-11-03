@@ -145,6 +145,19 @@ def build_grid(jobs: list, key: str) -> dict:
     return grid
 
 
+def build_dir_grid(jobs: list, k: int) -> dict:
+    """Return {amp: {phase: split_count_dir[k]}} for direction k (0=beta,1=chi,2=u,3=v)."""
+    amps = sorted_amplitudes(jobs)
+    phases = sorted_phases(jobs)
+    grid = {a: {p: None for p in phases} for a in amps}
+    for job in jobs:
+        amp = parse_amplitude(str(job["orbit"]))
+        ph = int(job["phase_index"])
+        scd = job.get("split_count_dir") or [0, 0, 0, 0]
+        grid[amp][ph] = int(scd[k]) if len(scd) > k else 0
+    return grid
+
+
 def first_split_days(job: dict):
     v = job.get("first_split_time")
     if v is None:
@@ -326,6 +339,26 @@ def render_config(jobs, outdir: Path, png: bool) -> dict:
                   f"{cfg}: n_splits_total [{n_done}/{n_total} completed]",
                   amps, phases, ns_float, ns_str, cfg, outdir, png, "{:.0f}",
                   "(. = not completed; else n_splits_total)")
+
+    # ---- per-direction split counts (beta/chi/u/v) ----
+    dir_names = ["beta", "chi", "u", "v"]
+    for k, dname in enumerate(dir_names):
+        dgrid = build_dir_grid(jobs, k)
+        d_float, d_str = [], []
+        for a in amps:
+            frow, srow = [], []
+            for p in phases:
+                v = dgrid[a][p]
+                if v is None:
+                    frow.append(float("nan")); srow.append("  .   ")
+                else:
+                    n = int(v)
+                    frow.append(float(n)); srow.append(f"{n:7d}")
+            d_float.append(frow); d_str.append(srow)
+        _emit_heatmap(f"split_{dname}",
+                      f"{cfg}: splits along '{dname}' [{n_done}/{n_total} completed]",
+                      amps, phases, d_float, d_str, cfg, outdir, png, "{:.0f}",
+                      "(. = not completed; else splits along this axis)")
 
     return render_direction_summary(jobs)
 
