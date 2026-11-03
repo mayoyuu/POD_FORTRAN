@@ -10,10 +10,10 @@ program test_orbit_output
     implicit none
 
     ! ---- 变量定义 ----
-    character(len=*), parameter :: OPM_FILE = 'input/FAC_2604_1.opm'
-    character(len=*), parameter :: OUTPUT_FILE = 'output/orbit_integration_results_4030_0808_without_srp.txt'
-    character(len=*), parameter :: FILTER_TIME_STR = '2026-04-30T20:00:00.000'
-    character(len=*), parameter :: FINAL_TIME_STR  = '2026-08-08T07:20:00.000'
+    character(len=*), parameter :: OPM_FILE = 'OPM/Falcon9/FAC_2607_1.opm'
+    character(len=*), parameter :: OUTPUT_FILE = 'OPM/Falcon9/Propagation/OPM07_1_0720_0805_falcon_config.txt'
+    character(len=*), parameter :: FILTER_TIME_STR = '2026-07-20T20:00:00.000'
+    character(len=*), parameter :: FINAL_TIME_STR  = '2026-08-05T06:35:35'
     
     real(DP) :: et_start, et_final, et_filter, propagation_duration
     ! 【修复2：将循环内的变量声明移动到最上方】
@@ -30,7 +30,7 @@ program test_orbit_output
     ! 1. 系统与环境初始化
     ! ==========================================
     ! 初始化配置、SPICE 内核等 (如果你的配置文件名不同，请自行修改)
-    call pod_engine_init('config/dummy_test_config.txt') 
+    call pod_engine_init('config/config_falcon9_cannonball.txt') 
     
     ! 解析时间阈值和最终时间
     call str2et(FILTER_TIME_STR, et_filter)
