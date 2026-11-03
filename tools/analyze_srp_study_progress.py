@@ -388,11 +388,13 @@ def parser():
 def main(argv=None) -> int:
     args = parser().parse_args(argv)
 
-    jobs = load_campaign(args.campaign)
+    # Prefer the raw result files: campaign.json is overwritten by every batch run,
+    # so it only reflects the *last* run (e.g. a partial Q2), not all completed work.
+    jobs = scan_results(args.results_root)
     if not jobs:
-        print(f"campaign.json empty/missing ({args.campaign}); scanning result files under "
-              f"{args.results_root}", file=sys.stderr)
-        jobs = scan_results(args.results_root)
+        print(f"no result files under {args.results_root}; falling back to "
+              f"campaign.json ({args.campaign})", file=sys.stderr)
+        jobs = load_campaign(args.campaign)
     if not jobs:
         print("no completed cases found", file=sys.stderr)
         return 1

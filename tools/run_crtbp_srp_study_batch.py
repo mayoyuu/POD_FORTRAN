@@ -255,7 +255,10 @@ def run_one(job, args, exe: Path, env: dict) -> dict:
 
     if args.skip_existing and out_path.is_file():
         res = read_app_result(out_path)
-        if res and res.get("status") == 0:
+        # A completed case is any Fortran-written JSON carrying a "status" key,
+        # regardless of its value: status<0 (-2 empty manifold, -4 sample in a
+        # diverged region) is still a valid, finished result, not a rerun trigger.
+        if res and "status" in res:
             record["status"] = "skipped_existing"
             record["elapsed_s"] = 0.0
             _fill_from_result(record, res)
