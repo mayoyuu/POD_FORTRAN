@@ -292,6 +292,9 @@ def parser():
     p.add_argument("--json", type=Path, default=DEFAULT_JSON)
     p.add_argument("--configs", nargs="+", default=list(CONFIGS), choices=list(CONFIGS),
                    help="experiment configs to run")
+    p.add_argument("--beta", type=float, nargs=2, metavar=("LOWER", "UPPER"),
+                   help="run a custom cannonball (Q1) config over this beta range; "
+                        "overrides --configs")
     p.add_argument("--orbits", nargs="+", help="subset of orbit_id values (default: all)")
     p.add_argument("--orbit-prefix", type=str, default=None,
                    help="only orbits whose orbit_id starts with this prefix (e.g. PL1)")
@@ -325,6 +328,16 @@ def main(argv=None) -> int:
         raise ValueError("--jobs must be positive")
     if any(not math.isfinite(a) for a in args.solar_phases):
         raise ValueError("--solar-phases must be finite")
+    if args.beta is not None:
+        beta_lo, beta_hi = args.beta
+        if not (math.isfinite(beta_lo) and math.isfinite(beta_hi)):
+            raise ValueError("--beta: values must be finite")
+        if beta_lo < 0.0 or beta_hi <= beta_lo:
+            raise ValueError("--beta: need 0 <= lower < upper")
+        cfg_id = f"Q1_beta_{beta_lo:g}_{beta_hi:g}"
+        CONFIGS[cfg_id] = dict(layer="L1", model="cannonball",
+                               beta=(beta_lo, beta_hi), tilt_deg=0.0, chi=(0.6, 0.6))
+        args.configs = [cfg_id]
     args.json = args.json.resolve()
     if not args.json.is_file():
         raise FileNotFoundError(args.json)
