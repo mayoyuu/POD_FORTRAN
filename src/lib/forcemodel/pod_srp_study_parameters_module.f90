@@ -1,5 +1,6 @@
 !> Q1-Q4 光压实验的物理参数和 DA 参数域。
-!! Physical order is ALWAYS [beta, chi, u, v]; active DA indices are packed.
+!! Physical order is [beta,chi,u,v] or [beta,chi,theta,phi]; DA indices are packed.
+!! Angle coordinates are radians internally; the angle-domain factory accepts degrees.
 !! beta: face-on equivalent Cr*A/m [m2/kg], not a solar-gravity ratio.
 !! chi: reflection composition; u,v: dimensionless solar-tangent slopes.
 !! Bounds describe a deterministic domain, NOT a probability distribution.
@@ -10,18 +11,22 @@ module pod_srp_study_parameters_module
     implicit none
     private
     integer, parameter, public :: SRP_BETA=1, SRP_CHI=2, SRP_U=3, SRP_V=4
+    integer, parameter, public :: SRP_THETA=3, SRP_PHI=4
+    integer, parameter, public :: SRP_ATTITUDE_UV=1, SRP_ATTITUDE_THETA_PHI=2
     character(len=4), parameter, public :: SRP_PARAMETER_NAMES(4)=[character(len=4)::'beta','chi','u','v']
     real(DP), parameter, public :: SRP_FACE_ON_COEFFICIENT=1.5_DP
     type, public :: SrpStudyDomain
         real(DP) :: lower(4)=[0.0_DP,0.6_DP,0.0_DP,0.0_DP]
         real(DP) :: upper(4)=[0.1_DP,0.6_DP,0.0_DP,0.0_DP]
+        integer :: attitude_coordinates=SRP_ATTITUDE_UV
     contains
         procedure :: center => domain_center
         procedure :: halfwidth => domain_halfwidth
         procedure :: n_variables => domain_n_variables
+        procedure :: parameter_names => domain_parameter_names
     end type
     public :: srp_study_domain, srp_study_init_da, validate_srp_study_domain
-    public :: srp_study_optics, srp_face_on_beta
+    public :: srp_study_optics, srp_face_on_beta, srp_study_angle_domain
 contains
     !> Reflection family with constant C_eq=1.5; chi=.6 gives rho_s=rho_d=.3.
     !! No extra Cr multiplier belongs in the flat-plate force.
@@ -67,14 +72,49 @@ contains
         call validate_srp_study_domain(domain)
     end function
 
+    !> Same four slots and midpoint DA map; only the attitude coordinates change.
+    !! theta is the Sun-normal angle, phi runs from e1 towards e2 about +s.
+    !! phi bounds are continuous/unwrapped: e.g. [350,370] degrees crosses 2*pi.
+    !! Equal bounds fix a parameter, so beta/chi may be fixed for 2D theta/phi DA.
+    function srp_study_angle_domain(beta_lower,beta_upper,theta_lower_deg,theta_upper_deg, &
+            phi_lower_deg,phi_upper_deg,chi_lower,chi_upper) result(domain)
+        real(DP),intent(in)::beta_lower,beta_upper,theta_lower_deg,theta_upper_deg,phi_lower_deg,phi_upper_deg
+        real(DP),optional,intent(in)::chi_lower,chi_upper
+        type(SrpStudyDomain)::domain
+        real(DP),parameter::deg_to_rad=acos(-1.0_DP)/180.0_DP
+        domain%attitude_coordinates=SRP_ATTITUDE_THETA_PHI
+        domain%lower=[beta_lower,0.6_DP,theta_lower_deg*deg_to_rad,phi_lower_deg*deg_to_rad]
+        domain%upper=[beta_upper,0.6_DP,theta_upper_deg*deg_to_rad,phi_upper_deg*deg_to_rad]
+        if (present(chi_lower)) domain%lower(SRP_CHI)=chi_lower
+        if (present(chi_upper)) domain%upper(SRP_CHI)=chi_upper
+        call validate_srp_study_domain(domain)
+    end function
+
+    function domain_parameter_names(this) result(names)
+        class(SrpStudyDomain),intent(in)::this
+        character(len=5)::names(4)
+        call validate_srp_study_domain(this)
+        if (this%attitude_coordinates==SRP_ATTITUDE_THETA_PHI) then
+            names=[character(len=5)::'beta','chi','theta','phi']
+        else
+            names=SRP_PARAMETER_NAMES
+        end if
+    end function
+
     subroutine validate_srp_study_domain(domain)
         class(SrpStudyDomain), intent(in) :: domain
+        if (domain%attitude_coordinates/=SRP_ATTITUDE_UV .and. &
+            domain%attitude_coordinates/=SRP_ATTITUDE_THETA_PHI) error stop 'SRP study: unknown attitude coordinates'
         if (.not.all(ieee_is_finite(domain%lower)) .or. .not.all(ieee_is_finite(domain%upper))) &
             error stop 'SRP study: parameter bounds must be finite'
         if (any(domain%upper<domain%lower)) error stop 'SRP study: reversed parameter bounds'
         if (domain%lower(SRP_BETA)<0.0_DP) error stop 'SRP study: beta lower bound must be nonnegative'
         if (domain%lower(SRP_CHI)<0.0_DP .or. domain%upper(SRP_CHI)>1.0_DP) &
             error stop 'SRP study: chi bounds must lie in [0,1]'
+        if (domain%attitude_coordinates==SRP_ATTITUDE_THETA_PHI) then
+            if (domain%lower(SRP_THETA)<0.0_DP .or. domain%upper(SRP_THETA)>=acos(-1.0_DP)/2) &
+                error stop 'SRP study: theta bounds must lie in [0,pi/2) radians'
+        end if
     end subroutine
 
     function domain_center(this) result(center)
@@ -100,7 +140,7 @@ contains
     !> Caller first initializes DACE(order,domain%n_variables()), with no live handles.
     !! 六维初始状态由调用者设为 DA 常数；此函数只为光压参数分配自变量。
     !! index_map(physical_index)=DA_index, or 0 for a fixed parameter. This lets
-    !! future ADS logs name a split correctly: in 3D the order is beta,u,v.
+    !! ADS logs use domain%parameter_names(): 3D is beta,u,v or beta,theta,phi.
     !! After splitting, affine-substitute BOTH the state and parameters using
     !! the same local variables; do not reinitialize the original full domain.
     subroutine srp_study_init_da(domain,parameters,index_map)

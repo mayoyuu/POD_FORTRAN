@@ -12,7 +12,7 @@ module pod_crtbp_srp_study_ads_module
         sh_count, sh_center, sh_width, sh_map_point, &
         patch_init, patch_destroy, patch_split, &
         mf_init, mf_destroy, mf_push, mf_pop_front
-    use pod_srp_study_parameters_module, only: SrpStudyDomain, SRP_PARAMETER_NAMES, &
+    use pod_srp_study_parameters_module, only: SrpStudyDomain, &
         srp_study_init_da
     use pod_crtbp_srp_study_module, only: CrtbpSrpStudyConfig
     use pod_crtbp_srp_study_integrator_module, only: StudyIntegratorTempPool, &
@@ -32,12 +32,14 @@ module pod_crtbp_srp_study_ads_module
     !> One ADS split event, recorded for the Q3 split-direction question.
     type, public :: study_ads_split_event
         real(DP) :: time_nd = 0.0_DP     ! nondimensional split time
-        integer  :: axis = 0             ! physical axis: 1=beta, 2=chi, 3=u, 4=v
+        integer  :: axis = 0             ! physical slots: beta,chi,u/v or theta/phi
         integer  :: depth = 0            ! patch depth before this split
         integer  :: n_active = 0         ! active patches after this split
         real(DP) :: center = 0.0_DP      ! patch center in the split dim (global xi)
         real(DP) :: halfwidth = 0.0_DP   ! patch halfwidth in the split dim (global xi)
         real(DP) :: criterion = 0.0_DP   ! max truncation error that triggered the split
+        real(DP) :: center_all(4) = 0.0_DP  ! full patch center, physical order [beta,chi,attitude1,attitude2], global xi
+        real(DP) :: width_all(4) = 0.0_DP   ! full patch width,  physical order [beta,chi,attitude1,attitude2], global xi
     end type
 
     !> Split diagnostics collected during one ADS propagation.
@@ -168,7 +170,11 @@ contains
         real(DP) :: tau0, tau1, dtau, errors(6), top, toll, max_err
         integer :: nvar, i, j, dir, axis, depth, k
         logical :: diverged
+        character(len=5) :: parameter_names(4)
 
+        if (cfg%attitude_coordinates/=domain%attitude_coordinates) &
+            error stop 'study_ads: force and domain attitude coordinates must match'
+        parameter_names = domain%parameter_names()
         nvar = domain%n_variables()
         if (nvar < 1) error stop 'study_ads: domain has no active parameter'
         if (n_segments < 1) error stop 'study_ads: n_segments must be positive'
@@ -267,9 +273,18 @@ contains
                     log%split_events(log%n_splits_total)%center = gc(dir)
                     log%split_events(log%n_splits_total)%halfwidth = 0.5_DP * gw(dir)
                     log%split_events(log%n_splits_total)%criterion = max_err
+                    do j = 1, 4
+                        if (index_map(j) > 0) then
+                            log%split_events(log%n_splits_total)%center_all(j) = gc(index_map(j))
+                            log%split_events(log%n_splits_total)%width_all(j) = gw(index_map(j))
+                        else
+                            log%split_events(log%n_splits_total)%center_all(j) = 0.0_DP
+                            log%split_events(log%n_splits_total)%width_all(j) = 0.0_DP
+                        end if
+                    end do
                     if (verbose) then
                         write(*,'(A,I0,A,I0,A,A,A,I0,A,I0)') '[study ADS] t=', k, &
-                            ' split dir=', dir, ' (', trim(SRP_PARAMETER_NAMES(axis)), &
+                            ' split dir=', dir, ' (', trim(parameter_names(axis)), &
                             ') depth=', depth, ' -> n_active=', next_active%n_patches
                     end if
                     call patch_destroy(left)

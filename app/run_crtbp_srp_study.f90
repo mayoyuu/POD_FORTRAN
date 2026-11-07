@@ -21,6 +21,11 @@
 !!   17   err_toll                 (truncation-error threshold, ND)
 !!   18   n_split_max              (max split depth)
 !!   19   output_json_path
+!! Optional angle mode (supply all five additional arguments):
+!!   20   theta_phi
+!!   21-24 theta_lower_deg theta_upper_deg phi_lower_deg phi_upper_deg
+!! In angle mode argument 13 is ignored; internal angles/output bounds are radians.
+!! Old 19-argument invocations retain the u/v parameterization.
 program run_crtbp_srp_study
     use pod_global, only: DP
     use, intrinsic :: iso_fortran_env, only: int64
@@ -45,6 +50,10 @@ program run_crtbp_srp_study
     real(DP) :: x0(6), mu, period_nd, alpha0_rad
     real(DP) :: beta_lower, beta_upper, tilt_max_deg, chi_lower, chi_upper
     real(DP) :: err_toll, t_end, dt_max
+    real(DP) :: theta_lower_deg, theta_upper_deg, phi_lower_deg, phi_upper_deg
+    character(len=16) :: attitude_coordinates = 'uv'
+    character(len=5) :: parameter_names(4)
+    character(len=5) :: parameter_units(4)
     integer  :: da_order, n_split_max
     character(len=64) :: model
     character(len=1024) :: out_path
@@ -62,6 +71,7 @@ program run_crtbp_srp_study
     call parse_args(x0, mu, period_nd, alpha0_rad, model, beta_lower, beta_upper, &
         tilt_max_deg, chi_lower, chi_upper, da_order, err_toll, n_split_max, out_path)
 
+    call parse_attitude_args()
     call set_crtbp_mu(mu)
 
     cfg%sun%alpha0_rad = alpha0_rad
@@ -74,16 +84,26 @@ program run_crtbp_srp_study
         error stop 'run_crtbp_srp_study: model must be cannonball or flatplate'
     end if
 
-    if (tilt_max_deg > 0.0_DP .and. chi_upper > chi_lower) then
-        domain = srp_study_domain(beta_lower, beta_upper, tilt_max_deg=tilt_max_deg, &
-            chi_lower=chi_lower, chi_upper=chi_upper)
-    else if (tilt_max_deg > 0.0_DP) then
-        domain = srp_study_domain(beta_lower, beta_upper, tilt_max_deg=tilt_max_deg)
-    else if (chi_upper > chi_lower) then
-        domain = srp_study_domain(beta_lower, beta_upper, chi_lower=chi_lower, chi_upper=chi_upper)
+    if (trim(attitude_coordinates)=='theta_phi') then
+        if (cfg%model/=STUDY_FLAT_PLATE) error stop 'theta_phi requires the flatplate model'
+        domain = srp_study_angle_domain(beta_lower,beta_upper,theta_lower_deg,theta_upper_deg, &
+            phi_lower_deg,phi_upper_deg,chi_lower,chi_upper)
     else
-        domain = srp_study_domain(beta_lower, beta_upper)
+        if (tilt_max_deg > 0.0_DP .and. chi_upper > chi_lower) then
+            domain = srp_study_domain(beta_lower, beta_upper, tilt_max_deg=tilt_max_deg, &
+                chi_lower=chi_lower, chi_upper=chi_upper)
+        else if (tilt_max_deg > 0.0_DP) then
+            domain = srp_study_domain(beta_lower, beta_upper, tilt_max_deg=tilt_max_deg)
+        else if (chi_upper > chi_lower) then
+            domain = srp_study_domain(beta_lower, beta_upper, chi_lower=chi_lower, chi_upper=chi_upper)
+        else
+            domain = srp_study_domain(beta_lower, beta_upper)
+        end if
     end if
+    cfg%attitude_coordinates=domain%attitude_coordinates
+    parameter_names=domain%parameter_names()
+    parameter_units=[character(len=5)::'m2/kg','1','1','1']
+    if (trim(attitude_coordinates)=='theta_phi') parameter_units(3:4)='rad'
 
     t_end = 2.0_DP*period_nd
     if (t_end*TU_S < 15.0_DP*86400.0_DP) t_end = 3.0_DP*period_nd
@@ -124,6 +144,22 @@ program run_crtbp_srp_study
     call mf_destroy(result_manifold)
 
 contains
+
+    ! Preserve the original positional CLI. Angle ranges are an explicit extension;
+    ! no whole-circle phi range or statistical prior is silently selected here.
+    subroutine parse_attitude_args()
+        integer :: nargs
+        character(len=64) :: arg
+        nargs=command_argument_count()
+        if (nargs==19) return
+        if (nargs/=24) error stop 'expected 19 arguments, or 24 with theta_phi and four degree bounds'
+        call get_command_argument(20,attitude_coordinates)
+        if (trim(attitude_coordinates)/='theta_phi') error stop 'argument 20 must be theta_phi'
+        call get_command_argument(21,arg); read(arg,*) theta_lower_deg
+        call get_command_argument(22,arg); read(arg,*) theta_upper_deg
+        call get_command_argument(23,arg); read(arg,*) phi_lower_deg
+        call get_command_argument(24,arg); read(arg,*) phi_upper_deg
+    end subroutine parse_attitude_args
 
     subroutine parse_args(x0, mu, period_nd, alpha0_rad, model, beta_lower, beta_upper, &
             tilt_max_deg, chi_lower, chi_upper, da_order, err_toll, n_split_max, out_path)
@@ -175,6 +211,33 @@ contains
         open(newunit=u, file=trim(path), status='replace', action='write')
         write(u, '(A)') '{'
         write(u, '(A)') '  "model": "'//trim(model)//'",'
+        ! Host-associated domain is the exact root box used by this single case.
+        write(u, '(A)') '  "attitude_coordinates": "'//trim(attitude_coordinates)//'",'
+        write(u, '(A)') '  "parameter_prior": "independent_uniform_in_parameter_box",'
+        write(u, '(A)', advance='no') '  "parameter_names": ['
+        do i=1,4
+            write(u,'(A)',advance='no') '"'//trim(parameter_names(i))//'"'
+            if (i<4) write(u,'(A)',advance='no') ', '
+        end do
+        write(u,'(A)') '],'
+        write(u, '(A)', advance='no') '  "parameter_units": ['
+        do i=1,4
+            write(u,'(A)',advance='no') '"'//trim(parameter_units(i))//'"'
+            if (i<4) write(u,'(A)',advance='no') ', '
+        end do
+        write(u,'(A)') '],'
+        write(u,'(A)',advance='no') '  "parameter_lower": ['
+        call write_real_array(u,domain%lower,4)
+        write(u,'(A)') '],'
+        write(u,'(A)',advance='no') '  "parameter_upper": ['
+        call write_real_array(u,domain%upper,4)
+        write(u,'(A)') '],'
+        write(u,'(A)',advance='no') '  "parameter_da_index": ['
+        do i=1,4
+            write(u,'(I0)',advance='no') index_map(i)
+            if (i<4) write(u,'(A)',advance='no') ', '
+        end do
+        write(u,'(A)') '],'
         write(u, '(A,ES20.12,A)') '  "mu": ', mu, ','
         write(u, '(A,ES20.12,A)') '  "period_nd": ', period_nd, ','
         write(u, '(A,ES20.12,A)') '  "alpha0_rad": ', alpha0_rad, ','
@@ -241,11 +304,19 @@ contains
             write(u, '(A,ES13.6,A)', advance='no') '"td":', &
                 log%split_events(i)%time_nd*TU_S/86400.0_DP, ','
             write(u, '(A,I0,A)', advance='no') '"ax":', log%split_events(i)%axis, ','
+            write(u, '(A)', advance='no') '"axis_name":"'// &
+                trim(parameter_names(log%split_events(i)%axis))//'",'
             write(u, '(A,I0,A)', advance='no') '"d":', log%split_events(i)%depth, ','
             write(u, '(A,I0,A)', advance='no') '"na":', log%split_events(i)%n_active, ','
             write(u, '(A,ES13.6,A)', advance='no') '"c":', log%split_events(i)%center, ','
             write(u, '(A,ES13.6,A)', advance='no') '"w":', log%split_events(i)%halfwidth, ','
             write(u, '(A,ES13.6)', advance='no') '"crit":', log%split_events(i)%criterion
+            write(u, '(A)', advance='no') ','
+            write(u, '(A)', advance='no') '"call":['
+            call write_real_array(u, log%split_events(i)%center_all, 4)
+            write(u, '(A)', advance='no') '],"wall":['
+            call write_real_array(u, log%split_events(i)%width_all, 4)
+            write(u, '(A)', advance='no') ']'
             if (i < log%n_splits_total) then
                 write(u, '(A)') '},'
             else

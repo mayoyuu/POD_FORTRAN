@@ -1,6 +1,7 @@
 !> CRTBP 会合系中的绝对 beta 炮弹球/平板模型（Q1-Q4）。
 !! All positions, time and returned accelerations are nondimensional.
-!! Parameters [beta,chi,u,v] are constant over an arc; beta is in m2/kg.
+!! Parameters [beta,chi,u,v] or [beta,chi,theta,phi] are constant over an arc.
+!! beta is in m2/kg; theta and phi are in radians relative to the solar tangent basis.
 !! The Sun supplies geometry only. Full sunlight, no solar gravity or torque.
 !! Existing relative-eta models remain in pod_crtbp_srp_module unchanged.
 module pod_crtbp_srp_study_module
@@ -9,7 +10,7 @@ module pod_crtbp_srp_study_module
     use pod_crtbp_module, only: CrtbpForceTempPool, crtbp_derivatives_real, crtbp_derivatives_da
     use pod_bicircular_sun_module
     use pod_srp_study_parameters_module, only: SRP_BETA,SRP_CHI,SRP_U,SRP_V, &
-        SRP_FACE_ON_COEFFICIENT,srp_study_optics
+        SRP_FACE_ON_COEFFICIENT,srp_study_optics,SRP_THETA,SRP_PHI,SRP_ATTITUDE_UV,SRP_ATTITUDE_THETA_PHI
     use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
     implicit none
     private
@@ -26,12 +27,14 @@ module pod_crtbp_srp_study_module
         ! e1=normalize(axis cross s), e2=s cross e1. No implicit axis switching.
         real(DP) :: tangent_reference_axis(3)=[0.0_DP,0.0_DP,1.0_DP]
         real(DP) :: tangent_rotation_rad=0.0_DP ! constant rotation of e1,e2 for coordinate tests
+        integer :: attitude_coordinates=SRP_ATTITUDE_UV ! preserve existing p(3:4)=u,v callers
     end type
 
     type, public :: SrpStudyTempPool
         type(CrtbpForceTempPool) :: gravity
         type(DA) :: d(3),s(3),b1(3),b2(3),e1(3),e2(3),normal(3),acceleration(3)
         type(DA) :: distance2,distance,q,tangent2,tangent,cos_incidence,rho_s,rho_d,reflection,factor
+        type(DA) :: sin_theta,cos_phi,sin_phi ! persistent temporaries for angle-mode RHS
     contains
         procedure :: init => study_pool_init
         procedure :: destroy => study_pool_destroy
@@ -57,6 +60,7 @@ contains
         end do
         call this%distance2%init(); call this%distance%init(); call this%q%init()
         call this%tangent2%init(); call this%tangent%init(); call this%cos_incidence%init()
+        call this%sin_theta%init(); call this%cos_phi%init(); call this%sin_phi%init()
         call this%rho_s%init(); call this%rho_d%init(); call this%reflection%init(); call this%factor%init()
     end subroutine
 
@@ -72,12 +76,15 @@ contains
         end do
         call this%distance2%destroy(); call this%distance%destroy(); call this%q%destroy()
         call this%tangent2%destroy(); call this%tangent%destroy(); call this%cos_incidence%destroy()
+        call this%sin_theta%destroy(); call this%cos_phi%destroy(); call this%sin_phi%destroy()
         call this%rho_s%destroy(); call this%rho_d%destroy(); call this%reflection%destroy(); call this%factor%destroy()
     end subroutine
 
     subroutine validate_study_config(cfg)
         type(CrtbpSrpStudyConfig),intent(in)::cfg
         call validate_bicircular_sun(cfg%sun)
+        if (cfg%attitude_coordinates/=SRP_ATTITUDE_UV .and. &
+            cfg%attitude_coordinates/=SRP_ATTITUDE_THETA_PHI) error stop 'SRP study: unknown attitude coordinates'
         if (cfg%model/=STUDY_CANNONBALL .and. cfg%model/=STUDY_FLAT_PLATE) error stop 'SRP study: unknown model'
         if (.not.ieee_is_finite(cfg%pressure_1au) .or. cfg%pressure_1au<0.0_DP) &
             error stop 'SRP study: pressure must be finite and nonnegative'
@@ -86,11 +93,16 @@ contains
         if (norm2(cfg%tangent_reference_axis)<=1e-12_DP) error stop 'SRP study: zero tangent reference axis'
     end subroutine
 
-    subroutine validate_parameter_center(p)
+    subroutine validate_parameter_center(p,cfg)
         real(DP),intent(in)::p(4)
+        type(CrtbpSrpStudyConfig),intent(in)::cfg
         if (.not.all(ieee_is_finite(p))) error stop 'SRP study: non-finite parameters'
         if (p(SRP_BETA)<0.0_DP) error stop 'SRP study: beta must be nonnegative'
         if (p(SRP_CHI)<0.0_DP .or. p(SRP_CHI)>1.0_DP) error stop 'SRP study: chi must be in [0,1]'
+        if (cfg%model==STUDY_FLAT_PLATE .and. cfg%attitude_coordinates==SRP_ATTITUDE_THETA_PHI) then
+            if (p(SRP_THETA)<0.0_DP .or. p(SRP_THETA)>=acos(-1.0_DP)/2) &
+                error stop 'SRP study: theta must lie in [0,pi/2) radians'
+        end if
     end subroutine
 
     subroutine check_geometry(distance2)
@@ -113,7 +125,8 @@ contains
 
     !> s points SPACECRAFT -> SUN, so acceleration carries a negative sign.
     !! n=(s+u*e1+v*e2)/sqrt(1+u^2+v^2); finite slopes keep cos_incidence>0.
-    !! u,v are fixed offsets relative to Sun tracking, not fixed inertial normals.
+    !! In angle mode n=cos(theta)*s+sin(theta)*(cos(phi)*e1+sin(phi)*e2).
+    !! Attitude parameters are fixed relative to Sun tracking, not inertial normals.
     subroutine srp_study_acceleration_real(tau,r,p,cfg,a,a_si)
         real(DP),intent(in)::tau,r(3),p(4)
         type(CrtbpSrpStudyConfig),intent(in)::cfg
@@ -125,7 +138,7 @@ contains
         a=0.0_DP
         if (present(a_si)) a_si=0.0_DP
         if (.not.cfg%enabled .or. cfg%pressure_1au==0.0_DP) return
-        call validate_parameter_center(p)
+        call validate_parameter_center(p,cfg)
         call bicircular_sun_position(tau,cfg%sun,sun)
         d=sun-r; d2=sum(d*d)
         call check_geometry(d2)
@@ -141,8 +154,13 @@ contains
             b1=b1/norm2(b1); b2=cross(s,b1)
             angle=cfg%tangent_rotation_rad
             e1=cos(angle)*b1+sin(angle)*b2; e2=-sin(angle)*b1+cos(angle)*b2
-            cinc=1.0_DP/sqrt(1.0_DP+p(SRP_U)**2+p(SRP_V)**2)
-            normal=cinc*(s+p(SRP_U)*e1+p(SRP_V)*e2)
+            if (cfg%attitude_coordinates==SRP_ATTITUDE_THETA_PHI) then
+                cinc=cos(p(SRP_THETA))
+                normal=cinc*s+sin(p(SRP_THETA))*(cos(p(SRP_PHI))*e1+sin(p(SRP_PHI))*e2)
+            else
+                cinc=1.0_DP/sqrt(1.0_DP+p(SRP_U)**2+p(SRP_V)**2)
+                normal=cinc*(s+p(SRP_U)*e1+p(SRP_V)*e2)
+            end if
             call srp_study_optics(p(SRP_CHI),rho_s,rho_d,absorptivity)
             ! beta/C_eq is the effective A/m. Do NOT multiply by another Cr.
             a=-pressure_nd*q*(p(SRP_BETA)/SRP_FACE_ON_COEFFICIENT)*cinc * &
@@ -168,7 +186,7 @@ contains
         do i=1,4
             values(i)=p(i)%cons()
         end do
-        call validate_parameter_center(values)
+        call validate_parameter_center(values,cfg)
         call bicircular_sun_position(tau,cfg%sun,sun)
         do i=1,3
             pool%d(i)=sun(i)-r(i)
@@ -203,12 +221,26 @@ contains
         pool%b2(2)=pool%s(3)*pool%b1(1)-pool%s(1)*pool%b1(3)
         pool%b2(3)=pool%s(1)*pool%b1(2)-pool%s(2)*pool%b1(1)
         c=cos(cfg%tangent_rotation_rad); s=sin(cfg%tangent_rotation_rad)
-        pool%cos_incidence=1.0_DP/sqrt(1.0_DP+p(SRP_U)*p(SRP_U)+p(SRP_V)*p(SRP_V))
         do i=1,3
             pool%e1(i)=c*pool%b1(i)+s*pool%b2(i)
             pool%e2(i)=-s*pool%b1(i)+c*pool%b2(i)
-            pool%normal(i)=pool%cos_incidence*(pool%s(i)+p(SRP_U)*pool%e1(i)+p(SRP_V)*pool%e2(i))
         end do
+        if (cfg%attitude_coordinates==SRP_ATTITUDE_THETA_PHI) then
+            ! Forward trig map stays smooth at theta=0, including mixed terms.
+            ! Do not wrap phi or replace either angle with its DA constant term.
+            pool%cos_incidence=cos(p(SRP_THETA))
+            pool%sin_theta=sin(p(SRP_THETA))
+            pool%cos_phi=cos(p(SRP_PHI)); pool%sin_phi=sin(p(SRP_PHI))
+            do i=1,3
+                pool%normal(i)=pool%cos_incidence*pool%s(i)+pool%sin_theta* &
+                    (pool%cos_phi*pool%e1(i)+pool%sin_phi*pool%e2(i))
+            end do
+        else
+            pool%cos_incidence=1.0_DP/sqrt(1.0_DP+p(SRP_U)*p(SRP_U)+p(SRP_V)*p(SRP_V))
+            do i=1,3
+                pool%normal(i)=pool%cos_incidence*(pool%s(i)+p(SRP_U)*pool%e1(i)+p(SRP_V)*pool%e2(i))
+            end do
+        end if
         ! Same chi family as srp_study_optics, now retaining mixed DA coefficients.
         pool%rho_s=0.5_DP*p(SRP_CHI)
         pool%rho_d=0.75_DP*(1.0_DP-p(SRP_CHI))

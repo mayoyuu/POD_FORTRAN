@@ -11,7 +11,7 @@ Each case runs one time-advancing ADS propagation of a rectangular SRP
 parameter box, and returns endpoint mean/covariance, split diagnostics, and
 (where beta=0 is an edge of the box) the d(x)/d(beta) sensitivity at beta=0.
 
-Fixed 19-argument contract (order is significant):
+Base 19-argument contract (order is significant):
     1-6  x0(6) = x y z vx vy vz  (nondimensional)
     7    mu                     (CRTBP mass ratio)
     8    period_nd              (orbit period, nondimensional)
@@ -26,6 +26,9 @@ Fixed 19-argument contract (order is significant):
     17   err_toll                (truncation-error threshold, ND)
     18   n_split_max             (max split depth)
     19   output_json_path
+Angle mode appends: theta_phi theta_lower_deg theta_upper_deg phi_lower_deg phi_upper_deg.
+Use --attitude theta_phi --phi-deg LOWER UPPER for Q2/Q4. Theta defaults to
+[0, config tilt_deg], or is explicitly replaced by --theta-deg LOWER UPPER.
 """
 from __future__ import annotations
 
@@ -76,6 +79,48 @@ CONFIGS = {
     "Q4_L3_ext":       dict(layer="L3", model="flatplate", beta=(0.00, 0.10),
                             tilt_deg=10.0, chi=(0.0, 1.0)),
 }
+
+
+def _angle_bounds(values, flag: str, *, theta: bool = False) -> tuple:
+    lo, hi = values
+    if not (math.isfinite(lo) and math.isfinite(hi)) or lo > hi:
+        raise ValueError(f"{flag}: need finite lower <= upper")
+    if theta and not (0.0 <= lo <= hi < 90.0):
+        raise ValueError(f"{flag}: need 0 <= lower <= upper < 90 degrees")
+    return lo, hi
+
+
+def select_configs(args) -> dict:
+    """Resolve angle boxes without changing the legacy CONFIGS definitions.
+
+    Angles have separate IDs (including bounds) so skip-existing cannot reuse
+    a UV result or a different angle domain. Phi stays unwrapped throughout.
+    """
+    if args.attitude == "uv":
+        if args.theta_deg is not None or args.phi_deg is not None:
+            raise ValueError("--theta-deg/--phi-deg require --attitude theta_phi")
+        return {key: dict(CONFIGS[key]) for key in args.configs}
+    if args.beta is not None:
+        raise ValueError("--beta selects cannonball Q1; use --configs Q2... or Q4... for theta_phi")
+    if args.phi_deg is None:
+        raise ValueError("--attitude theta_phi requires --phi-deg LOWER UPPER (degrees)")
+    phi = _angle_bounds(args.phi_deg, "--phi-deg")
+    if args.theta_deg is not None:
+        _angle_bounds(args.theta_deg, "--theta-deg", theta=True)
+    selected = {}
+    angle_count = 0
+    for key in args.configs:
+        cfg = dict(CONFIGS[key])
+        if cfg["model"] == "flatplate":
+            theta = _angle_bounds(args.theta_deg if args.theta_deg is not None
+                                  else (0.0, cfg["tilt_deg"]), "--theta-deg", theta=True)
+            cfg.update(attitude_coordinates="theta_phi", theta_deg=theta, phi_deg=phi)
+            key += f"__theta_phi_t{fmt(theta[0])}_{fmt(theta[1])}_p{fmt(phi[0])}_{fmt(phi[1])}"
+            angle_count += 1
+        selected[key] = cfg
+    if not angle_count:
+        raise ValueError("--attitude theta_phi needs at least one flatplate Q2/Q4 configuration")
+    return selected
 
 
 def write_json(path: Path, value) -> None:
@@ -154,8 +199,9 @@ def git_commit() -> str:
         return "unknown"
 
 
-def enumerate_cases(args, orbits: list):
+def enumerate_cases(args, orbits: list, configs=None):
     """Yield (case_key, orbit, phase, phase_index, solar_phase, cfg_id, cfg)."""
+    configs = CONFIGS if configs is None else configs
     orbit_filter = None if not args.orbits else set(args.orbits)
     phase_filter = None if not args.phases else set(args.phases)
     prefix = args.orbit_prefix
@@ -182,7 +228,7 @@ def enumerate_cases(args, orbits: list):
                 continue
             for solar_phase in args.solar_phases:
                 for cfg_id in args.configs:
-                    cfg = CONFIGS[cfg_id]
+                    cfg = configs[cfg_id]
                     key = f"{cfg_id}__{oid}__p{int(pi):02d}__a{fmt(solar_phase)}"
                     yield key, orbit, phase, pi, solar_phase, cfg_id, cfg
                     count += 1
@@ -203,7 +249,7 @@ def build_command(exe: Path, orbit, phase, pi, solar_phase, cfg_id, cfg, args, o
         cfg["model"],
         fmt(beta_lo),
         fmt(beta_hi),
-        fmt(cfg["tilt_deg"]),
+        fmt(0.0 if cfg.get("attitude_coordinates") == "theta_phi" else cfg["tilt_deg"]),
         fmt(chi_lo),
         fmt(chi_hi),
         str(args.da_order),
@@ -211,6 +257,9 @@ def build_command(exe: Path, orbit, phase, pi, solar_phase, cfg_id, cfg, args, o
         str(args.n_split_max),
         str(out_path),
     ]
+    if cfg.get("attitude_coordinates") == "theta_phi":
+        # Fortran performs degree->radian conversion once, in its domain factory.
+        cmd += ["theta_phi", *(fmt(v) for v in cfg["theta_deg"]), *(fmt(v) for v in cfg["phi_deg"])]
     return cmd
 
 
@@ -221,8 +270,18 @@ def read_app_result(path: Path) -> dict:
         return {}
 
 
+def _matching_coordinates(res: dict, cfg: dict) -> bool:
+    # A pre-angle binary may silently ignore trailing arguments. Do not count
+    # its UV result as a completed theta/phi case or skip it on a later run.
+    return res.get("attitude_coordinates", "uv") == cfg.get("attitude_coordinates", "uv")
+
+
 def _fill_from_result(record: dict, res: dict) -> None:
     """Copy app-derived fields out of a per-case result JSON into a campaign record."""
+    for field in ("parameter_names", "parameter_units", "parameter_lower",
+                  "parameter_upper", "parameter_da_index", "parameter_prior"):
+        if field in res:
+            record[field] = res[field]
     record["app_status"] = res.get("status")
     record["wall_time_s"] = res.get("wall_time_s")
     record["n_patches"] = res.get("n_patches")
@@ -249,6 +308,8 @@ def run_one(job, args, exe: Path, env: dict) -> dict:
         "phase_index": pi, "phase_fraction": phase.get("phase_fraction"),
         "solar_phase_rad": solar_phase, "beta": list(cfg["beta"]),
         "tilt_deg": cfg["tilt_deg"], "chi": list(cfg["chi"]),
+        "attitude_coordinates": cfg.get("attitude_coordinates", "uv"),
+        "theta_deg": cfg.get("theta_deg"), "phi_deg": cfg.get("phi_deg"),
         "da_order": args.da_order, "err_toll": args.err_toll,
         "n_split_max": args.n_split_max, "result_path": str(out_path.relative_to(args.outdir)),
     }
@@ -258,7 +319,7 @@ def run_one(job, args, exe: Path, env: dict) -> dict:
         # A completed case is any Fortran-written JSON carrying a "status" key,
         # regardless of its value: status<0 (-2 empty manifold, -4 sample in a
         # diverged region) is still a valid, finished result, not a rerun trigger.
-        if res and "status" in res:
+        if res and "status" in res and _matching_coordinates(res, cfg):
             record["status"] = "skipped_existing"
             record["elapsed_s"] = 0.0
             _fill_from_result(record, res)
@@ -280,6 +341,9 @@ def run_one(job, args, exe: Path, env: dict) -> dict:
     else:
         res = read_app_result(out_path)
         record["status"] = "completed" if res else "no_output"
+        if res and not _matching_coordinates(res, cfg):
+            record["status"] = "configuration_mismatch"
+            record["reason"] = "result attitude mode differs from request; rebuild the Fortran executable"
         _fill_from_result(record, res)
     print(f"{cfg_id} {oid} p{int(pi):02d} a={fmt(solar_phase)}: "
           f"{record['status']}; {elapsed:.2f}s", flush=True)
@@ -295,6 +359,12 @@ def parser():
     p.add_argument("--beta", type=float, nargs=2, metavar=("LOWER", "UPPER"),
                    help="run a custom cannonball (Q1) config over this beta range; "
                         "overrides --configs")
+    p.add_argument("--attitude", choices=("uv", "theta_phi"), default="uv",
+                   help="attitude coordinates for selected flatplate Q2/Q4 configs (default: uv)")
+    p.add_argument("--theta-deg", type=float, nargs=2, metavar=("LOWER", "UPPER"),
+                   help="theta interval in degrees for theta_phi; default: [0, config tilt_deg]")
+    p.add_argument("--phi-deg", type=float, nargs=2, metavar=("LOWER", "UPPER"),
+                   help="required unwrapped phi interval in degrees for theta_phi, e.g. -45 45")
     p.add_argument("--orbits", nargs="+", help="subset of orbit_id values (default: all)")
     p.add_argument("--orbit-prefix", type=str, default=None,
                    help="only orbits whose orbit_id starts with this prefix (e.g. PL1)")
@@ -309,10 +379,10 @@ def parser():
     p.add_argument("--limit", type=int, default=0,
                    help="stop after N cases (0 = no limit); useful for smoke tests")
     p.add_argument("--skip-existing", action="store_true",
-                   help="reuse existing per-case result JSONs (status==0) instead of recomputing")
+                   help="reuse finished per-case result JSONs with a matching attitude mode")
     p.add_argument("--outdir", type=Path, default=ROOT / "results" / "srp_sensitivity")
     p.add_argument("--executable", type=Path, help="path to run_crtbp_srp_study (skip fpm build)")
-    p.add_argument("--dry-run", action="store_true", help="print commands without running")
+    p.add_argument("--dry-run", action="store_true", help="print commands without building, running, or writing output files")
     return p
 
 
@@ -343,9 +413,21 @@ def main(argv=None) -> int:
         raise FileNotFoundError(args.json)
 
     orbits = load_orbits(args.json)
-    cases = list(enumerate_cases(args, orbits))
+    selected_configs = select_configs(args)
+    args.configs = list(selected_configs)
+    cases = list(enumerate_cases(args, orbits, selected_configs))
     if not cases:
         raise ValueError("no cases matched the requested filters")
+
+    if args.dry_run:
+        # Command preview only: never build or launch Fortran during --dry-run.
+        exe = args.executable.resolve() if args.executable else Path("run_crtbp_srp_study")
+        for job in cases:
+            _, orbit, phase, pi, solar_phase, cfg_id, cfg = job
+            oid = orbit.get("orbit_id")
+            out_path = args.outdir / "results" / cfg_id / oid / f"p{int(pi):02d}__a{fmt(solar_phase)}.json"
+            print(shlex.join(build_command(exe, orbit, phase, pi, solar_phase, cfg_id, cfg, args, out_path)))
+        return 0
 
     commit = git_commit()
     args.outdir.mkdir(parents=True, exist_ok=True)
@@ -354,6 +436,7 @@ def main(argv=None) -> int:
         "git_commit": commit,
         "json_source": str(args.json),
         "configs": list(args.configs),
+        "config_definitions": selected_configs,
         "solar_phases_rad": args.solar_phases,
         "da_order": args.da_order, "err_toll": args.err_toll,
         "n_split_max": args.n_split_max,
@@ -361,23 +444,13 @@ def main(argv=None) -> int:
         "case_count": len(cases),
     })
 
-    if args.dry_run:
-        env = environment()
-        exe = resolve_executable(args, env) if not args.executable else args.executable.resolve()
-        for job in cases:
-            _, orbit, phase, pi, solar_phase, cfg_id, cfg = job
-            oid = orbit.get("orbit_id")
-            out_path = args.outdir / "results" / cfg_id / oid / f"p{int(pi):02d}__a{fmt(solar_phase)}.json"
-            print(shlex.join(build_command(exe, orbit, phase, pi, solar_phase, cfg_id, cfg, args, out_path)))
-        return 0
-
     env = environment()
     exe = resolve_executable(args, env)
     print(f"binary: {exe}", flush=True)
     print(f"cases: {len(cases)} (jobs={args.jobs})", flush=True)
 
     campaign = {"schema": "crtbp_srp_study_campaign_v1", "git_commit": commit,
-                "case_count": len(cases), "jobs": []}
+                "config_definitions": selected_configs, "case_count": len(cases), "jobs": []}
     started = time.perf_counter()
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
         futures = [pool.submit(run_one, job, args, exe, env) for job in cases]
@@ -391,7 +464,8 @@ def main(argv=None) -> int:
     write_json(args.outdir / "campaign.json", campaign)
 
     fields = ("config", "orbit", "family", "libration_point", "phase_index",
-              "solar_phase_rad", "status", "elapsed_s", "wall_time_s", "app_status",
+              "solar_phase_rad", "attitude_coordinates", "theta_deg", "phi_deg",
+              "status", "elapsed_s", "wall_time_s", "app_status",
               "n_patches", "n_splits_total", "n_max_active", "first_split_time",
               "n_diverged", "first_divergence_time",
               "t_end_days", "has_beta_sens")
