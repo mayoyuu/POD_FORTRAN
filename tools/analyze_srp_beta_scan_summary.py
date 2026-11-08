@@ -21,6 +21,8 @@ Outputs:
   * beta_scan_summary.csv          -- one row per (family, config)
   * trend_cov_axis.png             -- max/min axis vs beta range width, 7 subplots
   * trend_split_time.png           -- max/min split time vs beta range width
+  * grid_axis_<family>.png         -- per-family (center x width) location grid
+  * grid_split_<family>.png
 
 Usage:
     python3 tools/analyze_srp_beta_scan_summary.py \
@@ -314,6 +316,75 @@ def plot_trend(rows, metric, outdir):
 
 
 # ---------------------------------------------------------------------------
+# Location grid
+# ---------------------------------------------------------------------------
+def plot_location_grid(rows, metric, outdir):
+    """Per-family grid of where each metric's extrema concentrate.
+
+    x-axis = beta center, y-axis = beta width; each cell shows the
+    (amplitude, phase) of the max and min separately ("max A.. phi.." /
+    "min A.. phi.."), or is left blank when that (center, width) config is
+    absent or the metric has no valid cases. One PNG per family.
+    """
+    if metric == "axis":
+        ylabel = "cov longest axis (km)"
+        fname_prefix = "grid_axis"
+        max_key, min_key = "axis_max", "axis_min"
+        max_amp, min_amp = "axis_max_amp", "axis_min_amp"
+        max_phase, min_phase = "axis_max_phase", "axis_min_phase"
+    else:
+        ylabel = "first split time (days)"
+        fname_prefix = "grid_split"
+        max_key, min_key = "split_max", "split_min"
+        max_amp, min_amp = "split_max_amp", "split_min_amp"
+        max_phase, min_phase = "split_max_phase", "split_min_phase"
+
+    families = [f for f in FAMILY_ORDER if any(r["family"] == f for r in rows)]
+    centers = sorted({round(r["beta_center"], 6) for r in rows})
+    widths = sorted({round(r["beta_width"], 6) for r in rows})
+
+    for fam in families:
+        fam_rows = [r for r in rows if r["family"] == fam]
+        lookup = {(round(r["beta_center"], 6), round(r["beta_width"], 6)): r
+                  for r in fam_rows}
+
+        fig, ax = plt.subplots(figsize=(max(8, 3.2 * len(centers)),
+                                        max(5, 2.0 * len(widths))))
+        for yi, w in enumerate(widths):
+            for xi, c in enumerate(centers):
+                r = lookup.get((c, w))
+                lines = []
+                if r is not None:
+                    if r[max_key] is not None:
+                        lines.append(f"max A{r[max_amp]} φ{r[max_phase]}")
+                    if r[min_key] is not None:
+                        lines.append(f"min A{r[min_amp]} φ{r[min_phase]}")
+                ax.text(xi, yi, "\n".join(lines), ha="center", va="center",
+                        fontsize=10)
+
+        ax.set_xlim(-0.5, len(centers) - 0.5)
+        ax.set_ylim(len(widths) - 0.5, -0.5)
+        ax.set_xticks(range(len(centers)))
+        ax.set_xticklabels([f"{c:.3g}" for c in centers], fontsize=10)
+        ax.set_yticks(range(len(widths)))
+        ax.set_yticklabels([f"{w:.3g}" for w in widths], fontsize=10)
+        ax.set_xlabel("beta center", fontsize=11)
+        ax.set_ylabel("beta width", fontsize=11)
+        ax.set_title(f"{fam}: {ylabel} extrema location", fontsize=12)
+        ax.set_xticks([i - 0.5 for i in range(len(centers) + 1)], minor=True)
+        ax.set_yticks([i - 0.5 for i in range(len(widths) + 1)], minor=True)
+        ax.grid(which="minor", color="0.8", lw=1)
+        ax.tick_params(which="major", length=0)
+        ax.tick_params(which="minor", length=0)
+
+        fname = f"{fname_prefix}_{fam}.png"
+        fig.tight_layout()
+        fig.savefig(outdir / fname, dpi=150)
+        plt.close(fig)
+        print(f"  location grid -> {outdir / fname}")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 def parser():
@@ -383,6 +454,8 @@ def main(argv=None) -> int:
     if not args.no_png and HAS_MPL:
         plot_trend(rows, "axis", args.outdir)
         plot_trend(rows, "split", args.outdir)
+        plot_location_grid(rows, "axis", args.outdir)
+        plot_location_grid(rows, "split", args.outdir)
     elif not args.no_png and not HAS_MPL:
         print("(matplotlib not installed; install it for PNG trend plots)",
               file=sys.stderr)
