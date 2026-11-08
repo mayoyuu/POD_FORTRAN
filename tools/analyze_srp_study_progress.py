@@ -8,7 +8,7 @@ reads that snapshot and, for one orbit family (default Halo North L1, orbit_id p
 
   * heatmaps of ``first_split_time`` (days) and ``n_splits_total`` over amplitude x phase
   * a per-case table of split statistics (total splits + per-axis split counts)
-  * a per-config split-direction summary (beta/chi/u/v totals)
+  * a per-config split-direction summary (beta/chi/u/v or theta/phi totals)
 
 If matplotlib + numpy are available the heatmap is saved as PNG; otherwise a plain
 ASCII grid is printed instead, so the script always works on a bare server.
@@ -82,12 +82,26 @@ def scan_results(root: Path) -> list:
             for f in sorted(orbit_dir.glob("p*.json")):
                 try:
                     res = json.loads(f.read_text(encoding="utf-8-sig"))
-                except Exception:
+                except (OSError, ValueError) as exc:
+                    print(f"WARNING: skipping unreadable result {f}: {exc}", file=sys.stderr)
+                    continue
+                # A legacy executable can leave UV output in an angle-tagged
+                # directory even though the batch marks configuration_mismatch.
+                if "__theta_phi_" in cfg_dir.name and (
+                    res.get("attitude_coordinates") != "theta_phi"
+                    or res.get("parameter_names") != ["beta", "chi", "theta", "phi"]
+                ):
+                    print(f"WARNING: configuration mismatch; skipping {f}", file=sys.stderr)
                     continue
                 jobs.append({
                     "config": cfg_dir.name,
                     "orbit": orbit_dir.name,
                     "phase_index": int(f.stem.split("__")[0][1:]),
+                    "solar_phase_rad": res.get("alpha0_rad"),
+                    "parameter_names": res.get("parameter_names"),
+                    "attitude_coordinates": res.get("attitude_coordinates", "uv"),
+                    "t_end_days": res.get("t_end_days"),
+                    "result_path": str(f),
                     "first_split_time": res.get("first_split_time"),
                     "n_splits_total": res.get("n_splits_total"),
                     "n_patches": res.get("n_patches"),
@@ -101,14 +115,18 @@ def scan_results(root: Path) -> list:
     return jobs
 
 
-def select_jobs(jobs: list, orbit_prefix: str, configs: list) -> list:
+def select_jobs(jobs: list, orbit_prefix: str, configs: list, solar_phase=None) -> list:
     out = []
     for job in jobs:
         if orbit_prefix and not str(job.get("orbit", "")).startswith(orbit_prefix):
             continue
         if configs and job.get("config") not in configs:
             continue
-        if job.get("status") != "completed":
+        if solar_phase is not None:
+            phase = job.get("solar_phase_rad")
+            if phase is None or not math.isclose(float(phase), solar_phase, rel_tol=0, abs_tol=1e-10):
+                continue
+        if job.get("status") not in ("completed", "skipped_existing"):
             continue
         try:
             parse_amplitude(str(job["orbit"]))
@@ -171,17 +189,30 @@ def first_split_days(job: dict):
 # ---------------------------------------------------------------------------
 # Output: per-case statistics table
 # ---------------------------------------------------------------------------
+def parameter_names(job):
+    """Physical slot names; packed DA indices are not the output column order."""
+    names = job.get("parameter_names")
+    if names:
+        return list(names)
+    return ["beta", "chi", "theta", "phi"] if job.get("attitude_coordinates") == "theta_phi" else ["beta", "chi", "u", "v"]
+
+
+def direction_counts(job):
+    counts = job.get("split_count_dir") or [0, 0, 0, 0]
+    return dict(zip(parameter_names(job), counts))
+
+
 def write_stats_csv(jobs: list, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     header = ("config", "orbit", "amplitude_km", "phase_index", "phase_fraction",
               "first_split_time_nd", "first_split_time_days",
               "n_splits_total", "n_patches", "n_max_active", "n_diverged",
-              "split_beta", "split_chi", "split_u", "split_v",
+              "split_beta", "split_chi", "split_u", "split_v", "split_theta", "split_phi",
+              "solar_phase_rad", "t_end_days", "result_path",
               "app_status", "wall_time_s")
     rows = []
     for job in sorted(jobs, key=lambda j: (j["config"], parse_amplitude(str(j["orbit"])),
                                            int(j["phase_index"]))):
-        scd = job.get("split_count_dir") or [0, 0, 0, 0]
         rows.append({
             "config": job.get("config"),
             "orbit": job.get("orbit"),
@@ -194,7 +225,11 @@ def write_stats_csv(jobs: list, path: Path) -> None:
             "n_patches": job.get("n_patches", ""),
             "n_max_active": job.get("n_max_active", ""),
             "n_diverged": job.get("n_diverged", ""),
-            "split_beta": scd[0], "split_chi": scd[1], "split_u": scd[2], "split_v": scd[3],
+            **{f"split_{name}": direction_counts(job).get(name, "")
+               for name in ("beta", "chi", "u", "v", "theta", "phi")},
+            "solar_phase_rad": job.get("solar_phase_rad", ""),
+            "t_end_days": job.get("t_end_days", ""),
+            "result_path": job.get("result_path", ""),
             "app_status": job.get("app_status", ""),
             "wall_time_s": _fmt_float(job.get("wall_time_s")),
         })
@@ -216,7 +251,7 @@ def _fmt_float(v):
 # ---------------------------------------------------------------------------
 # Output: heatmap
 # ---------------------------------------------------------------------------
-def png_heatmap(amps, phases, matrix, title, path, fmt="{:.1f}"):
+def png_heatmap(amps, phases, matrix, title, path, fmt="{:.1f}", colorbar_label="first_split_time (days)"):
     fig, ax = plt.subplots(figsize=(max(10, 0.45 * len(phases)), max(6, 0.35 * len(amps))))
     arr = np.array(matrix, dtype=float)
     masked = np.ma.masked_invalid(arr)
@@ -235,7 +270,7 @@ def png_heatmap(amps, phases, matrix, title, path, fmt="{:.1f}"):
             v = arr[i][j]
             if np.isfinite(v):
                 ax.text(j, i, fmt.format(v), ha="center", va="center", fontsize=5.5)
-    fig.colorbar(im, ax=ax, label="first_split_time (days)")
+    fig.colorbar(im, ax=ax, label=colorbar_label)
     fig.tight_layout()
     fig.savefig(path, dpi=150)
     plt.close(fig)
@@ -259,7 +294,8 @@ def _emit_heatmap(metric, title, amps, phases, float_matrix, str_matrix, cfg, ou
                   png, fmt, legend):
     if png and HAS_MPL:
         path = outdir / f"heatmap_{metric}_{cfg}.png"
-        png_heatmap(amps, phases, float_matrix, title, path, fmt=fmt)
+        png_heatmap(amps, phases, float_matrix, title, path, fmt=fmt,
+                    colorbar_label="first_split_time (days)" if metric == "first_split_time" else "split count")
         print(f"  {metric} heatmap -> {path}")
     else:
         ascii_heatmap(amps, phases, str_matrix, title, legend, sys.stdout)
@@ -279,17 +315,23 @@ def render_direction_summary(jobs) -> dict:
             dirs[k] += int(scd[k])
             total += int(scd[k])
         n_div += int(j.get("n_diverged") or 0)
-    names = ["beta", "chi", "u", "v"]
+    names = parameter_names(jobs[0])
     parts = "  ".join(f"{n}={dirs[k]}" for k, n in enumerate(names))
     print(f"  split directions (total={total} splits across {len(jobs)} cases): {parts}; "
           f"diverged={n_div}")
     return {"config": cfg, "n_cases": len(jobs), "total_splits": total,
-            "split_beta": dirs[0], "split_chi": dirs[1],
-            "split_u": dirs[2], "split_v": dirs[3], "n_diverged": n_div}
+            **{f"split_{name}": dict(zip(names, dirs)).get(name, "")
+               for name in ("beta", "chi", "u", "v", "theta", "phi")},
+            "solar_phase_rad": jobs[0].get("solar_phase_rad", ""), "n_diverged": n_div}
 
 
 def render_config(jobs, outdir: Path, png: bool) -> dict:
     cfg = jobs[0]["config"]
+    if any(parameter_names(j) != parameter_names(jobs[0]) for j in jobs):
+        raise ValueError(f"mixed attitude parameterizations in config {cfg}")
+    cells = [(j["orbit"], j["phase_index"]) for j in jobs]
+    if len(set(cells)) != len(cells):
+        raise ValueError("duplicate orbit/phase cells; select one --solar-phase")
     amps = sorted_amplitudes(jobs)
     phases = sorted_phases(jobs)
     n_total = len(amps) * len(phases)
@@ -341,7 +383,7 @@ def render_config(jobs, outdir: Path, png: bool) -> dict:
                   "(. = not completed; else n_splits_total)")
 
     # ---- per-direction split counts (beta/chi/u/v) ----
-    dir_names = ["beta", "chi", "u", "v"]
+    dir_names = parameter_names(jobs[0])
     for k, dname in enumerate(dir_names):
         dgrid = build_dir_grid(jobs, k)
         d_float, d_str = [], []
@@ -370,8 +412,8 @@ def parser():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--campaign", type=Path,
-                   default=DEFAULT_OUTDIR / "campaign.json",
-                   help="path to the incremental campaign.json (default: results/srp_sensitivity/campaign.json)")
+                   default=None,
+                   help="fallback campaign.json; default: next to the selected results directory")
     p.add_argument("--results-root", type=Path,
                    default=DEFAULT_OUTDIR / "results",
                    help="fallback: scan raw result JSONs under this root if campaign.json is empty")
@@ -381,6 +423,8 @@ def parser():
                    help="restrict to these config ids (default: all configs present)")
     p.add_argument("--outdir", type=Path, default=DEFAULT_OUTDIR / "analysis",
                    help="where to write CSVs and PNGs")
+    p.add_argument("--solar-phase", type=float, default=None,
+                   help="select a single solar initial phase in radians (not attitude phi)")
     p.add_argument("--no-png", action="store_true", help="force ASCII output even if matplotlib is available")
     return p
 
@@ -390,16 +434,21 @@ def main(argv=None) -> int:
 
     # Prefer the raw result files: campaign.json is overwritten by every batch run,
     # so it only reflects the *last* run (e.g. a partial Q2), not all completed work.
-    jobs = scan_results(args.results_root)
+    # Accept either the campaign directory or its results/ child.
+    result_root = args.results_root
+    if (result_root / "results").is_dir():
+        result_root = result_root / "results"
+    jobs = scan_results(result_root)
     if not jobs:
-        print(f"no result files under {args.results_root}; falling back to "
-              f"campaign.json ({args.campaign})", file=sys.stderr)
-        jobs = load_campaign(args.campaign)
+        campaign = args.campaign or result_root.parent / "campaign.json"
+        print(f"no result files under {result_root}; falling back to "
+              f"campaign.json ({campaign})", file=sys.stderr)
+        jobs = load_campaign(campaign)
     if not jobs:
         print("no completed cases found", file=sys.stderr)
         return 1
 
-    sel = select_jobs(jobs, args.orbit_prefix, args.configs)
+    sel = select_jobs(jobs, args.orbit_prefix, args.configs, args.solar_phase)
     if not sel:
         print(f"no completed cases for orbit prefix '{args.orbit_prefix}'", file=sys.stderr)
         return 1
@@ -418,9 +467,20 @@ def main(argv=None) -> int:
     # Per-config heatmap + direction summary
     dir_summaries = []
     for cfg in configs:
-        summary = render_config([j for j in sel if j["config"] == cfg],
-                                args.outdir, png=not args.no_png)
-        dir_summaries.append(summary)
+        cfg_jobs = [j for j in sel if j["config"] == cfg]
+        # A solar phase is an independent experiment, never the same heatmap cell.
+        groups = {}
+        for job in cfg_jobs:
+            key = (str(job["orbit"]).split("_A")[0], job.get("solar_phase_rad"))
+            groups.setdefault(key, []).append(job)
+        for (family, solar), group in groups.items():
+            outdir = args.outdir
+            if len(groups) > 1:
+                outdir = outdir / family / f"alpha0_{solar}"
+            outdir.mkdir(parents=True, exist_ok=True)
+            summary = render_config(group, outdir, png=not args.no_png)
+            summary["family"] = family
+            dir_summaries.append(summary)
 
     dir_path = args.outdir / f"direction_summary_{args.orbit_prefix}.csv"
     with dir_path.open("w", newline="") as f:
