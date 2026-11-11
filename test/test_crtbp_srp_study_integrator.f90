@@ -96,6 +96,7 @@ contains
         integer, intent(in) :: nvar
         type(SrpStudyDomain) :: domain
         type(StudyIntegratorTempPool) :: ipool
+        type(StudyIntegrationStatus) :: short_status
         type(DA) :: params(4)
         type(AlgebraicVector) :: dstate, dfinal
         integer :: index_map(4)
@@ -140,6 +141,14 @@ contains
             dstate%elements(i) = x0(i)
         end do
         call dfinal%init(6)
+        if (nvar == 1) then
+            call study_adaptive_integrate_da(dstate, 0.0_DP, tend, rel_tol, abs_tol, &
+                dt_min, dt_max, 2, cfg, params, ipool, dfinal, status=short_status)
+            call require(.not. short_status%completed, &
+                'DA integrator reports incomplete propagation at the step limit')
+            call require(short_status%max_steps_reached, 'DA integrator reports the step-limit cause')
+            call require(short_status%reached_time < tend, 'incomplete DA propagation reports reached time')
+        end if
         call study_adaptive_integrate_da(dstate, 0.0_DP, tend, rel_tol, abs_tol, &
             dt_min, dt_max, max_steps, cfg, params, ipool, dfinal)
 

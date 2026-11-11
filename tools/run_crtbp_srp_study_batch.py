@@ -27,6 +27,8 @@ Base 19-argument contract (order is significant):
     18   n_split_max             (max split depth)
     19   output_json_path
 Angle mode appends: theta_phi theta_lower_deg theta_upper_deg phi_lower_deg phi_upper_deg.
+The adaptive controller then appends:
+    ads_time initial_seconds minimum_seconds maximum_seconds
 Use --attitude theta_phi --phi-deg LOWER UPPER for Q2/Q4. Theta defaults to
 [0, config tilt_deg], or is explicitly replaced by --theta-deg LOWER UPPER.
 """
@@ -260,6 +262,10 @@ def build_command(exe: Path, orbit, phase, pi, solar_phase, cfg_id, cfg, args, o
     if cfg.get("attitude_coordinates") == "theta_phi":
         # Fortran performs degree->radian conversion once, in its domain factory.
         cmd += ["theta_phi", *(fmt(v) for v in cfg["theta_deg"]), *(fmt(v) for v in cfg["phi_deg"])]
+    cmd += ["ads_time",
+            fmt(args.ads_dt_initial_seconds),
+            fmt(args.ads_dt_min_seconds),
+            fmt(args.ads_dt_max_seconds)]
     return cmd
 
 
@@ -270,10 +276,18 @@ def read_app_result(path: Path) -> dict:
         return {}
 
 
-def _matching_coordinates(res: dict, cfg: dict) -> bool:
-    # A pre-angle binary may silently ignore trailing arguments. Do not count
-    # its UV result as a completed theta/phi case or skip it on a later run.
-    return res.get("attitude_coordinates", "uv") == cfg.get("attitude_coordinates", "uv")
+def _matching_request(res: dict, cfg: dict, args) -> bool:
+    """Require both the attitude box convention and ADS controller to match."""
+    if res.get("attitude_coordinates", "uv") != cfg.get("attitude_coordinates", "uv"):
+        return False
+    expected = {
+        "ads_dt_initial_seconds": args.ads_dt_initial_seconds,
+        "ads_dt_min_seconds": args.ads_dt_min_seconds,
+        "ads_dt_max_seconds": args.ads_dt_max_seconds,
+    }
+    return all(isinstance(res.get(key), (int, float))
+               and math.isclose(float(res[key]), value, rel_tol=0.0, abs_tol=1.0e-9)
+               for key, value in expected.items())
 
 
 def _fill_from_result(record: dict, res: dict) -> None:
@@ -288,6 +302,13 @@ def _fill_from_result(record: dict, res: dict) -> None:
     record["n_splits_total"] = res.get("n_splits_total")
     record["n_max_active"] = res.get("n_max_active")
     record["first_split_time"] = res.get("first_split_time")
+    record["first_split_time_lower"] = res.get("first_split_time_lower")
+    record["first_split_time_upper"] = res.get("first_split_time_upper")
+    record["n_ads_steps_accepted"] = res.get("n_ads_steps_accepted")
+    record["n_ads_steps_rejected"] = res.get("n_ads_steps_rejected")
+    record["n_depth_limited"] = res.get("n_depth_limited")
+    record["n_numerical_failures"] = res.get("n_numerical_failures")
+    record["first_numerical_failure_time"] = res.get("first_numerical_failure_time")
     record["n_diverged"] = res.get("n_diverged")
     record["first_divergence_time"] = res.get("first_divergence_time")
     record["split_count_dir"] = res.get("split_count_dir")
@@ -312,6 +333,9 @@ def run_one(job, args, exe: Path, env: dict) -> dict:
         "theta_deg": cfg.get("theta_deg"), "phi_deg": cfg.get("phi_deg"),
         "da_order": args.da_order, "err_toll": args.err_toll,
         "n_split_max": args.n_split_max, "result_path": str(out_path.relative_to(args.outdir)),
+        "ads_dt_initial_seconds": args.ads_dt_initial_seconds,
+        "ads_dt_min_seconds": args.ads_dt_min_seconds,
+        "ads_dt_max_seconds": args.ads_dt_max_seconds,
     }
 
     if args.skip_existing and out_path.is_file():
@@ -319,7 +343,7 @@ def run_one(job, args, exe: Path, env: dict) -> dict:
         # A completed case is any Fortran-written JSON carrying a "status" key,
         # regardless of its value: status<0 (-2 empty manifold, -4 sample in a
         # diverged region) is still a valid, finished result, not a rerun trigger.
-        if res and "status" in res and _matching_coordinates(res, cfg):
+        if res and "status" in res and _matching_request(res, cfg, args):
             record["status"] = "skipped_existing"
             record["elapsed_s"] = 0.0
             _fill_from_result(record, res)
@@ -341,9 +365,9 @@ def run_one(job, args, exe: Path, env: dict) -> dict:
     else:
         res = read_app_result(out_path)
         record["status"] = "completed" if res else "no_output"
-        if res and not _matching_coordinates(res, cfg):
+        if res and not _matching_request(res, cfg, args):
             record["status"] = "configuration_mismatch"
-            record["reason"] = "result attitude mode differs from request; rebuild the Fortran executable"
+            record["reason"] = "result attitude mode or ADS controller differs from request"
         _fill_from_result(record, res)
     print(f"{cfg_id} {oid} p{int(pi):02d} a={fmt(solar_phase)}: "
           f"{record['status']}; {elapsed:.2f}s", flush=True)
@@ -375,6 +399,12 @@ def parser():
     p.add_argument("--da-order", type=int, default=8)
     p.add_argument("--err-toll", type=float, default=1.0e-8)
     p.add_argument("--n-split-max", type=int, default=12)
+    p.add_argument("--ads-dt-initial-seconds", type=float, default=21600.0,
+                   help="initial adaptive ADS macro-step in physical seconds (default: 21600)")
+    p.add_argument("--ads-dt-min-seconds", type=float, default=3600.0,
+                   help="minimum ADS split-localization interval in physical seconds (default: 3600)")
+    p.add_argument("--ads-dt-max-seconds", type=float, default=43200.0,
+                   help="maximum adaptive ADS macro-step in physical seconds (default: 43200)")
     p.add_argument("--jobs", type=int, default=1)
     p.add_argument("--limit", type=int, default=0,
                    help="stop after N cases (0 = no limit); useful for smoke tests")
@@ -384,6 +414,18 @@ def parser():
     p.add_argument("--executable", type=Path, help="path to run_crtbp_srp_study (skip fpm build)")
     p.add_argument("--dry-run", action="store_true", help="print commands without building, running, or writing output files")
     return p
+
+
+def validate_ads_time_args(args) -> None:
+    values = (args.ads_dt_min_seconds,
+              args.ads_dt_initial_seconds,
+              args.ads_dt_max_seconds)
+    if (any(not math.isfinite(value) for value in values)
+            or not (0.0 < values[0] <= values[1] <= values[2])):
+        raise ValueError(
+            "ADS time steps must be finite and satisfy "
+            "0 < --ads-dt-min-seconds <= --ads-dt-initial-seconds "
+            "<= --ads-dt-max-seconds")
 
 
 def main(argv=None) -> int:
@@ -398,6 +440,7 @@ def main(argv=None) -> int:
         raise ValueError("--jobs must be positive")
     if any(not math.isfinite(a) for a in args.solar_phases):
         raise ValueError("--solar-phases must be finite")
+    validate_ads_time_args(args)
     if args.beta is not None:
         beta_lo, beta_hi = args.beta
         if not (math.isfinite(beta_lo) and math.isfinite(beta_hi)):
@@ -440,6 +483,9 @@ def main(argv=None) -> int:
         "solar_phases_rad": args.solar_phases,
         "da_order": args.da_order, "err_toll": args.err_toll,
         "n_split_max": args.n_split_max,
+        "ads_dt_initial_seconds": args.ads_dt_initial_seconds,
+        "ads_dt_min_seconds": args.ads_dt_min_seconds,
+        "ads_dt_max_seconds": args.ads_dt_max_seconds,
         "orbit_count": len({c[1].get("orbit_id") for c in cases}),
         "case_count": len(cases),
     })
@@ -467,8 +513,12 @@ def main(argv=None) -> int:
               "solar_phase_rad", "attitude_coordinates", "theta_deg", "phi_deg",
               "status", "elapsed_s", "wall_time_s", "app_status",
               "n_patches", "n_splits_total", "n_max_active", "first_split_time",
+              "first_split_time_lower", "first_split_time_upper",
+              "n_ads_steps_accepted", "n_ads_steps_rejected", "n_depth_limited",
+              "n_numerical_failures", "first_numerical_failure_time",
               "n_diverged", "first_divergence_time",
-              "t_end_days", "has_beta_sens")
+              "t_end_days", "has_beta_sens",
+              "ads_dt_initial_seconds", "ads_dt_min_seconds", "ads_dt_max_seconds")
     with (args.outdir / "campaign_summary.csv").open("w", newline="") as f:
         writer = csv.DictWriter(f, fields, extrasaction="ignore")
         writer.writeheader()

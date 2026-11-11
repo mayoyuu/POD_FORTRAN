@@ -11,7 +11,8 @@ program test_crtbp_srp_study_convergence
         STUDY_CANNONBALL, STUDY_FLAT_PLATE
     use pod_crtbp_srp_study_integrator_module, only: study_adaptive_integrate_real
     use pod_ads_split_module, only: manifold_type, mf_destroy, mf_evaluate_points
-    use pod_crtbp_srp_study_ads_module, only: study_ads_log, study_ads_propagate
+    use pod_crtbp_srp_study_ads_module, only: study_ads_log, study_ads_time_options, &
+        study_ads_propagate
     implicit none
 
     real(DP), parameter :: MU = 0.0121536140918916_DP
@@ -19,7 +20,6 @@ program test_crtbp_srp_study_convergence
     real(DP), parameter :: REL_TOL = 1.0e-10_DP, ABS_TOL = 1.0e-12_DP
     real(DP), parameter :: DT_MIN = 1.0e-13_DP
     integer,  parameter :: MAX_STEPS = 100000
-    integer,  parameter :: N_SEGMENTS = 48
     integer,  parameter :: N_SPLIT_MAX = 12
     integer,  parameter :: N_ORBITS = 5
 
@@ -104,6 +104,7 @@ contains
         type(CrtbpSrpStudyConfig) :: cfg
         type(manifold_type) :: result_manifold
         type(study_ads_log) :: log
+        type(study_ads_time_options) :: time_options
         integer :: index_map(4), nvar, n_samples, status, l, j, n_outside
         real(DP) :: err_toll_vec(6), tend, dt_max, c(4), h(4), p(4), xout(6)
         real(DP) :: max_rel_pos, max_rel_vel, dr_norm, dv_norm, r_norm, v_norm
@@ -115,6 +116,9 @@ contains
         tend = 2.0_DP*orbit%period_nd
         if (tend*TU_S < 15.0_DP*86400.0_DP) tend = 3.0_DP*orbit%period_nd
         dt_max = tend
+        time_options%dt_initial = tend/8.0_DP
+        time_options%dt_min = tend/64.0_DP
+        time_options%dt_max = tend/4.0_DP
 
         cfg%sun%alpha0_rad = 0.0_DP
         cfg%sun%tu_s = TU_S
@@ -126,7 +130,7 @@ contains
 
         call cpu_time(wall_t0)
         call study_ads_propagate(orbit%x0, cfg, domain, index_map, da_order, err_toll_vec, &
-            N_SPLIT_MAX, tend, N_SEGMENTS, REL_TOL, ABS_TOL, DT_MIN, dt_max, MAX_STEPS, &
+            N_SPLIT_MAX, tend, time_options, REL_TOL, ABS_TOL, DT_MIN, dt_max, MAX_STEPS, &
             result_manifold, log, .false.)
         call cpu_time(wall_t1)
 

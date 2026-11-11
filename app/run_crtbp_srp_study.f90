@@ -25,7 +25,10 @@
 !!   20   theta_phi
 !!   21-24 theta_lower_deg theta_upper_deg phi_lower_deg phi_upper_deg
 !! In angle mode argument 13 is ignored; internal angles/output bounds are radians.
-!! Old 19-argument invocations retain the u/v parameterization.
+!! Optional controller block (after theta_phi bounds, when present):
+!!   ads_time initial_seconds minimum_seconds maximum_seconds
+!! Old 19-argument and 24-argument invocations remain supported and use
+!! 6 h initial, 1 h minimum, and 12 h maximum ADS macro-steps.
 program run_crtbp_srp_study
     use pod_global, only: DP
     use, intrinsic :: iso_fortran_env, only: int64
@@ -33,7 +36,8 @@ program run_crtbp_srp_study
     use pod_srp_study_parameters_module
     use pod_crtbp_srp_study_module, only: CrtbpSrpStudyConfig, &
         STUDY_CANNONBALL, STUDY_FLAT_PLATE
-    use pod_crtbp_srp_study_ads_module, only: study_ads_propagate, study_ads_log
+    use pod_crtbp_srp_study_ads_module, only: study_ads_propagate, study_ads_log, &
+        study_ads_time_options
     use pod_crtbp_srp_study_stats_module, only: study_endpoint_statistics, &
         study_beta_zero_sensitivity
     use pod_ads_split_module, only: manifold_type, mf_destroy
@@ -44,13 +48,16 @@ program run_crtbp_srp_study
     real(DP), parameter :: DT_MIN = 1.0e-13_DP
     integer,  parameter :: MAX_STEPS = 100000
     integer,  parameter :: N_SAMPLES = 10000, SEED = 20261102
-    integer,  parameter :: N_SEGMENTS = 48
+    real(DP), parameter :: DEFAULT_ADS_DT_INITIAL_S = 21600.0_DP
+    real(DP), parameter :: DEFAULT_ADS_DT_MIN_S = 3600.0_DP
+    real(DP), parameter :: DEFAULT_ADS_DT_MAX_S = 43200.0_DP
     real(DP), parameter :: BETA_EPS = 1.0e-4_DP
 
     real(DP) :: x0(6), mu, period_nd, alpha0_rad
     real(DP) :: beta_lower, beta_upper, tilt_max_deg, chi_lower, chi_upper
     real(DP) :: err_toll, t_end, dt_max
     real(DP) :: theta_lower_deg, theta_upper_deg, phi_lower_deg, phi_upper_deg
+    real(DP) :: ads_dt_initial_s, ads_dt_min_s, ads_dt_max_s
     character(len=16) :: attitude_coordinates = 'uv'
     character(len=5) :: parameter_names(4)
     character(len=5) :: parameter_units(4)
@@ -61,6 +68,7 @@ program run_crtbp_srp_study
     type(SrpStudyDomain) :: domain
     type(manifold_type) :: result_manifold
     type(study_ads_log) :: log
+    type(study_ads_time_options) :: ads_time
     integer :: index_map(4), nvar, status
     real(DP) :: err_toll_vec(6), mean_state(6), cov_state(6,6), beta_sens(6)
     real(DP) :: wall_t0, wall_t1
@@ -71,7 +79,7 @@ program run_crtbp_srp_study
     call parse_args(x0, mu, period_nd, alpha0_rad, model, beta_lower, beta_upper, &
         tilt_max_deg, chi_lower, chi_upper, da_order, err_toll, n_split_max, out_path)
 
-    call parse_attitude_args()
+    call parse_optional_args()
     call set_crtbp_mu(mu)
 
     cfg%sun%alpha0_rad = alpha0_rad
@@ -108,6 +116,9 @@ program run_crtbp_srp_study
     t_end = 2.0_DP*period_nd
     if (t_end*TU_S < 15.0_DP*86400.0_DP) t_end = 3.0_DP*period_nd
     dt_max = t_end
+    ads_time%dt_initial = ads_dt_initial_s/TU_S
+    ads_time%dt_min = ads_dt_min_s/TU_S
+    ads_time%dt_max = ads_dt_max_s/TU_S
 
     err_toll_vec = err_toll
 
@@ -115,7 +126,7 @@ program run_crtbp_srp_study
     wall_t0 = real(count0, DP) / real(count_rate, DP)
 
     call study_ads_propagate(x0, cfg, domain, index_map, da_order, err_toll_vec, &
-        n_split_max, t_end, N_SEGMENTS, REL_TOL, ABS_TOL, DT_MIN, dt_max, MAX_STEPS, &
+        n_split_max, t_end, ads_time, REL_TOL, ABS_TOL, DT_MIN, dt_max, MAX_STEPS, &
         result_manifold, log, .false.)
 
     mean_state = 0.0_DP
@@ -147,19 +158,40 @@ contains
 
     ! Preserve the original positional CLI. Angle ranges are an explicit extension;
     ! no whole-circle phi range or statistical prior is silently selected here.
-    subroutine parse_attitude_args()
-        integer :: nargs
+    subroutine parse_optional_args()
+        integer :: nargs, next_arg
         character(len=64) :: arg
-        nargs=command_argument_count()
-        if (nargs==19) return
-        if (nargs/=24) error stop 'expected 19 arguments, or 24 with theta_phi and four degree bounds'
-        call get_command_argument(20,attitude_coordinates)
-        if (trim(attitude_coordinates)/='theta_phi') error stop 'argument 20 must be theta_phi'
-        call get_command_argument(21,arg); read(arg,*) theta_lower_deg
-        call get_command_argument(22,arg); read(arg,*) theta_upper_deg
-        call get_command_argument(23,arg); read(arg,*) phi_lower_deg
-        call get_command_argument(24,arg); read(arg,*) phi_upper_deg
-    end subroutine parse_attitude_args
+        nargs = command_argument_count()
+        next_arg = 20
+        ads_dt_initial_s = DEFAULT_ADS_DT_INITIAL_S
+        ads_dt_min_s = DEFAULT_ADS_DT_MIN_S
+        ads_dt_max_s = DEFAULT_ADS_DT_MAX_S
+        if (next_arg <= nargs) then
+            call get_command_argument(next_arg, arg)
+            if (trim(arg) == 'theta_phi') then
+                if (nargs < 24) error stop 'theta_phi requires four degree bounds'
+                attitude_coordinates = 'theta_phi'
+                call get_command_argument(21,arg); read(arg,*) theta_lower_deg
+                call get_command_argument(22,arg); read(arg,*) theta_upper_deg
+                call get_command_argument(23,arg); read(arg,*) phi_lower_deg
+                call get_command_argument(24,arg); read(arg,*) phi_upper_deg
+                next_arg = 25
+            end if
+        end if
+        if (next_arg <= nargs) then
+            call get_command_argument(next_arg, arg)
+            if (trim(arg) /= 'ads_time' .or. nargs /= next_arg+3) &
+                error stop 'expected ads_time followed by initial, minimum and maximum seconds'
+            call get_command_argument(next_arg+1,arg); read(arg,*) ads_dt_initial_s
+            call get_command_argument(next_arg+2,arg); read(arg,*) ads_dt_min_s
+            call get_command_argument(next_arg+3,arg); read(arg,*) ads_dt_max_s
+            next_arg = next_arg+4
+        end if
+        if (next_arg <= nargs) error stop 'unexpected optional arguments'
+        if (.not. (ads_dt_min_s > 0.0_DP .and. ads_dt_min_s <= ads_dt_initial_s .and. &
+                ads_dt_initial_s <= ads_dt_max_s)) &
+            error stop 'require 0 < ADS minimum <= initial <= maximum seconds'
+    end subroutine parse_optional_args
 
     subroutine parse_args(x0, mu, period_nd, alpha0_rad, model, beta_lower, beta_upper, &
             tilt_max_deg, chi_lower, chi_upper, da_order, err_toll, n_split_max, out_path)
@@ -249,12 +281,28 @@ contains
         write(u, '(A,I0,A)') '  "da_order": ', da_order, ','
         write(u, '(A,ES20.12,A)') '  "err_toll": ', err_toll, ','
         write(u, '(A,I0,A)') '  "n_split_max": ', n_split_max, ','
+        write(u, '(A,ES20.12,A)') '  "ads_dt_initial_seconds": ', ads_dt_initial_s, ','
+        write(u, '(A,ES20.12,A)') '  "ads_dt_min_seconds": ', ads_dt_min_s, ','
+        write(u, '(A,ES20.12,A)') '  "ads_dt_max_seconds": ', ads_dt_max_s, ','
+        write(u, '(A,ES20.12,A)') '  "ads_dt_initial_nd": ', ads_time%dt_initial, ','
+        write(u, '(A,ES20.12,A)') '  "ads_dt_min_nd": ', ads_time%dt_min, ','
+        write(u, '(A,ES20.12,A)') '  "ads_dt_max_nd": ', ads_time%dt_max, ','
         write(u, '(A,ES20.12,A)') '  "t_end_nd": ', t_end_nd, ','
         write(u, '(A,ES20.12,A)') '  "t_end_days": ', t_end_days, ','
         write(u, '(A,I0,A)') '  "n_patches": ', n_patches, ','
         write(u, '(A,I0,A)') '  "n_splits_total": ', n_splits, ','
         write(u, '(A,I0,A)') '  "n_max_active": ', n_max_active, ','
         write(u, '(A,ES20.12,A)') '  "first_split_time": ', first_split_time, ','
+        write(u, '(A,ES20.12,A)') '  "first_split_time_lower": ', log%first_split_time_lower, ','
+        write(u, '(A,ES20.12,A)') '  "first_split_time_upper": ', log%first_split_time_upper, ','
+        write(u, '(A,I0,A)') '  "n_ads_steps_accepted": ', log%n_ads_steps_accepted, ','
+        write(u, '(A,I0,A)') '  "n_ads_steps_rejected": ', log%n_ads_steps_rejected, ','
+        write(u, '(A,I0,A)') '  "n_depth_limited": ', log%n_depth_limited, ','
+        write(u, '(A,I0,A)') '  "n_numerical_failures": ', log%n_numerical_failures, ','
+        write(u, '(A,ES20.12,A)') '  "first_numerical_failure_time": ', &
+            log%first_numerical_failure_time, ','
+        write(u, '(A,ES20.12,A)') '  "min_accepted_ads_dt_nd": ', log%min_accepted_dt, ','
+        write(u, '(A,ES20.12,A)') '  "max_accepted_ads_dt_nd": ', log%max_accepted_dt, ','
         write(u, '(A,I0,A)') '  "n_diverged": ', n_diverged, ','
         write(u, '(A,ES20.12,A)') '  "first_divergence_time": ', first_divergence_time, ','
         write(u, '(A,ES20.12,A)') '  "wall_time_s": ', wall_s, ','
@@ -303,6 +351,14 @@ contains
             write(u, '(A,ES13.6,A)', advance='no') '"t":', log%split_events(i)%time_nd, ','
             write(u, '(A,ES13.6,A)', advance='no') '"td":', &
                 log%split_events(i)%time_nd*TU_S/86400.0_DP, ','
+            write(u, '(A,ES13.6,A)', advance='no') '"tl":', &
+                log%split_events(i)%time_lower, ','
+            write(u, '(A,ES13.6,A)', advance='no') '"tu":', &
+                log%split_events(i)%time_upper, ','
+            write(u, '(A,ES13.6,A)', advance='no') '"tld":', &
+                log%split_events(i)%time_lower*TU_S/86400.0_DP, ','
+            write(u, '(A,ES13.6,A)', advance='no') '"tud":', &
+                log%split_events(i)%time_upper*TU_S/86400.0_DP, ','
             write(u, '(A,I0,A)', advance='no') '"ax":', log%split_events(i)%axis, ','
             write(u, '(A)', advance='no') '"axis_name":"'// &
                 trim(parameter_names(log%split_events(i)%axis))//'",'

@@ -29,7 +29,7 @@ module pod_ads_split_module
 
     public :: splitting_history_type, patch_type, manifold_type
     public :: sh_push, sh_pop, sh_count, sh_replay, sh_center, sh_width, sh_contain, sh_map_point
-    public :: patch_init, patch_destroy, patch_get_trunc_err, patch_get_split_dir, patch_split
+    public :: patch_init, patch_destroy, patch_copy, patch_get_trunc_err, patch_get_split_dir, patch_split
     public :: mf_init, mf_destroy, mf_push, mf_pop_front
     public :: mf_find_patch, mf_evaluate_point, mf_evaluate_points
 

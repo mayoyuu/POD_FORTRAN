@@ -96,6 +96,11 @@ def load_events(res: dict, center, hw):
     for e in evs:
         ax = int(e.get("ax", 0))
         c = float(e.get("c", 0.0))
+        call = e.get("call")
+        phys_all = [None] * 4
+        if isinstance(call, list) and len(call) == 4:
+            for k in range(4):
+                phys_all[k] = center[k] + hw[k] * float(call[k])
         out.append({
             "i": int(e.get("i", 0)),
             "t": float(e.get("t", 0.0)),
@@ -107,6 +112,8 @@ def load_events(res: dict, center, hw):
             "w": float(e.get("w", 0.0)),
             "crit": float(e.get("crit", 0.0)),
             "x_phys": physical_value(center, hw, ax, c),
+            "call": call,                        # full 4-axis center (global xi), may be None
+            "phys_all": phys_all,                # full 4-axis center (physical), None where inactive
         })
     return out
 
@@ -147,6 +154,13 @@ def print_summary(res, center, hw, active, events):
           f"n_max_active = {res.get('n_max_active')}, "
           f"n_diverged = {res.get('n_diverged')}")
     print(f"split_count_dir (beta/chi/u/v) = {res.get('split_count_dir')}")
+    has_call = bool(events) and any(e.get("call") is not None for e in events)
+    if has_call:
+        print("split_events include full per-axis centers (call/wall) -> "
+              "parameter x parameter plots available")
+    else:
+        print("split_events have only the split-axis center (no call/wall) -> "
+              "parameter x parameter plots NOT available")
     if not events:
         print("no split events recorded")
         return
@@ -256,6 +270,51 @@ def fig_density_1d(res, center, hw, active, events, outdir, stem):
     return path
 
 
+def fig_pairs(res, center, hw, active, events, outdir, stem):
+    """Parameter x parameter scatter of every split's full patch center.
+
+    Requires the new ``call``/``wall`` fields (full 4-axis center/width) written
+    by the updated Fortran; returns None for old JSON without them.
+    """
+    axs = [k + 1 for k in range(4) if active[k]]
+    pairs = [(axs[i], axs[j]) for i in range(len(axs)) for j in range(i + 1, len(axs))]
+    if not pairs:
+        return None
+    if not any(e["phys_all"][0] is not None for e in events):
+        return None
+    n = len(pairs)
+    ncol = min(3, n)
+    nrow = math.ceil(n / ncol)
+    fig, axes = plt.subplots(nrow, ncol, figsize=(4.6 * ncol, 4.0 * nrow), squeeze=False)
+    tmax = max((e["td"] for e in events), default=1.0)
+    for k, (a, b) in enumerate(pairs):
+        ax = axes[k // ncol][k % ncol]
+        pts = [e for e in events
+               if e["phys_all"][a - 1] is not None and e["phys_all"][b - 1] is not None]
+        if pts:
+            xs = [e["phys_all"][a - 1] for e in pts]
+            ys = [e["phys_all"][b - 1] for e in pts]
+            ts = [e["td"] for e in pts]
+            sc = ax.scatter(xs, ys, c=ts, cmap="viridis", s=34, edgecolors="k",
+                            linewidths=0.3, vmin=0.0, vmax=tmax)
+            fig.colorbar(sc, ax=ax, label="time (days)")
+        xlo = center[a - 1] - hw[a - 1]; xhi = center[a - 1] + hw[a - 1]
+        ylo = center[b - 1] - hw[b - 1]; yhi = center[b - 1] + hw[b - 1]
+        ax.set_xlim(xlo, xhi); ax.set_ylim(ylo, yhi)
+        ua = AXIS_UNITS[a]; ub = AXIS_UNITS[b]
+        ax.set_xlabel(f"{AXIS_NAMES[a]} ({ua})" if ua else AXIS_NAMES[a])
+        ax.set_ylabel(f"{AXIS_NAMES[b]} ({ub})" if ub else AXIS_NAMES[b])
+        ax.set_title(f"{AXIS_NAMES[a]} x {AXIS_NAMES[b]}")
+    for k in range(n, nrow * ncol):
+        axes[k // ncol][k % ncol].axis("off")
+    fig.suptitle(f"{stem}: split locations in parameter x parameter", y=1.02)
+    fig.tight_layout()
+    path = outdir / f"{stem}_pairs.png"
+    fig.savefig(path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return path
+
+
 def fig_density_2d(res, center, hw, active, events, outdir, stem):
     ax_names = [k + 1 for k in range(4) if active[k]]
     n = len(ax_names)
@@ -352,9 +411,14 @@ def main(argv=None) -> int:
     p1 = fig_timeline(res, events, args.outdir, stem)
     p2 = fig_density_1d(res, center, hw, active, events, args.outdir, stem)
     p3 = fig_density_2d(res, center, hw, active, events, args.outdir, stem)
+    p4 = fig_pairs(res, center, hw, active, events, args.outdir, stem)
     print(f"\ntimeline     -> {p1}")
     print(f"density 1D   -> {p2}")
     print(f"density 2D   -> {p3}")
+    if p4 is not None:
+        print(f"pairs 2D     -> {p4}")
+    else:
+        print("pairs 2D     -> (not available: this JSON lacks call/wall fields)")
     return 0
 
 

@@ -7,13 +7,27 @@ module pod_crtbp_srp_study_integrator_module
     use pod_dace_classes
     use pod_crtbp_srp_study_module, only: CrtbpSrpStudyConfig, SrpStudyTempPool, &
         crtbp_srp_study_derivatives_real, crtbp_srp_study_derivatives_da
-    use, intrinsic :: ieee_arithmetic, only: ieee_is_nan
+    use, intrinsic :: ieee_arithmetic, only: ieee_is_finite, ieee_is_nan
     implicit none
     private
 
     public :: StudyIntegratorTempPool
+    public :: StudyIntegrationStatus
     public :: study_adaptive_integrate_real
     public :: study_adaptive_integrate_da
+
+    !> Completion diagnostics for one DA RKF78 call. Time values use exactly
+    !! the same coordinate as t_start/t_end (nondimensional in the CRTBP app).
+    type, public :: StudyIntegrationStatus
+        logical :: completed = .false.
+        logical :: nonfinite = .false.
+        logical :: min_step_reached = .false.
+        logical :: max_steps_reached = .false.
+        integer :: accepted_steps = 0
+        integer :: rejected_steps = 0
+        real(DP) :: reached_time = 0.0_DP
+        real(DP) :: next_dt = 0.0_DP
+    end type
 
     !> Caller-owned DA temp pool: SRP force pool + integrator AlgebraicVector
     !! scratch. Reuse one pool across many segments; do not re-init mid-arc.
@@ -452,7 +466,8 @@ contains
     end subroutine study_rkf78_da_step
 
     subroutine study_adaptive_integrate_da(state, t_start, t_end, &
-            rel_tol, abs_tol, dt_min, dt_max, max_steps, cfg, p, pool, final_state)
+            rel_tol, abs_tol, dt_min, dt_max, max_steps, cfg, p, pool, final_state, &
+            status, dt_initial)
         type(AlgebraicVector), intent(in)    :: state
         real(DP), intent(in) :: t_start, t_end
         real(DP), intent(in) :: rel_tol, abs_tol, dt_min, dt_max
@@ -461,14 +476,18 @@ contains
         type(DA), intent(in) :: p(4)
         type(StudyIntegratorTempPool), intent(inout) :: pool
         type(AlgebraicVector), intent(inout) :: final_state
+        type(StudyIntegrationStatus), intent(out), optional :: status
+        real(DP), intent(in), optional :: dt_initial
 
         type(AlgebraicVector) :: current_state, next_8th, next_7th, error_vec
+        type(StudyIntegrationStatus) :: local_status
         real(DP) :: current_time, dt, wrms_error
         real(DP), dimension(6) :: scale_vector, cons_current
         integer :: i, j
 
         real(DP), parameter :: safety_factor = 0.9_DP
         real(DP), parameter :: exp_power = 0.125_DP
+        real(DP), parameter :: time_eps_factor = 100.0_DP
 
         call current_state%init(6)
         call next_8th%init(6)
@@ -480,10 +499,17 @@ contains
             current_state%elements(j) = state%elements(j)
         end do
         current_time = t_start
-        dt = min(dt_max, (t_end - t_start) / 100.0_DP)
+        local_status = StudyIntegrationStatus()
+        local_status%reached_time = t_start
+        if (present(dt_initial)) then
+            dt = min(dt_max, max(dt_min, dt_initial), max(0.0_DP, t_end-t_start))
+        else
+            dt = min(dt_max, max(dt_min, (t_end-t_start)/100.0_DP))
+        end if
 
         do i = 2, max_steps
-            if (current_time >= t_end) exit
+            if (current_time >= t_end - &
+                    time_eps_factor*epsilon(1.0_DP)*max(1.0_DP,abs(t_end))) exit
             if (current_time + dt > t_end) dt = t_end - current_time
 
             call study_rkf78_da_step(current_state, dt, current_time, &
@@ -500,16 +526,13 @@ contains
             end do
             wrms_error = sqrt(wrms_error / 6.0_DP)
 
-            if (ieee_is_nan(wrms_error)) then
-                do j = 1, 6
-                    final_state%elements(j) = current_state%elements(j)
-                end do
-                call current_state%destroy(); call next_8th%destroy()
-                call next_7th%destroy(); call error_vec%destroy()
-                return
+            if (.not. ieee_is_finite(wrms_error)) then
+                local_status%nonfinite = .true.
+                exit
             end if
 
             if (wrms_error <= 1.0_DP) then
+                local_status%accepted_steps = local_status%accepted_steps + 1
                 do j = 1, 6
                     current_state%elements(j) = next_8th%elements(j)
                 end do
@@ -517,11 +540,10 @@ contains
                 dt = safety_factor * dt * (1.0_DP / max(wrms_error, 1.0e-15_DP))**exp_power
                 dt = max(dt_min, min(dt_max, dt))
             else
+                local_status%rejected_steps = local_status%rejected_steps + 1
                 if (dt <= dt_min) then
-                    do j = 1, 6
-                        current_state%elements(j) = next_8th%elements(j)
-                    end do
-                    current_time = current_time + dt
+                    local_status%min_step_reached = .true.
+                    exit
                 else
                     dt = safety_factor * dt * (1.0_DP / max(wrms_error, 1.0e-15_DP))**exp_power
                     dt = max(dt_min, dt)
@@ -529,9 +551,17 @@ contains
             end if
         end do
 
+        local_status%completed = current_time >= &
+            t_end - time_eps_factor*epsilon(1.0_DP)*max(1.0_DP,abs(t_end))
+        local_status%reached_time = current_time
+        local_status%next_dt = dt
+        if (.not. local_status%completed .and. .not. local_status%nonfinite .and. &
+            .not. local_status%min_step_reached) local_status%max_steps_reached = .true.
+
         do j = 1, 6
             final_state%elements(j) = current_state%elements(j)
         end do
+        if (present(status)) status = local_status
 
         call current_state%destroy()
         call next_8th%destroy(); call next_7th%destroy()

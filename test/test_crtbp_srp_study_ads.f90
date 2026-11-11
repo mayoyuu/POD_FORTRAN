@@ -11,7 +11,8 @@ program test_crtbp_srp_study_ads
     use pod_crtbp_srp_study_module, only: CrtbpSrpStudyConfig
     use pod_crtbp_srp_study_integrator_module, only: study_adaptive_integrate_real
     use pod_ads_split_module, only: manifold_type, mf_destroy, mf_evaluate_points
-    use pod_crtbp_srp_study_ads_module, only: study_ads_log, study_ads_propagate
+    use pod_crtbp_srp_study_ads_module, only: study_ads_log, study_ads_time_options, &
+        study_ads_propagate
     implicit none
     real(DP), parameter :: orbit_period = 2.3017923284002024_DP
     real(DP), parameter :: rel_tol = 1.0e-10_DP, abs_tol = 1.0e-12_DP
@@ -36,7 +37,9 @@ program test_crtbp_srp_study_ads
         1.0e-9_DP, 6, 6)
     ! Low order over a wide box forces the truncation-error estimate above toll,
     ! exercising the split path (same affine state+params substitution).
-    call run_ads_case('1D cannonball [0,0.2] order-3', srp_study_domain(0.0_DP, 0.2_DP), 1.0e-8_DP, 10, 3)
+    call run_ads_case('1D cannonball [0,0.2] order-3', srp_study_domain(0.0_DP, 0.2_DP), 1.0e-12_DP, 10, 3)
+    call run_ads_case('1D cannonball finite depth limit', srp_study_domain(0.0_DP, 0.2_DP), &
+        1.0e-30_DP, 0, 3, expect_depth_limited=.true.)
 
     call check(active_da_count() == 0, 'all DA handles released after ADS')
     call check(total_splits > 0, 'ADS engine performs at least one split')
@@ -56,14 +59,16 @@ contains
         end if
     end subroutine check
 
-    subroutine run_ads_case(label, domain, err_toll, n_split_max, da_order_use)
+    subroutine run_ads_case(label, domain, err_toll, n_split_max, da_order_use, expect_depth_limited)
         character(*), intent(in) :: label
         type(SrpStudyDomain), intent(in) :: domain
         real(DP), intent(in) :: err_toll
         integer, intent(in) :: n_split_max, da_order_use
+        logical, intent(in), optional :: expect_depth_limited
         type(manifold_type) :: result_manifold
         type(study_ads_log) :: log
-        integer :: index_map(4), nvar, n_segments, l, status, j
+        type(study_ads_time_options) :: time_options
+        integer :: index_map(4), nvar, l, status, j, i
         real(DP) :: err_toll_vec(6), c(4), h(4), p(4), xout(6)
         real(DP) :: state_err, param_err, max_state_err, max_param_err
         real(DP), allocatable :: xi(:,:), values(:,:)
@@ -71,10 +76,12 @@ contains
         integer :: n_samples
 
         err_toll_vec = err_toll
-        n_segments = 4
+        time_options%dt_initial = tend/4.0_DP
+        time_options%dt_min = tend/64.0_DP
+        time_options%dt_max = tend/2.0_DP
 
         call study_ads_propagate(x0, cfg, domain, index_map, da_order_use, err_toll_vec, &
-            n_split_max, tend, n_segments, rel_tol, abs_tol, dt_min, dt_max, max_steps, &
+            n_split_max, tend, time_options, rel_tol, abs_tol, dt_min, dt_max, max_steps, &
             result_manifold, log, .false.)
 
         nvar = dace_max_variables()
@@ -113,6 +120,21 @@ contains
 
         call check(max_state_err < 1.0e-6_DP, label//': manifold state matches direct integration')
         call check(max_param_err < 1.0e-10_DP, label//': manifold params reproduce physical box')
+        call check(log%n_ads_steps_accepted > 0, label//': adaptive ADS accepts time steps')
+        call check(log%n_numerical_failures == 0, label//': finite truncation growth is not numerical failure')
+        do i = 1, log%n_splits_total
+            call check(log%split_events(i)%time_upper-log%split_events(i)%time_lower <= &
+                time_options%dt_min*(1.0_DP+1.0e-10_DP), label//': split bracket respects dt_min')
+        end do
+        if (log%n_splits_total > 0) then
+            call check(log%n_ads_steps_rejected > 0, label//': split localization rejects coarse steps')
+        end if
+        if (present(expect_depth_limited)) then
+            if (expect_depth_limited) then
+                call check(log%n_depth_limited > 0, label//': finite max-depth patch is depth limited')
+                call check(result_manifold%n_patches > 0, label//': depth-limited domain is retained')
+            end if
+        end if
 
         call mf_destroy(result_manifold)
         deallocate(xi, values, found)
