@@ -26,18 +26,19 @@
 !!   21-24 theta_lower_deg theta_upper_deg phi_lower_deg phi_upper_deg
 !! In angle mode argument 13 is ignored; internal angles/output bounds are radians.
 !! Optional controller block (after theta_phi bounds, when present):
-!!   ads_time initial_seconds minimum_seconds maximum_seconds
+!!   n_segments <int> tol_div <real>
 !! Old 19-argument and 24-argument invocations remain supported and use
-!! 6 h initial, 1 h minimum, and 12 h maximum ADS macro-steps.
+!! 48 fixed checkpoints and a divergence tolerance of 1e-3.
 program run_crtbp_srp_study
     use pod_global, only: DP
     use, intrinsic :: iso_fortran_env, only: int64
+    use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
     use pod_crtbp_module, only: set_crtbp_mu
     use pod_srp_study_parameters_module
     use pod_crtbp_srp_study_module, only: CrtbpSrpStudyConfig, &
         STUDY_CANNONBALL, STUDY_FLAT_PLATE
     use pod_crtbp_srp_study_ads_module, only: study_ads_propagate, study_ads_log, &
-        study_ads_time_options
+        detect_first_split_time
     use pod_crtbp_srp_study_stats_module, only: study_endpoint_statistics, &
         study_beta_zero_sensitivity
     use pod_ads_split_module, only: manifold_type, mf_destroy
@@ -48,29 +49,28 @@ program run_crtbp_srp_study
     real(DP), parameter :: DT_MIN = 1.0e-13_DP
     integer,  parameter :: MAX_STEPS = 100000
     integer,  parameter :: N_SAMPLES = 10000, SEED = 20261102
-    real(DP), parameter :: DEFAULT_ADS_DT_INITIAL_S = 21600.0_DP
-    real(DP), parameter :: DEFAULT_ADS_DT_MIN_S = 3600.0_DP
-    real(DP), parameter :: DEFAULT_ADS_DT_MAX_S = 43200.0_DP
+    integer,  parameter :: DEFAULT_N_SEGMENTS = 48
+    real(DP), parameter :: DEFAULT_TOL_DIV = 1.0e-3_DP
     real(DP), parameter :: BETA_EPS = 1.0e-4_DP
 
     real(DP) :: x0(6), mu, period_nd, alpha0_rad
     real(DP) :: beta_lower, beta_upper, tilt_max_deg, chi_lower, chi_upper
     real(DP) :: err_toll, t_end, dt_max
     real(DP) :: theta_lower_deg, theta_upper_deg, phi_lower_deg, phi_upper_deg
-    real(DP) :: ads_dt_initial_s, ads_dt_min_s, ads_dt_max_s
+    real(DP) :: tol_div
     character(len=16) :: attitude_coordinates = 'uv'
     character(len=5) :: parameter_names(4)
     character(len=5) :: parameter_units(4)
-    integer  :: da_order, n_split_max
+    integer  :: da_order, n_split_max, n_segments
     character(len=64) :: model
     character(len=1024) :: out_path
     type(CrtbpSrpStudyConfig) :: cfg
     type(SrpStudyDomain) :: domain
     type(manifold_type) :: result_manifold
     type(study_ads_log) :: log
-    type(study_ads_time_options) :: ads_time
-    integer :: index_map(4), nvar, status
-    real(DP) :: err_toll_vec(6), mean_state(6), cov_state(6,6), beta_sens(6)
+    integer :: index_map(4), nvar, status, first_split_status
+    real(DP) :: err_toll_vec(6), tol_div_vec(6), mean_state(6), cov_state(6,6), beta_sens(6)
+    real(DP) :: first_split_time_accurate
     real(DP) :: wall_t0, wall_t1
     integer(int64) :: count0, count1, count_rate
     real(DP) :: n_split_dir(4)
@@ -116,18 +116,24 @@ program run_crtbp_srp_study
     t_end = 2.0_DP*period_nd
     if (t_end*TU_S < 15.0_DP*86400.0_DP) t_end = 3.0_DP*period_nd
     dt_max = t_end
-    ads_time%dt_initial = ads_dt_initial_s/TU_S
-    ads_time%dt_min = ads_dt_min_s/TU_S
-    ads_time%dt_max = ads_dt_max_s/TU_S
 
     err_toll_vec = err_toll
+    tol_div_vec = tol_div
 
     call system_clock(count0, count_rate)
     wall_t0 = real(count0, DP) / real(count_rate, DP)
 
-    call study_ads_propagate(x0, cfg, domain, index_map, da_order, err_toll_vec, &
-        n_split_max, t_end, ads_time, REL_TOL, ABS_TOL, DT_MIN, dt_max, MAX_STEPS, &
+    call study_ads_propagate(x0, cfg, domain, index_map, da_order, err_toll_vec, tol_div_vec, &
+        n_split_max, t_end, n_segments, N_SAMPLES, SEED, &
+        REL_TOL, ABS_TOL, DT_MIN, dt_max, MAX_STEPS, &
         result_manifold, log, .false.)
+
+    first_split_time_accurate = -1.0_DP
+    first_split_status = -1
+    call detect_first_split_time(x0, cfg, domain, da_order, err_toll_vec, &
+        t_end, REL_TOL, ABS_TOL, DT_MIN, dt_max, MAX_STEPS, &
+        first_split_time_accurate, first_split_status)
+    if (first_split_status == 0) log%first_split_time_accurate = first_split_time_accurate
 
     mean_state = 0.0_DP
     cov_state = 0.0_DP
@@ -149,8 +155,9 @@ program run_crtbp_srp_study
         beta_lower, beta_upper, tilt_max_deg, chi_lower, chi_upper, da_order, err_toll, &
         n_split_max, t_end, t_end*TU_S/86400.0_DP, result_manifold%n_patches, &
         log%n_splits_total, n_split_dir, log%n_max_active, log%first_split_time, &
-        log%n_diverged, log%first_divergence_time, &
-        mean_state, cov_state, beta_sens, beta_lower == 0.0_DP, wall_t1 - wall_t0, status, log)
+        log%n_diverged, log%first_divergence_time, n_segments, tol_div, &
+        mean_state, cov_state, beta_sens, beta_lower == 0.0_DP, wall_t1 - wall_t0, status, &
+        log, result_manifold)
 
     call mf_destroy(result_manifold)
 
@@ -163,9 +170,8 @@ contains
         character(len=64) :: arg
         nargs = command_argument_count()
         next_arg = 20
-        ads_dt_initial_s = DEFAULT_ADS_DT_INITIAL_S
-        ads_dt_min_s = DEFAULT_ADS_DT_MIN_S
-        ads_dt_max_s = DEFAULT_ADS_DT_MAX_S
+        n_segments = DEFAULT_N_SEGMENTS
+        tol_div = DEFAULT_TOL_DIV
         if (next_arg <= nargs) then
             call get_command_argument(next_arg, arg)
             if (trim(arg) == 'theta_phi') then
@@ -178,19 +184,25 @@ contains
                 next_arg = 25
             end if
         end if
-        if (next_arg <= nargs) then
+        do while (next_arg <= nargs)
             call get_command_argument(next_arg, arg)
-            if (trim(arg) /= 'ads_time' .or. nargs /= next_arg+3) &
-                error stop 'expected ads_time followed by initial, minimum and maximum seconds'
-            call get_command_argument(next_arg+1,arg); read(arg,*) ads_dt_initial_s
-            call get_command_argument(next_arg+2,arg); read(arg,*) ads_dt_min_s
-            call get_command_argument(next_arg+3,arg); read(arg,*) ads_dt_max_s
-            next_arg = next_arg+4
-        end if
-        if (next_arg <= nargs) error stop 'unexpected optional arguments'
-        if (.not. (ads_dt_min_s > 0.0_DP .and. ads_dt_min_s <= ads_dt_initial_s .and. &
-                ads_dt_initial_s <= ads_dt_max_s)) &
-            error stop 'require 0 < ADS minimum <= initial <= maximum seconds'
+            if (trim(arg) == 'n_segments') then
+                if (next_arg+1 > nargs) error stop 'n_segments requires one integer argument'
+                call get_command_argument(next_arg+1, arg)
+                read(arg, *) n_segments
+                next_arg = next_arg + 2
+            else if (trim(arg) == 'tol_div') then
+                if (next_arg+1 > nargs) error stop 'tol_div requires one real argument'
+                call get_command_argument(next_arg+1, arg)
+                read(arg, *) tol_div
+                next_arg = next_arg + 2
+            else
+                error stop 'unexpected optional argument; expected n_segments or tol_div'
+            end if
+        end do
+        if (n_segments < 1) error stop 'require n_segments >= 1'
+        if (.not. (tol_div > 0.0_DP .and. ieee_is_finite(tol_div))) &
+            error stop 'require tol_div positive and finite'
     end subroutine parse_optional_args
 
     subroutine parse_args(x0, mu, period_nd, alpha0_rad, model, beta_lower, beta_upper, &
@@ -226,18 +238,19 @@ contains
     subroutine write_json(path, x0, mu, period_nd, alpha0_rad, model, &
             beta_lower, beta_upper, tilt_max_deg, chi_lower, chi_upper, da_order, err_toll, &
             n_split_max, t_end_nd, t_end_days, n_patches, n_splits, split_dir, n_max_active, &
-            first_split_time, n_diverged, first_divergence_time, &
-            mean_state, cov_state, beta_sens, has_beta_sens, wall_s, status, log)
+            first_split_time, n_diverged, first_divergence_time, n_segments, tol_div, &
+            mean_state, cov_state, beta_sens, has_beta_sens, wall_s, status, log, result_manifold)
         character(len=*), intent(in) :: path, model
         real(DP), intent(in) :: x0(6), mu, period_nd, alpha0_rad
         real(DP), intent(in) :: beta_lower, beta_upper, tilt_max_deg, chi_lower, chi_upper
         real(DP), intent(in) :: err_toll, t_end_nd, t_end_days, first_split_time, &
-            first_divergence_time, wall_s
+            first_divergence_time, wall_s, tol_div
         integer, intent(in) :: da_order, n_split_max, n_patches, n_splits, n_max_active, &
-            n_diverged, status
+            n_diverged, status, n_segments
         real(DP), intent(in) :: split_dir(4), mean_state(6), cov_state(6,6), beta_sens(6)
         logical, intent(in) :: has_beta_sens
         type(study_ads_log), intent(in) :: log
+        type(manifold_type), intent(in) :: result_manifold
         integer :: u, i, j
 
         open(newunit=u, file=trim(path), status='replace', action='write')
@@ -281,12 +294,8 @@ contains
         write(u, '(A,I0,A)') '  "da_order": ', da_order, ','
         write(u, '(A,ES20.12,A)') '  "err_toll": ', err_toll, ','
         write(u, '(A,I0,A)') '  "n_split_max": ', n_split_max, ','
-        write(u, '(A,ES20.12,A)') '  "ads_dt_initial_seconds": ', ads_dt_initial_s, ','
-        write(u, '(A,ES20.12,A)') '  "ads_dt_min_seconds": ', ads_dt_min_s, ','
-        write(u, '(A,ES20.12,A)') '  "ads_dt_max_seconds": ', ads_dt_max_s, ','
-        write(u, '(A,ES20.12,A)') '  "ads_dt_initial_nd": ', ads_time%dt_initial, ','
-        write(u, '(A,ES20.12,A)') '  "ads_dt_min_nd": ', ads_time%dt_min, ','
-        write(u, '(A,ES20.12,A)') '  "ads_dt_max_nd": ', ads_time%dt_max, ','
+        write(u, '(A,ES20.12,A)') '  "tol_div": ', tol_div, ','
+        write(u, '(A,I0,A)') '  "n_segments": ', n_segments, ','
         write(u, '(A,ES20.12,A)') '  "t_end_nd": ', t_end_nd, ','
         write(u, '(A,ES20.12,A)') '  "t_end_days": ', t_end_days, ','
         write(u, '(A,I0,A)') '  "n_patches": ', n_patches, ','
@@ -295,16 +304,18 @@ contains
         write(u, '(A,ES20.12,A)') '  "first_split_time": ', first_split_time, ','
         write(u, '(A,ES20.12,A)') '  "first_split_time_lower": ', log%first_split_time_lower, ','
         write(u, '(A,ES20.12,A)') '  "first_split_time_upper": ', log%first_split_time_upper, ','
-        write(u, '(A,I0,A)') '  "n_ads_steps_accepted": ', log%n_ads_steps_accepted, ','
-        write(u, '(A,I0,A)') '  "n_ads_steps_rejected": ', log%n_ads_steps_rejected, ','
+        write(u, '(A,ES20.12,A)') '  "first_split_time_accurate": ', log%first_split_time_accurate, ','
         write(u, '(A,I0,A)') '  "n_depth_limited": ', log%n_depth_limited, ','
         write(u, '(A,I0,A)') '  "n_numerical_failures": ', log%n_numerical_failures, ','
         write(u, '(A,ES20.12,A)') '  "first_numerical_failure_time": ', &
             log%first_numerical_failure_time, ','
-        write(u, '(A,ES20.12,A)') '  "min_accepted_ads_dt_nd": ', log%min_accepted_dt, ','
-        write(u, '(A,ES20.12,A)') '  "max_accepted_ads_dt_nd": ', log%max_accepted_dt, ','
         write(u, '(A,I0,A)') '  "n_diverged": ', n_diverged, ','
         write(u, '(A,ES20.12,A)') '  "first_divergence_time": ', first_divergence_time, ','
+        if (log%case_diverged) then
+            write(u, '(A)') '  "case_diverged": true,'
+        else
+            write(u, '(A)') '  "case_diverged": false,'
+        end if
         write(u, '(A,ES20.12,A)') '  "wall_time_s": ', wall_s, ','
         write(u, '(A,I0,A)') '  "status": ', status, ','
         write(u, '(A)', advance='no') '  "x0": ['
@@ -334,6 +345,12 @@ contains
         else
             write(u, '(A)') '  "beta_sensitivity": null,'
         end if
+        write(u, '(A)') '  "patch_diverged": ['
+        call write_patch_diverged(u, result_manifold)
+        write(u, '(A)') '],'
+        write(u, '(A)') '  "checkpoints": ['
+        call write_checkpoints(u, log)
+        write(u, '(A)') '],'
         write(u, '(A)') '  "split_events": ['
         call write_split_events(u, log)
         write(u, '(A)') ']'
@@ -380,6 +397,64 @@ contains
             end if
         end do
     end subroutine write_split_events
+
+    subroutine write_patch_diverged(u, manifold)
+        integer, intent(in) :: u
+        type(manifold_type), intent(in) :: manifold
+        integer :: i
+        do i = 1, manifold%n_patches
+            if (manifold%patches(i)%diverged) then
+                if (i < manifold%n_patches) then
+                    write(u, '(A)') '    true,'
+                else
+                    write(u, '(A)') '    true'
+                end if
+            else
+                if (i < manifold%n_patches) then
+                    write(u, '(A)') '    false,'
+                else
+                    write(u, '(A)') '    false'
+                end if
+            end if
+        end do
+    end subroutine write_patch_diverged
+
+    subroutine write_checkpoints(u, log)
+        integer, intent(in) :: u
+        type(study_ads_log), intent(in) :: log
+        integer :: k, i, j, n
+        n = 0
+        if (allocated(log%checkpoints)) then
+            do k = 1, size(log%checkpoints)
+                if (log%checkpoints(k)%t_nd <= 0.0_DP) exit
+                n = n + 1
+            end do
+        end if
+        do k = 1, n
+            write(u, '(A)', advance='no') '    {'
+            write(u, '(A,ES20.12,A)', advance='no') '"t_nd":', log%checkpoints(k)%t_nd, ','
+            write(u, '(A,I0,A)', advance='no') '"n_patches":', log%checkpoints(k)%n_patches, ','
+            write(u, '(A,I0,A)', advance='no') '"n_diverged":', log%checkpoints(k)%n_diverged, ','
+            write(u, '(A)', advance='no') '"mean":['
+            do i = 1, 6
+                write(u, '(ES20.12)', advance='no') log%checkpoints(k)%mean(i)
+                if (i < 6) write(u, '(A)', advance='no') ', '
+            end do
+            write(u, '(A)', advance='no') '],"cov":['
+            do i = 1, 6
+                do j = 1, 6
+                    write(u, '(ES20.12)', advance='no') log%checkpoints(k)%cov(i, j)
+                    if (.not. (i == 6 .and. j == 6)) write(u, '(A)', advance='no') ', '
+                end do
+            end do
+            write(u, '(A)', advance='no') ']'
+            if (k < n) then
+                write(u, '(A)') '},'
+            else
+                write(u, '(A)') '}'
+            end if
+        end do
+    end subroutine write_checkpoints
 
     subroutine write_real_array(u, a, n)
         integer, intent(in) :: u, n

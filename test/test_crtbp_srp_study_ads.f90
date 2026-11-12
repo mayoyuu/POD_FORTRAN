@@ -11,8 +11,7 @@ program test_crtbp_srp_study_ads
     use pod_crtbp_srp_study_module, only: CrtbpSrpStudyConfig
     use pod_crtbp_srp_study_integrator_module, only: study_adaptive_integrate_real
     use pod_ads_split_module, only: manifold_type, mf_destroy, mf_evaluate_points
-    use pod_crtbp_srp_study_ads_module, only: study_ads_log, study_ads_time_options, &
-        study_ads_propagate
+    use pod_crtbp_srp_study_ads_module, only: study_ads_log, study_ads_propagate
     implicit none
     real(DP), parameter :: orbit_period = 2.3017923284002024_DP
     real(DP), parameter :: rel_tol = 1.0e-10_DP, abs_tol = 1.0e-12_DP
@@ -67,21 +66,19 @@ contains
         logical, intent(in), optional :: expect_depth_limited
         type(manifold_type) :: result_manifold
         type(study_ads_log) :: log
-        type(study_ads_time_options) :: time_options
-        integer :: index_map(4), nvar, l, status, j, i
-        real(DP) :: err_toll_vec(6), c(4), h(4), p(4), xout(6)
+        integer :: index_map(4), nvar, l, status, j
+        real(DP) :: err_toll_vec(6), tol_div_vec(6), c(4), h(4), p(4), xout(6)
         real(DP) :: state_err, param_err, max_state_err, max_param_err
         real(DP), allocatable :: xi(:,:), values(:,:)
         logical, allocatable :: found(:)
         integer :: n_samples
 
         err_toll_vec = err_toll
-        time_options%dt_initial = tend/4.0_DP
-        time_options%dt_min = tend/64.0_DP
-        time_options%dt_max = tend/2.0_DP
+        tol_div_vec = 1.0e-3_DP
 
         call study_ads_propagate(x0, cfg, domain, index_map, da_order_use, err_toll_vec, &
-            n_split_max, tend, time_options, rel_tol, abs_tol, dt_min, dt_max, max_steps, &
+            tol_div_vec, n_split_max, tend, 24, 100, 1, &
+            rel_tol, abs_tol, dt_min, dt_max, max_steps, &
             result_manifold, log, .false.)
 
         nvar = dace_max_variables()
@@ -120,14 +117,10 @@ contains
 
         call check(max_state_err < 1.0e-6_DP, label//': manifold state matches direct integration')
         call check(max_param_err < 1.0e-10_DP, label//': manifold params reproduce physical box')
-        call check(log%n_ads_steps_accepted > 0, label//': adaptive ADS accepts time steps')
         call check(log%n_numerical_failures == 0, label//': finite truncation growth is not numerical failure')
-        do i = 1, log%n_splits_total
-            call check(log%split_events(i)%time_upper-log%split_events(i)%time_lower <= &
-                time_options%dt_min*(1.0_DP+1.0e-10_DP), label//': split bracket respects dt_min')
-        end do
-        if (log%n_splits_total > 0) then
-            call check(log%n_ads_steps_rejected > 0, label//': split localization rejects coarse steps')
+        call check(allocated(log%checkpoints), label//': checkpoints recorded')
+        if (allocated(log%checkpoints)) then
+            call check(size(log%checkpoints) == 24, label//': 24 fixed checkpoints')
         end if
         if (present(expect_depth_limited)) then
             if (expect_depth_limited) then

@@ -20,6 +20,7 @@ module pod_ads_split_module
     type :: patch_type
         type(AlgebraicVector) :: da_vec
         type(splitting_history_type) :: history
+        logical :: diverged = .false.
     end type
 
     type :: manifold_type
@@ -292,6 +293,7 @@ contains
             destination%da_vec%elements(i) = source%da_vec%elements(i)
         end do
         destination%history = source%history
+        destination%diverged = source%diverged
     end subroutine patch_copy
 
     ! =========================================================================

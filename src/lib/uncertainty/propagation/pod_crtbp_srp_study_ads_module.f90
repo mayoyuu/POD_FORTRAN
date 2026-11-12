@@ -17,21 +17,21 @@ module pod_crtbp_srp_study_ads_module
     use pod_crtbp_srp_study_module, only: CrtbpSrpStudyConfig
     use pod_crtbp_srp_study_integrator_module, only: StudyIntegratorTempPool, &
         StudyIntegrationStatus, study_adaptive_integrate_da
+    use pod_crtbp_srp_study_stats_module, only: study_endpoint_statistics
     use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
     implicit none
     private
 
     integer, parameter :: N_STATE = 6, N_PARAM = 4, N_TOTAL = 10
 
-    !> Adaptive ADS macro-step controls. All values use the same time
-    !! coordinate as t_end (nondimensional time in the CRTBP study).
-    type, public :: study_ads_time_options
-        real(DP) :: dt_initial = 0.0_DP
-        real(DP) :: dt_min = 0.0_DP
-        real(DP) :: dt_max = 0.0_DP
-        real(DP) :: safety = 0.8_DP
-        real(DP) :: growth_max = 2.0_DP
-        real(DP) :: shrink_min = 0.2_DP
+    !> Per-checkpoint ADS statistics: state covariance and split status at one
+    !! of the fixed time checkpoints.
+    type, public :: study_checkpoint_stats
+        real(DP) :: t_nd = 0.0_DP
+        real(DP) :: mean(6) = 0.0_DP
+        real(DP) :: cov(6,6) = 0.0_DP
+        integer  :: n_patches = 0
+        integer  :: n_diverged = 0
     end type
 
     !> One ADS split event, recorded for split-time and direction analysis.
@@ -53,24 +53,24 @@ module pod_crtbp_srp_study_ads_module
         integer  :: n_splits_total = 0
         integer  :: split_count_dir(4) = 0
         integer  :: n_max_active = 0
-        integer  :: n_ads_steps_accepted = 0
-        integer  :: n_ads_steps_rejected = 0
         integer  :: n_depth_limited = 0
         integer  :: n_numerical_failures = 0
         integer  :: n_diverged = 0
+        logical  :: case_diverged = .false.
         real(DP) :: first_split_time = -1.0_DP
         real(DP) :: first_split_time_lower = -1.0_DP
         real(DP) :: first_split_time_upper = -1.0_DP
+        real(DP) :: first_split_time_accurate = -1.0_DP
         real(DP) :: first_numerical_failure_time = -1.0_DP
         real(DP) :: first_divergence_time = -1.0_DP
-        real(DP) :: min_accepted_dt = 0.0_DP
-        real(DP) :: max_accepted_dt = 0.0_DP
         real(DP) :: t_end = 0.0_DP
         type(study_ads_split_event), allocatable :: split_events(:)
+        type(study_checkpoint_stats), allocatable :: checkpoints(:)
     end type
 
     public :: study_ads_propagate
     public :: study_ads_patch_bounds
+    public :: detect_first_split_time
 
 contains
 
@@ -243,10 +243,10 @@ contains
     end subroutine record_split
 
     subroutine process_event_interval(active, tau0, tau1, cfg, index_map, da_order, &
-            err_toll, n_split_max, rel_tol, abs_tol, dt_min, dt_max, max_steps, &
+            err_toll, tol_div, n_split_max, rel_tol, abs_tol, dt_min, dt_max, max_steps, &
             pool, result, log, verbose)
         type(manifold_type), intent(in) :: active
-        real(DP), intent(in) :: tau0, tau1, err_toll(N_STATE)
+        real(DP), intent(in) :: tau0, tau1, err_toll(N_STATE), tol_div(N_STATE)
         integer, intent(in) :: index_map(N_PARAM), da_order, n_split_max, max_steps
         real(DP), intent(in) :: rel_tol, abs_tol, dt_min, dt_max
         type(CrtbpSrpStudyConfig), intent(in) :: cfg
@@ -281,7 +281,10 @@ contains
             if (valid) then
                 call mf_push(result, q)
             else if (integration_status%completed .and. finite .and. depth >= n_split_max) then
-                log%n_depth_limited = log%n_depth_limited + 1
+                if (any(errors > tol_div)) then
+                    q%diverged = .true.
+                    if (log%first_divergence_time < 0.0_DP) log%first_divergence_time = tau1
+                end if
                 call mf_push(result, q)
             else if (depth < n_split_max) then
                 if (integration_status%completed .and. finite) then
@@ -313,36 +316,40 @@ contains
     end subroutine process_event_interval
 
 
-    !> Time-advancing ADS propagation of the SRP parameter box.
+    !> Time-advancing ADS propagation of the SRP parameter box over a fixed
+    !! sequence of n_segments equal checkpoints.
     !!
     !! x0(6): constant initial state. domain: physical parameter box. The DA
     !! variables are the normalized xi coordinates of the active parameters.
-    !! A synchronized adaptive macro-step is accepted only while every live
-    !! patch satisfies err_toll. Failed trials roll back and shrink in time;
-    !! at dt_min the offending input patch is split and both children repropagate.
-    subroutine study_ads_propagate(x0, cfg, domain, index_map, da_order, err_toll, &
-            n_split_max, t_end, time_options, rel_tol, abs_tol, dt_min, dt_max, max_steps, &
+    !! Each checkpoint advances the whole manifold from tau0 to tau1 with
+    !! process_event_interval, which re-propagates every patch and splits any
+    !! patch whose truncation error still exceeds err_toll (unless it is already
+    !! at n_split_max depth, in which case it is kept and, when it exceeds
+    !! tol_div, flagged diverged). Per-checkpoint mean/covariance and split
+    !! status are recorded for covariance-time analysis.
+    subroutine study_ads_propagate(x0, cfg, domain, index_map, da_order, err_toll, tol_div, &
+            n_split_max, t_end, n_segments, n_samples, seed, &
+            rel_tol, abs_tol, dt_min, dt_max, max_steps, &
             result_manifold, log, verbose)
         real(DP), intent(in) :: x0(N_STATE)
         type(CrtbpSrpStudyConfig), intent(in) :: cfg
         type(SrpStudyDomain), intent(in) :: domain
         integer, intent(out) :: index_map(N_PARAM)
-        integer, intent(in) :: da_order, n_split_max, max_steps
-        real(DP), intent(in) :: err_toll(N_STATE), t_end, rel_tol, abs_tol, dt_min, dt_max
-        type(study_ads_time_options), intent(in) :: time_options
+        integer, intent(in) :: da_order, n_split_max, max_steps, n_segments, n_samples, seed
+        real(DP), intent(in) :: err_toll(N_STATE), tol_div(N_STATE), t_end
+        real(DP), intent(in) :: rel_tol, abs_tol, dt_min, dt_max
         type(manifold_type), intent(out) :: result_manifold
         type(study_ads_log), intent(out) :: log
         logical, intent(in) :: verbose
 
-        type(manifold_type) :: active, trial, event_result
-        type(patch_type) :: p, q
+        type(manifold_type) :: active, next_active
+        type(patch_type) :: p
         type(AlgebraicVector) :: root_da_vec
         type(StudyIntegratorTempPool) :: pool
-        type(StudyIntegrationStatus) :: integration_status
-        real(DP) :: tau, tau1, dt_ads, dt_trial, errors(N_STATE)
-        real(DP) :: ratio, max_ratio, fail_ratio, factor, exponent
-        integer :: nvar, i, depth, split_capacity
-        logical :: finite, failed
+        real(DP) :: tau0, tau1, dtau, mean6(N_STATE), cov66(N_STATE,N_STATE)
+        real(DP) :: errors(N_STATE), ratio
+        integer :: nvar, i, k, depth, split_capacity, stat, n_div
+        logical :: finite
 
         if (cfg%attitude_coordinates /= domain%attitude_coordinates) &
             error stop 'study_ads: force and domain attitude coordinates must match'
@@ -350,17 +357,12 @@ contains
         if (nvar < 1) error stop 'study_ads: domain has no active parameter'
         if (da_order < 1 .or. n_split_max < 0) error stop 'study_ads: invalid DA order or split depth'
         if (any(err_toll <= 0.0_DP) .or. .not. all(ieee_is_finite(err_toll))) &
-            error stop 'study_ads: tolerances must be positive and finite'
-        if (.not. ieee_is_finite(time_options%dt_min) .or. &
-            .not. ieee_is_finite(time_options%dt_initial) .or. &
-            .not. ieee_is_finite(time_options%dt_max) .or. &
-            time_options%dt_min <= 0.0_DP .or. &
-            time_options%dt_initial < time_options%dt_min .or. &
-            time_options%dt_max < time_options%dt_initial) &
-            error stop 'study_ads: require 0 < dt_min <= dt_initial <= dt_max'
-        if (time_options%safety <= 0.0_DP .or. time_options%safety > 1.0_DP .or. &
-            time_options%growth_max < 1.0_DP .or. time_options%shrink_min <= 0.0_DP .or. &
-            time_options%shrink_min >= 1.0_DP) error stop 'study_ads: invalid step controller factors'
+            error stop 'study_ads: err_toll must be positive and finite'
+        if (any(tol_div <= 0.0_DP) .or. .not. all(ieee_is_finite(tol_div))) &
+            error stop 'study_ads: tol_div must be positive and finite'
+        if (any(tol_div <= err_toll)) error stop 'study_ads: require tol_div > err_toll componentwise'
+        if (n_segments < 1) error stop 'study_ads: n_segments must be >= 1'
+        if (n_samples < 2) error stop 'study_ads: n_samples must be >= 2'
 
         call dace_initialize(da_order, nvar)
         call build_root_da_vec(x0, domain, index_map, root_da_vec)
@@ -375,96 +377,131 @@ contains
         log%t_end = t_end
         split_capacity = max(1, 2**n_split_max - 1)
         allocate(log%split_events(split_capacity))
+        allocate(log%checkpoints(n_segments))
 
-        tau = 0.0_DP
-        dt_ads = min(time_options%dt_initial, time_options%dt_max, &
-            max(t_end, time_options%dt_min))
-        exponent = 1.0_DP/real(da_order+1, DP)
+        dtau = t_end / real(n_segments, DP)
 
-        do while (tau < t_end - 100.0_DP*epsilon(1.0_DP)*max(1.0_DP,abs(t_end)))
+        do k = 1, n_segments
             if (active%n_patches == 0) exit
-            dt_trial = min(dt_ads, t_end-tau)
-            tau1 = tau + dt_trial
-            call mf_init(trial)
-            failed = .false.
-            max_ratio = 0.0_DP
-            fail_ratio = huge(1.0_DP)
-
+            tau0 = real(k-1, DP) * dtau
+            tau1 = real(k, DP) * dtau
+            call process_event_interval(active, tau0, tau1, cfg, index_map, da_order, &
+                err_toll, tol_div, n_split_max, rel_tol, abs_tol, dt_min, dt_max, max_steps, &
+                pool, next_active, log, verbose)
+            call move_manifold(next_active, active)
+            log%n_max_active = max(log%n_max_active, active%n_patches)
+            call study_endpoint_statistics(active, n_samples, seed, mean6, cov66, stat)
+            log%checkpoints(k)%t_nd = tau1
+            log%checkpoints(k)%mean = mean6
+            log%checkpoints(k)%cov = cov66
+            log%checkpoints(k)%n_patches = active%n_patches
+            n_div = 0
             do i = 1, active%n_patches
-                call patch_copy(active%patches(i), q)
-                call advance_patch_state(q%da_vec, tau, tau1, cfg, pool, &
-                    rel_tol, abs_tol, dt_min, dt_max, max_steps, integration_status)
-                call patch_error_ratio(q, da_order, err_toll, errors, ratio, finite)
-                depth = sh_count(active%patches(i)%history, 0)
-
-                if (integration_status%completed .and. finite .and. ratio <= 1.0_DP) then
-                    call mf_push(trial, q)
-                    if (depth < n_split_max) max_ratio = max(max_ratio, ratio)
-                else
-                    failed = .true.
-                    fail_ratio = ratio
-                    call patch_destroy(q)
-                    exit
-                end if
-                call patch_destroy(q)
+                if (active%patches(i)%diverged) n_div = n_div + 1
             end do
-
-            if (.not. failed) then
-                call mf_destroy(active)
-                call move_manifold(trial, active)
-                tau = tau1
-                log%n_ads_steps_accepted = log%n_ads_steps_accepted + 1
-                if (log%min_accepted_dt == 0.0_DP) log%min_accepted_dt = dt_trial
-                log%min_accepted_dt = min(log%min_accepted_dt, dt_trial)
-                log%max_accepted_dt = max(log%max_accepted_dt, dt_trial)
-                factor = time_options%safety*max(max_ratio, 1.0e-12_DP)**(-exponent)
-                factor = max(time_options%shrink_min, min(time_options%growth_max, factor))
-                dt_ads = min(time_options%dt_max, max(time_options%dt_min, dt_trial*factor))
-            else
-                call mf_destroy(trial)
-                log%n_ads_steps_rejected = log%n_ads_steps_rejected + 1
-                if (dt_trial > time_options%dt_min*(1.0_DP+10.0_DP*epsilon(1.0_DP))) then
-                    if (ieee_is_finite(fail_ratio) .and. fail_ratio > 1.0_DP) then
-                        factor = time_options%safety*fail_ratio**(-exponent)
-                        factor = min(0.8_DP, max(time_options%shrink_min, factor))
-                    else
-                        factor = max(time_options%shrink_min, 0.5_DP)
-                    end if
-                    dt_ads = max(time_options%dt_min, dt_trial*factor)
-                else
-                    call process_event_interval(active, tau, tau1, cfg, index_map, da_order, &
-                        err_toll, n_split_max, rel_tol, abs_tol, dt_min, dt_max, max_steps, &
-                        pool, event_result, log, verbose)
-                    call mf_destroy(active)
-                    call move_manifold(event_result, active)
-                    tau = tau1
-                    log%n_ads_steps_accepted = log%n_ads_steps_accepted + 1
-                    if (log%min_accepted_dt == 0.0_DP) log%min_accepted_dt = dt_trial
-                    log%min_accepted_dt = min(log%min_accepted_dt, dt_trial)
-                    log%max_accepted_dt = max(log%max_accepted_dt, dt_trial)
-                    dt_ads = min(time_options%dt_max, max(time_options%dt_min, &
-                        dt_trial*time_options%growth_max))
-                end if
-            end if
+            log%checkpoints(k)%n_diverged = n_div
         end do
 
         call move_manifold(active, result_manifold)
         log%n_depth_limited = 0
+        log%n_diverged = 0
         do i = 1, result_manifold%n_patches
             depth = sh_count(result_manifold%patches(i)%history, 0)
             call patch_error_ratio(result_manifold%patches(i), da_order, err_toll, &
                 errors, ratio, finite)
             if (depth >= n_split_max .and. finite .and. ratio > 1.0_DP) &
                 log%n_depth_limited = log%n_depth_limited + 1
+            if (result_manifold%patches(i)%diverged) log%n_diverged = log%n_diverged + 1
         end do
+        log%case_diverged = log%n_diverged > 0
         call pool%destroy()
-        log%n_diverged = log%n_numerical_failures
-        log%first_divergence_time = log%first_numerical_failure_time
 
-        if (verbose) write(*,'(A,I0,A,I0,A,ES12.4)') '[study ADS] done: ', &
+        if (verbose) write(*,'(A,I0,A,I0,A,I0,A,ES12.4)') '[study ADS] done: ', &
             result_manifold%n_patches, ' patches, splits=', log%n_splits_total, &
-            ' first split=', log%first_split_time
+            ' diverged=', log%n_diverged, ' first split=', log%first_split_time
     end subroutine study_ads_propagate
+
+    !> Accurate first-split time: bisect on the ROOT patch (no splitting) to find
+    !! the earliest time its truncation error exceeds err_toll, to relative
+    !! precision ~1e-3. Decoupled from the main propagation loop; returns -1 when
+    !! the root patch stays within err_toll over the whole [0,t_end] arc.
+    !! DACE must already be initialized (as it is after study_ads_propagate);
+    !! it is NOT re-initialized here so the caller's manifold handles stay valid.
+    subroutine detect_first_split_time(x0, cfg, domain, da_order, err_toll, &
+            t_end, rel_tol, abs_tol, dt_min, dt_max, max_steps, &
+            first_split_time, status)
+        real(DP), intent(in) :: x0(N_STATE)
+        type(CrtbpSrpStudyConfig), intent(in) :: cfg
+        type(SrpStudyDomain), intent(in) :: domain
+        integer, intent(in) :: da_order, max_steps
+        real(DP), intent(in) :: err_toll(N_STATE), t_end, rel_tol, abs_tol, dt_min, dt_max
+        real(DP), intent(out) :: first_split_time
+        integer, intent(out) :: status
+        type(AlgebraicVector) :: root_da_vec
+        type(patch_type) :: p, q
+        type(StudyIntegratorTempPool) :: pool
+        type(StudyIntegrationStatus) :: integration_status
+        real(DP) :: errors(N_STATE), ratio, t_lo, t_hi, t_mid
+        integer :: index_map(N_PARAM), nvar, iter
+        logical :: finite
+
+        status = 0
+        first_split_time = -1.0_DP
+        nvar = domain%n_variables()
+        if (nvar < 1) then
+            status = -1
+            return
+        end if
+        if (any(err_toll <= 0.0_DP) .or. .not. all(ieee_is_finite(err_toll))) then
+            status = -2
+            return
+        end if
+        if (t_end <= 0.0_DP) then
+            status = -3
+            return
+        end if
+
+        call build_root_da_vec(x0, domain, index_map, root_da_vec)
+        call patch_init(p, root_da_vec)
+        call pool%init()
+
+        call patch_copy(p, q)
+        call advance_patch_state(q%da_vec, 0.0_DP, t_end, cfg, pool, &
+            rel_tol, abs_tol, dt_min, dt_max, max_steps, integration_status)
+        call patch_error_ratio(q, da_order, err_toll, errors, ratio, finite)
+        call patch_destroy(q)
+        if (.not. (integration_status%completed .and. finite)) then
+            status = -4
+            call patch_destroy(p)
+            call pool%destroy()
+            return
+        end if
+        if (ratio <= 1.0_DP) then
+            call patch_destroy(p)
+            call pool%destroy()
+            return
+        end if
+
+        t_lo = 0.0_DP
+        t_hi = t_end
+        do iter = 1, 12
+            t_mid = 0.5_DP*(t_lo + t_hi)
+            call patch_copy(p, q)
+            call advance_patch_state(q%da_vec, 0.0_DP, t_mid, cfg, pool, &
+                rel_tol, abs_tol, dt_min, dt_max, max_steps, integration_status)
+            call patch_error_ratio(q, da_order, err_toll, errors, ratio, finite)
+            call patch_destroy(q)
+            if (integration_status%completed .and. finite .and. ratio > 1.0_DP) then
+                t_hi = t_mid
+            else
+                t_lo = t_mid
+            end if
+        end do
+        first_split_time = 0.5_DP*(t_lo + t_hi)
+
+        call patch_destroy(p)
+        call pool%destroy()
+    end subroutine detect_first_split_time
 
     !> Physical [lower,upper] bounds of a patch from its split history and the
     !! root parameter domain. Used for split-direction and domain-bound logging.
