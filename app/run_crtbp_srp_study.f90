@@ -283,40 +283,40 @@ contains
             if (i<4) write(u,'(A)',advance='no') ', '
         end do
         write(u,'(A)') '],'
-        write(u, '(A,ES20.12,A)') '  "mu": ', mu, ','
-        write(u, '(A,ES20.12,A)') '  "period_nd": ', period_nd, ','
-        write(u, '(A,ES20.12,A)') '  "alpha0_rad": ', alpha0_rad, ','
-        write(u, '(A,ES20.12,A)') '  "beta_lower": ', beta_lower, ','
-        write(u, '(A,ES20.12,A)') '  "beta_upper": ', beta_upper, ','
-        write(u, '(A,ES20.12,A)') '  "tilt_max_deg": ', tilt_max_deg, ','
-        write(u, '(A,ES20.12,A)') '  "chi_lower": ', chi_lower, ','
-        write(u, '(A,ES20.12,A)') '  "chi_upper": ', chi_upper, ','
+        write(u, '(A,ES22.12E3,A)') '  "mu": ', mu, ','
+        write(u, '(A,ES22.12E3,A)') '  "period_nd": ', period_nd, ','
+        write(u, '(A,ES22.12E3,A)') '  "alpha0_rad": ', alpha0_rad, ','
+        write(u, '(A,ES22.12E3,A)') '  "beta_lower": ', beta_lower, ','
+        write(u, '(A,ES22.12E3,A)') '  "beta_upper": ', beta_upper, ','
+        write(u, '(A,ES22.12E3,A)') '  "tilt_max_deg": ', tilt_max_deg, ','
+        write(u, '(A,ES22.12E3,A)') '  "chi_lower": ', chi_lower, ','
+        write(u, '(A,ES22.12E3,A)') '  "chi_upper": ', chi_upper, ','
         write(u, '(A,I0,A)') '  "da_order": ', da_order, ','
-        write(u, '(A,ES20.12,A)') '  "err_toll": ', err_toll, ','
+        write(u, '(A,ES22.12E3,A)') '  "err_toll": ', err_toll, ','
         write(u, '(A,I0,A)') '  "n_split_max": ', n_split_max, ','
-        write(u, '(A,ES20.12,A)') '  "tol_div": ', tol_div, ','
+        write(u, '(A,ES22.12E3,A)') '  "tol_div": ', tol_div, ','
         write(u, '(A,I0,A)') '  "n_segments": ', n_segments, ','
-        write(u, '(A,ES20.12,A)') '  "t_end_nd": ', t_end_nd, ','
-        write(u, '(A,ES20.12,A)') '  "t_end_days": ', t_end_days, ','
+        write(u, '(A,ES22.12E3,A)') '  "t_end_nd": ', t_end_nd, ','
+        write(u, '(A,ES22.12E3,A)') '  "t_end_days": ', t_end_days, ','
         write(u, '(A,I0,A)') '  "n_patches": ', n_patches, ','
         write(u, '(A,I0,A)') '  "n_splits_total": ', n_splits, ','
         write(u, '(A,I0,A)') '  "n_max_active": ', n_max_active, ','
-        write(u, '(A,ES20.12,A)') '  "first_split_time": ', first_split_time, ','
-        write(u, '(A,ES20.12,A)') '  "first_split_time_lower": ', log%first_split_time_lower, ','
-        write(u, '(A,ES20.12,A)') '  "first_split_time_upper": ', log%first_split_time_upper, ','
-        write(u, '(A,ES20.12,A)') '  "first_split_time_accurate": ', log%first_split_time_accurate, ','
+        write(u, '(A,ES22.12E3,A)') '  "first_split_time": ', first_split_time, ','
+        write(u, '(A,ES22.12E3,A)') '  "first_split_time_lower": ', log%first_split_time_lower, ','
+        write(u, '(A,ES22.12E3,A)') '  "first_split_time_upper": ', log%first_split_time_upper, ','
+        write(u, '(A,ES22.12E3,A)') '  "first_split_time_accurate": ', log%first_split_time_accurate, ','
         write(u, '(A,I0,A)') '  "n_depth_limited": ', log%n_depth_limited, ','
         write(u, '(A,I0,A)') '  "n_numerical_failures": ', log%n_numerical_failures, ','
-        write(u, '(A,ES20.12,A)') '  "first_numerical_failure_time": ', &
+        write(u, '(A,ES22.12E3,A)') '  "first_numerical_failure_time": ', &
             log%first_numerical_failure_time, ','
         write(u, '(A,I0,A)') '  "n_diverged": ', n_diverged, ','
-        write(u, '(A,ES20.12,A)') '  "first_divergence_time": ', first_divergence_time, ','
+        write(u, '(A,ES22.12E3,A)') '  "first_divergence_time": ', first_divergence_time, ','
         if (log%case_diverged) then
             write(u, '(A)') '  "case_diverged": true,'
         else
             write(u, '(A)') '  "case_diverged": false,'
         end if
-        write(u, '(A,ES20.12,A)') '  "wall_time_s": ', wall_s, ','
+        write(u, '(A,ES22.12E3,A)') '  "wall_time_s": ', wall_s, ','
         write(u, '(A,I0,A)') '  "status": ', status, ','
         write(u, '(A)', advance='no') '  "x0": ['
         call write_real_array(u, x0, 6)
@@ -333,7 +333,7 @@ contains
         write(u, '(A)', advance='no') '  "cov_state": ['
         do i = 1, 6
             do j = 1, 6
-                write(u, '(ES20.12)', advance='no') cov_state(i, j)
+                write(u, '(ES22.12E3)', advance='no') cov_state(i, j)
                 if (.not. (i == 6 .and. j == 6)) write(u, '(A)', advance='no') ', '
             end do
         end do
@@ -365,25 +365,25 @@ contains
         do i = 1, log%n_splits_total
             write(u, '(A)', advance='no') '    {'
             write(u, '(A,I0,A)', advance='no') '"i":', i, ','
-            write(u, '(A,ES13.6,A)', advance='no') '"t":', log%split_events(i)%time_nd, ','
-            write(u, '(A,ES13.6,A)', advance='no') '"td":', &
+            write(u, '(A,ES16.6E3,A)', advance='no') '"t":', log%split_events(i)%time_nd, ','
+            write(u, '(A,ES16.6E3,A)', advance='no') '"td":', &
                 log%split_events(i)%time_nd*TU_S/86400.0_DP, ','
-            write(u, '(A,ES13.6,A)', advance='no') '"tl":', &
+            write(u, '(A,ES16.6E3,A)', advance='no') '"tl":', &
                 log%split_events(i)%time_lower, ','
-            write(u, '(A,ES13.6,A)', advance='no') '"tu":', &
+            write(u, '(A,ES16.6E3,A)', advance='no') '"tu":', &
                 log%split_events(i)%time_upper, ','
-            write(u, '(A,ES13.6,A)', advance='no') '"tld":', &
+            write(u, '(A,ES16.6E3,A)', advance='no') '"tld":', &
                 log%split_events(i)%time_lower*TU_S/86400.0_DP, ','
-            write(u, '(A,ES13.6,A)', advance='no') '"tud":', &
+            write(u, '(A,ES16.6E3,A)', advance='no') '"tud":', &
                 log%split_events(i)%time_upper*TU_S/86400.0_DP, ','
             write(u, '(A,I0,A)', advance='no') '"ax":', log%split_events(i)%axis, ','
             write(u, '(A)', advance='no') '"axis_name":"'// &
                 trim(parameter_names(log%split_events(i)%axis))//'",'
             write(u, '(A,I0,A)', advance='no') '"d":', log%split_events(i)%depth, ','
             write(u, '(A,I0,A)', advance='no') '"na":', log%split_events(i)%n_active, ','
-            write(u, '(A,ES13.6,A)', advance='no') '"c":', log%split_events(i)%center, ','
-            write(u, '(A,ES13.6,A)', advance='no') '"w":', log%split_events(i)%halfwidth, ','
-            write(u, '(A,ES13.6)', advance='no') '"crit":', log%split_events(i)%criterion
+            write(u, '(A,ES16.6E3,A)', advance='no') '"c":', log%split_events(i)%center, ','
+            write(u, '(A,ES16.6E3,A)', advance='no') '"w":', log%split_events(i)%halfwidth, ','
+            write(u, '(A,ES16.6E3)', advance='no') '"crit":', log%split_events(i)%criterion
             write(u, '(A)', advance='no') ','
             write(u, '(A)', advance='no') '"call":['
             call write_real_array(u, log%split_events(i)%center_all, 4)
@@ -432,18 +432,18 @@ contains
         end if
         do k = 1, n
             write(u, '(A)', advance='no') '    {'
-            write(u, '(A,ES20.12,A)', advance='no') '"t_nd":', log%checkpoints(k)%t_nd, ','
+            write(u, '(A,ES22.12E3,A)', advance='no') '"t_nd":', log%checkpoints(k)%t_nd, ','
             write(u, '(A,I0,A)', advance='no') '"n_patches":', log%checkpoints(k)%n_patches, ','
             write(u, '(A,I0,A)', advance='no') '"n_diverged":', log%checkpoints(k)%n_diverged, ','
             write(u, '(A)', advance='no') '"mean":['
             do i = 1, 6
-                write(u, '(ES20.12)', advance='no') log%checkpoints(k)%mean(i)
+                write(u, '(ES22.12E3)', advance='no') log%checkpoints(k)%mean(i)
                 if (i < 6) write(u, '(A)', advance='no') ', '
             end do
             write(u, '(A)', advance='no') '],"cov":['
             do i = 1, 6
                 do j = 1, 6
-                    write(u, '(ES20.12)', advance='no') log%checkpoints(k)%cov(i, j)
+                    write(u, '(ES22.12E3)', advance='no') log%checkpoints(k)%cov(i, j)
                     if (.not. (i == 6 .and. j == 6)) write(u, '(A)', advance='no') ', '
                 end do
             end do
@@ -461,7 +461,7 @@ contains
         real(DP), intent(in) :: a(n)
         integer :: i
         do i = 1, n
-            write(u, '(ES20.12)', advance='no') a(i)
+            write(u, '(ES22.12E3)', advance='no') a(i)
             if (i < n) write(u, '(A)', advance='no') ', '
         end do
     end subroutine write_real_array
