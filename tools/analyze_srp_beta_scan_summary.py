@@ -39,13 +39,13 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-import math
 import sys
 from pathlib import Path
 
+from srp_covariance_metrics import position_covariance_metrics
+
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RESULTS = ROOT / "results" / "srp_sensitivity" / "results"
-LU_KM = 384400.0
 TU_S = 375237.080249162
 SEC_PER_DAY = 86400.0
 ND_TO_DAYS = TU_S / SEC_PER_DAY
@@ -78,33 +78,9 @@ def family_key(fam: str) -> int:
 # ---------------------------------------------------------------------------
 # cov longest axis (identical to analyze_srp_cov_axis.py)
 # ---------------------------------------------------------------------------
-def position_cov(cov_state: list) -> list:
-    c = cov_state
-    return [[c[0], c[1], c[2]],
-            [c[6], c[7], c[8]],
-            [c[12], c[13], c[14]]]
-
-
-def largest_eigval(A: list) -> float:
-    v = [1.0, 0.0, 0.0]
-    lam = 0.0
-    for _ in range(200):
-        w = [A[0][0]*v[0] + A[0][1]*v[1] + A[0][2]*v[2],
-             A[1][0]*v[0] + A[1][1]*v[1] + A[1][2]*v[2],
-             A[2][0]*v[0] + A[2][1]*v[1] + A[2][2]*v[2]]
-        lam = v[0]*w[0] + v[1]*w[1] + v[2]*w[2]
-        n = math.sqrt(w[0]*w[0] + w[1]*w[1] + w[2]*w[2])
-        if n < 1e-30:
-            return 0.0
-        v = [w[0]/n, w[1]/n, w[2]/n]
-    return lam
-
-
 def axis_km(cov_state: list) -> float:
-    lam = largest_eigval(position_cov(cov_state))
-    if lam < 0.0:
-        lam = 0.0
-    return math.sqrt(lam) * LU_KM
+    """Compatibility alias for the true longest one-sigma position axis."""
+    return position_covariance_metrics(cov_state).longest_axis_km
 
 
 # ---------------------------------------------------------------------------

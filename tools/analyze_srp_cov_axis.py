@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
-"""Endpoint position-covariance longest-axis analysis for the SRP study.
+"""Endpoint position-covariance principal-axis analysis for the SRP study.
 
-The per-case result JSON saves only the ENDPOINT mean/covariance (``cov_state``,
-a 6x6 row-major matrix), not intermediate-time covariance. This script reads the
-``cov_state`` of each completed case, takes the upper-left 3x3 position block
-(x,y,z), and computes its longest principal axis = sqrt(largest eigenvalue),
-converted to km (x LU_km = 384400). This is one value per case at t_end, not a
-time series.
+The per-case result JSON saves only the endpoint covariance (``cov_state``), not
+an intermediate-time covariance series. This tool computes all three one-sigma
+position principal axes, total RMS spread, and the longest-axis direction.
 
 Outputs, for a chosen orbit family (default H1N):
-  * cov_axis_<prefix>.csv          -- per case: config/amplitude/phase/t_end/axis_km
-  * cov_axis_summary_<prefix>.csv  -- per config x amplitude: mean/min/max over phases
-  * heatmap of axis_km over amplitude x phase per config (PNG or ASCII)
+  * cov_axis_<prefix>.csv          -- per-case axes, total RMS, and direction
+  * cov_axis_summary_<prefix>.csv  -- longest-axis summary over phases
+  * selected metric heatmap over amplitude x phase per config (PNG or ASCII)
+
+The default ``--metric longest`` preserves the original heatmap name and behavior.
 
 Usage:
     python3 tools/analyze_srp_cov_axis.py \
@@ -28,9 +27,10 @@ import math
 import sys
 from pathlib import Path
 
+from srp_covariance_metrics import position_covariance_metrics
+
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RESULTS = ROOT / "results" / "srp_sensitivity" / "results"
-LU_KM = 384400.0
 
 try:
     import numpy as np
@@ -49,35 +49,9 @@ def parse_amplitude(orbit_id: str) -> int:
     return int(orbit_id.split("_A")[-1])
 
 
-def position_cov(cov_state: list) -> list:
-    """Upper-left 3x3 (x,y,z) block of a row-major 6x6 covariance."""
-    c = cov_state
-    return [[c[0], c[1], c[2]],
-            [c[6], c[7], c[8]],
-            [c[12], c[13], c[14]]]
-
-
-def largest_eigval(A: list) -> float:
-    """Largest eigenvalue of a 3x3 symmetric PSD matrix (power iteration)."""
-    v = [1.0, 0.0, 0.0]
-    lam = 0.0
-    for _ in range(200):
-        w = [A[0][0]*v[0] + A[0][1]*v[1] + A[0][2]*v[2],
-             A[1][0]*v[0] + A[1][1]*v[1] + A[1][2]*v[2],
-             A[2][0]*v[0] + A[2][1]*v[1] + A[2][2]*v[2]]
-        lam = v[0]*w[0] + v[1]*w[1] + v[2]*w[2]
-        n = math.sqrt(w[0]*w[0] + w[1]*w[1] + w[2]*w[2])
-        if n < 1e-30:
-            return 0.0
-        v = [w[0]/n, w[1]/n, w[2]/n]
-    return lam
-
-
 def axis_km(cov_state: list) -> float:
-    lam = largest_eigval(position_cov(cov_state))
-    if lam < 0.0:
-        lam = 0.0
-    return math.sqrt(lam) * LU_KM
+    """Compatibility alias for the true longest one-sigma position axis."""
+    return position_covariance_metrics(cov_state).longest_axis_km
 
 
 def scan_results(root: Path) -> list:
@@ -101,12 +75,16 @@ def scan_results(root: Path) -> list:
                     continue
                 if res.get("status") != 0:
                     continue  # statistics failed; cov is uninitialized
+                metrics = position_covariance_metrics(cov)
                 jobs.append({
                     "config": cfg_dir.name,
                     "orbit": orbit_dir.name,
                     "phase_index": int(f.stem.split("__")[0][1:]),
                     "t_end_days": res.get("t_end_days"),
-                    "axis_km": axis_km(cov),
+                    "axis_km": metrics.longest_axis_km,
+                    "axes_km": metrics.axes_km,
+                    "total_rms_km": metrics.total_rms_km,
+                    "longest_direction": metrics.longest_direction,
                 })
     return jobs
 
@@ -116,15 +94,30 @@ def scan_results(root: Path) -> list:
 # ---------------------------------------------------------------------------
 def write_cases_csv(jobs: list, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    header = ("config", "orbit", "amplitude_km", "phase_index", "t_end_days", "axis_km")
+    header = (
+        "config", "orbit", "amplitude_km", "phase_index", "t_end_days",
+        "axis_km", "axis1_km", "axis2_km", "axis3_km", "total_rms_km",
+        "axis1_dir_x", "axis1_dir_y", "axis1_dir_z",
+    )
     rows = []
     for j in sorted(jobs, key=lambda j: (j["config"], parse_amplitude(j["orbit"]),
                                          j["phase_index"])):
-        rows.append({"config": j["config"], "orbit": j["orbit"],
-                     "amplitude_km": parse_amplitude(j["orbit"]),
-                     "phase_index": j["phase_index"],
-                     "t_end_days": _fmt(j.get("t_end_days")),
-                     "axis_km": f"{j['axis_km']:.6g}"})
+        axes = j["axes_km"]
+        direction = j["longest_direction"]
+        rows.append({
+            "config": j["config"], "orbit": j["orbit"],
+            "amplitude_km": parse_amplitude(j["orbit"]),
+            "phase_index": j["phase_index"],
+            "t_end_days": _fmt(j.get("t_end_days")),
+            "axis_km": f"{j['axis_km']:.6g}",
+            "axis1_km": f"{axes[0]:.6g}",
+            "axis2_km": f"{axes[1]:.6g}",
+            "axis3_km": f"{axes[2]:.6g}",
+            "total_rms_km": f"{j['total_rms_km']:.6g}",
+            "axis1_dir_x": f"{direction[0]:.12g}",
+            "axis1_dir_y": f"{direction[1]:.12g}",
+            "axis1_dir_z": f"{direction[2]:.12g}",
+        })
     with path.open("w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=header, extrasaction="ignore")
         w.writeheader()
@@ -155,7 +148,21 @@ def summary_rows(jobs: list) -> list:
     return rows
 
 
-def png_heatmap(amps, phases, matrix, title, path):
+METRIC_INFO = {
+    "longest": ("longest RMS axis (km)", "axis"),
+    "second": ("second RMS axis (km)", "axis2"),
+    "third": ("third RMS axis (km)", "axis3"),
+    "total-rms": ("total RMS spread (km)", "total_rms"),
+}
+
+
+def metric_value(job, metric):
+    if metric == "total-rms":
+        return job["total_rms_km"]
+    return job["axes_km"][{"longest": 0, "second": 1, "third": 2}[metric]]
+
+
+def png_heatmap(amps, phases, matrix, title, path, colorbar_label):
     fig, ax = plt.subplots(figsize=(max(10, 0.45*len(phases)), max(6, 0.35*len(amps))))
     arr = np.array(matrix, dtype=float)
     masked = np.ma.masked_invalid(arr)
@@ -171,16 +178,16 @@ def png_heatmap(amps, phases, matrix, title, path):
     ax.set_title(title)
     for i in range(len(amps)):
         for j in range(len(phases)):
-            v = arr[i][j]
-            if np.isfinite(v):
-                ax.text(j, i, f"{v:.0f}", ha="center", va="center", fontsize=5.5)
-    fig.colorbar(im, ax=ax, label="longest axis (km)")
+            value = arr[i][j]
+            if np.isfinite(value):
+                ax.text(j, i, f"{value:.0f}", ha="center", va="center", fontsize=5.5)
+    fig.colorbar(im, ax=ax, label=colorbar_label)
     fig.tight_layout()
     fig.savefig(path, dpi=150)
     plt.close(fig)
 
 
-def ascii_heatmap(amps, phases, matrix, title, stream):
+def ascii_heatmap(amps, phases, matrix, title, stream, metric_label):
     width = 11
     miss = f"{'.':^{width}}"
     print(f"\n=== {title} ===", file=stream)
@@ -190,34 +197,37 @@ def ascii_heatmap(amps, phases, matrix, title, stream):
     for i, a in enumerate(amps):
         row = f"{a/1000:>5.1f}k "
         for j in range(len(phases)):
-            v = matrix[i][j]
-            row += miss if (v is None or (isinstance(v, float) and math.isnan(v))) \
-                else f"{v:{width}.1f}"
+            value = matrix[i][j]
+            row += miss if (value is None or
+                             (isinstance(value, float) and math.isnan(value))) \
+                else f"{value:{width}.1f}"
         print(row, file=stream)
-    print("(. = not completed; else longest axis in km)", file=stream)
+    print(f"(. = not completed; else {metric_label})", file=stream)
 
 
-def render_config(jobs, outdir: Path, png: bool) -> None:
+def render_config(jobs, outdir: Path, png: bool, metric: str) -> None:
     cfg = jobs[0]["config"]
     amps = sorted({parse_amplitude(j["orbit"]) for j in jobs})
     phases = sorted({j["phase_index"] for j in jobs})
     n_total = len(amps) * len(phases)
+    metric_label, filename_tag = METRIC_INFO[metric]
 
     grid = {(a, p): None for a in amps for p in phases}
-    for j in jobs:
-        grid[(parse_amplitude(j["orbit"]), j["phase_index"])] = j["axis_km"]
+    for job in jobs:
+        key = (parse_amplitude(job["orbit"]), job["phase_index"])
+        grid[key] = metric_value(job, metric)
 
     matrix = [[grid[(a, p)] for p in phases] for a in amps]
-    title = f"{cfg}: position-covariance longest axis (km) [{len(jobs)}/{n_total} completed]"
+    title = f"{cfg}: position-covariance {metric_label} [{len(jobs)}/{n_total} completed]"
     print(f"\nconfig {cfg}: {len(jobs)}/{n_total} cases completed "
           f"(amplitudes {amps[0]}..{amps[-1]} km)")
 
     if png and HAS_MPL:
-        path = outdir / f"heatmap_cov_axis_{cfg}.png"
-        png_heatmap(amps, phases, matrix, title, path)
+        path = outdir / f"heatmap_cov_{filename_tag}_{cfg}.png"
+        png_heatmap(amps, phases, matrix, title, path, metric_label)
         print(f"  heatmap -> {path}")
     else:
-        ascii_heatmap(amps, phases, matrix, title, sys.stdout)
+        ascii_heatmap(amps, phases, matrix, title, sys.stdout, metric_label)
         if png and not HAS_MPL:
             print("  (matplotlib not installed; install it for PNG heatmaps)",
                   file=sys.stderr)
@@ -235,6 +245,8 @@ def parser():
                    help="orbit_id prefix to analyze (default: H1N = Halo North L1)")
     p.add_argument("--configs", nargs="+", default=[],
                    help="restrict to these config ids (default: all present)")
+    p.add_argument("--metric", choices=tuple(METRIC_INFO), default="longest",
+                   help="heatmap metric (default: longest)")
     p.add_argument("--outdir", type=Path, default=ROOT / "results" / "srp_sensitivity" / "analysis",
                    help="where to write CSVs and PNGs")
     p.add_argument("--no-png", action="store_true", help="force ASCII even if matplotlib is available")
@@ -275,7 +287,7 @@ def main(argv=None) -> int:
 
     for cfg in configs:
         render_config([j for j in sel if j["config"] == cfg],
-                      args.outdir, png=not args.no_png)
+                      args.outdir, png=not args.no_png, metric=args.metric)
 
     return 0
 
