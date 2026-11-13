@@ -7,8 +7,9 @@ per-case result JSONs and reports the min/max of two heatmap metrics:
   * cov longest axis (km):  sqrt(largest eigenvalue of the 3x3 endpoint
     position covariance) x 384400, over status==0 cases only (diverged cases
     have no valid covariance and are counted separately).
-  * first split time (days):  first_split_time x TU_s/86400, over cases that
-    did split (first_split_time >= 0); "never split" (-1) cases are counted
+  * first split time (days): event-detected first_split_time_accurate when
+    available, otherwise checkpoint first_split_time, multiplied by TU_s/86400;
+    "never split" (-1) cases are counted
     separately.
 
 For each metric the exact (amplitude km, phase index) of the argmin/argmax is
@@ -43,6 +44,7 @@ import sys
 from pathlib import Path
 
 from srp_covariance_metrics import position_covariance_metrics
+from srp_first_split_time import select_first_split_time
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RESULTS = ROOT / "results" / "srp_sensitivity" / "results"
@@ -111,6 +113,7 @@ def scan_results(root: Path) -> list:
                     "phase_index": int(f.stem.split("__")[0][1:]),
                     "status": res.get("status"),
                     "first_split_time": res.get("first_split_time"),
+                    "first_split_time_accurate": res.get("first_split_time_accurate"),
                     "cov_state": res.get("cov_state"),
                 })
     return jobs
@@ -161,14 +164,12 @@ def summarize_group(jobs) -> dict:
     split_vals = []  # (days, amp, phase)
     n_never = 0
     for j in jobs:
-        fst = j["first_split_time"]
+        fst, source = select_first_split_time(j)
         if fst is None:
+            if source == "never":
+                n_never += 1
             continue
-        fst = float(fst)
-        if fst < 0.0:
-            n_never += 1
-        else:
-            split_vals.append((fst * ND_TO_DAYS, j["amplitude"], j["phase_index"]))
+        split_vals.append((fst * ND_TO_DAYS, j["amplitude"], j["phase_index"]))
 
     a = _extremes(axis_vals)
     s = _extremes(split_vals)

@@ -2,7 +2,9 @@
 """Scatter plot of first-split time vs. endpoint position longest-axis.
 
 For each completed case with a valid covariance (status == 0), reads
-``first_split_time`` (nondimensional; -1 = never split) and ``cov_state``
+the event-detected ``first_split_time_accurate`` when available (otherwise the
+checkpoint ``first_split_time``; nondimensional; -1 = never split), together
+with ``cov_state``
 (6x6 row-major), computes the endpoint position longest axis in km, and plots
 one point per case: x = first split time (days), y = longest axis (km).
 
@@ -26,6 +28,7 @@ import sys
 from pathlib import Path
 
 from srp_covariance_metrics import position_covariance_metrics
+from srp_first_split_time import select_first_split_time
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RESULTS = ROOT / "results" / "srp_sensitivity" / "results"
@@ -80,6 +83,7 @@ def scan_results(root: Path) -> list:
                     "phase_index": int(f.stem.split("__")[0][1:]),
                     "status": res.get("status"),
                     "first_split_time": res.get("first_split_time"),
+                    "first_split_time_accurate": res.get("first_split_time_accurate"),
                     "cov_state": res.get("cov_state"),
                 })
     return jobs
@@ -98,10 +102,10 @@ def valid_points(jobs):
         if not isinstance(cov, list) or len(cov) != 36:
             n_nocov += 1
             continue
-        fst = j["first_split_time"]
+        fst, _ = select_first_split_time(j)
         if fst is None:
             continue
-        pts.append((float(fst) * ND_TO_DAYS, axis_km(cov), j))
+        pts.append((fst * ND_TO_DAYS, axis_km(cov), j))
     return pts, n_div, n_nocov
 
 
@@ -123,9 +127,9 @@ def png_scatter(points, color_by, outdir, tag):
         xs = [p[0] for p in groups[k]]
         ys = [p[1] for p in groups[k]]
         ax.scatter(xs, ys, s=14, alpha=0.55, color=cmap(i % 20), label=k)
-    ax.set_xlabel("first split time (days)")
+    ax.set_xlabel("selected first split time (event preferred, days)")
     ax.set_ylabel("endpoint position longest axis (km)")
-    ax.set_title(f"first split time vs. longest axis (color = {color_by})")
+    ax.set_title(f"selected first split time vs. longest axis (color = {color_by})")
     ax.grid(alpha=0.3)
     ax.legend(fontsize=7, ncol=max(1, len(keys) // 6), loc="best")
     fig.tight_layout()
@@ -159,13 +163,18 @@ def ascii_report(points, n_div, n_nocov, stream):
 def write_csv(points, path):
     path.parent.mkdir(parents=True, exist_ok=True)
     header = ("config", "family", "orbit", "amplitude_km", "phase_index",
-              "first_split_days", "axis_km")
+              "first_split_days", "first_split_source",
+              "first_split_checkpoint_nd", "first_split_accurate_nd", "axis_km")
     rows = []
     for x, y, j in sorted(points, key=lambda p: (p[2]["config"], p[2]["orbit"],
                                                  p[2]["phase_index"])):
+        _, source = select_first_split_time(j)
         rows.append({"config": j["config"], "family": j["family"], "orbit": j["orbit"],
                      "amplitude_km": j["amplitude"], "phase_index": j["phase_index"],
-                     "first_split_days": f"{x:.6g}", "axis_km": f"{y:.6g}"})
+                     "first_split_days": f"{x:.6g}", "first_split_source": source,
+                     "first_split_checkpoint_nd": j.get("first_split_time"),
+                     "first_split_accurate_nd": j.get("first_split_time_accurate"),
+                     "axis_km": f"{y:.6g}"})
     with path.open("w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=header, extrasaction="ignore")
         w.writeheader()

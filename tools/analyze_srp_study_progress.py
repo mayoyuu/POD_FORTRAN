@@ -6,7 +6,8 @@ as each case finishes, so it is a reliable snapshot of partial progress. This sc
 reads that snapshot and, for one orbit family (default Halo North L1, orbit_id prefix
 ``H1N`` = 16 amplitudes x 24 phases = 384 cases per config), produces per-config:
 
-  * heatmaps of ``first_split_time`` (days) and ``n_splits_total`` over amplitude x phase
+  * heatmaps of event-detected first-split time (with checkpoint fallback) and
+    ``n_splits_total`` over amplitude x phase
   * a per-case table of split statistics (total splits + per-axis split counts)
   * a per-config split-direction summary (beta/chi/u/v or theta/phi totals)
 
@@ -32,6 +33,8 @@ import json
 import math
 import sys
 from pathlib import Path
+
+from srp_first_split_time import select_first_split_time
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTDIR = ROOT / "results" / "srp_sensitivity"
@@ -103,6 +106,7 @@ def scan_results(root: Path) -> list:
                     "t_end_days": res.get("t_end_days"),
                     "result_path": str(f),
                     "first_split_time": res.get("first_split_time"),
+                    "first_split_time_accurate": res.get("first_split_time_accurate"),
                     "n_splits_total": res.get("n_splits_total"),
                     "n_patches": res.get("n_patches"),
                     "n_max_active": res.get("n_max_active"),
@@ -163,6 +167,22 @@ def build_grid(jobs: list, key: str) -> dict:
     return grid
 
 
+def build_first_split_grid(jobs: list) -> dict:
+    """Return the selected event/checkpoint first-split time for each case."""
+    amps = sorted_amplitudes(jobs)
+    phases = sorted_phases(jobs)
+    grid = {a: {p: None for p in phases} for a in amps}
+    for job in jobs:
+        amp = parse_amplitude(str(job["orbit"]))
+        phase = int(job["phase_index"])
+        first_split, source = select_first_split_time(job)
+        # Keep the historical negative sentinel for a completed case that did
+        # not split.  ``None`` remains reserved for missing/incomplete data so
+        # the heatmap can display those two states differently.
+        grid[amp][phase] = -1.0 if source == "never" else first_split
+    return grid
+
+
 def build_dir_grid(jobs: list, k: int) -> dict:
     """Return {amp: {phase: split_count_dir[k]}} for direction k (0=beta,1=chi,2=u,3=v)."""
     amps = sorted_amplitudes(jobs)
@@ -177,13 +197,8 @@ def build_dir_grid(jobs: list, k: int) -> dict:
 
 
 def first_split_days(job: dict):
-    v = job.get("first_split_time")
-    if v is None:
-        return None
-    v = float(v)
-    if v < 0.0:
-        return None  # -1 => no split over the whole arc
-    return v * ND_TO_DAYS
+    value, _ = select_first_split_time(job)
+    return None if value is None else value * ND_TO_DAYS
 
 
 # ---------------------------------------------------------------------------
@@ -205,7 +220,8 @@ def direction_counts(job):
 def write_stats_csv(jobs: list, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     header = ("config", "orbit", "amplitude_km", "phase_index", "phase_fraction",
-              "first_split_time_nd", "first_split_time_days",
+              "first_split_time_nd", "first_split_time_days", "first_split_time_source",
+              "first_split_time_checkpoint_nd", "first_split_time_accurate_nd",
               "n_splits_total", "n_patches", "n_max_active", "n_diverged",
               "split_beta", "split_chi", "split_u", "split_v", "split_theta", "split_phi",
               "solar_phase_rad", "t_end_days", "result_path",
@@ -213,14 +229,19 @@ def write_stats_csv(jobs: list, path: Path) -> None:
     rows = []
     for job in sorted(jobs, key=lambda j: (j["config"], parse_amplitude(str(j["orbit"])),
                                            int(j["phase_index"]))):
+        selected_time, selected_source = select_first_split_time(job)
         rows.append({
             "config": job.get("config"),
             "orbit": job.get("orbit"),
             "amplitude_km": parse_amplitude(str(job["orbit"])),
             "phase_index": int(job["phase_index"]),
             "phase_fraction": job.get("phase_fraction", ""),
-            "first_split_time_nd": _fmt_float(job.get("first_split_time")),
+            "first_split_time_nd": _fmt_float(selected_time),
             "first_split_time_days": _fmt_float(first_split_days(job)),
+            "first_split_time_source": selected_source,
+            "first_split_time_checkpoint_nd": _fmt_float(job.get("first_split_time")),
+            "first_split_time_accurate_nd": _fmt_float(
+                job.get("first_split_time_accurate")),
             "n_splits_total": job.get("n_splits_total", ""),
             "n_patches": job.get("n_patches", ""),
             "n_max_active": job.get("n_max_active", ""),
@@ -341,7 +362,7 @@ def render_config(jobs, outdir: Path, png: bool) -> dict:
           f"(amplitudes {amps[0]}..{amps[-1]} km, phases {phases[0]}..{phases[-1]})")
 
     # ---- first_split_time (days) ----
-    fs_grid = build_grid(jobs, "first_split_time")
+    fs_grid = build_first_split_grid(jobs)
     fs_float, fs_str = [], []
     n_no_split = 0
     for a in amps:
@@ -359,7 +380,8 @@ def render_config(jobs, outdir: Path, png: bool) -> dict:
                     frow.append(d); srow.append(f"{d:7.2f}")
         fs_float.append(frow); fs_str.append(srow)
     _emit_heatmap("first_split_time",
-                  f"{cfg}: first_split_time (days) [{n_done}/{n_total} completed, "
+                  f"{cfg}: first split time, event preferred (days) "
+                  f"[{n_done}/{n_total} completed, "
                   f"{n_no_split} never split]",
                   amps, phases, fs_float, fs_str, cfg, outdir, png, "{:.1f}",
                   "(. = not completed; inf = completed but never split; else days)")
