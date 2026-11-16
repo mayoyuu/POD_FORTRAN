@@ -57,6 +57,7 @@ def axis_km(cov_state: list) -> float:
 def scan_results(root: Path) -> list:
     """Walk root/<config>/<orbit>/p*.json and return completed cases with cov_state."""
     jobs = []
+    skipped = 0
     if not root.is_dir():
         return jobs
     for cfg_dir in sorted(root.iterdir()):
@@ -75,7 +76,11 @@ def scan_results(root: Path) -> list:
                     continue
                 if res.get("status") != 0:
                     continue  # statistics failed; cov is uninitialized
-                metrics = position_covariance_metrics(cov)
+                try:
+                    metrics = position_covariance_metrics(cov)
+                except ValueError:
+                    skipped += 1
+                    continue  # non-finite / non-PSD covariance from diverged samples
                 jobs.append({
                     "config": cfg_dir.name,
                     "orbit": orbit_dir.name,
@@ -86,6 +91,9 @@ def scan_results(root: Path) -> list:
                     "total_rms_km": metrics.total_rms_km,
                     "longest_direction": metrics.longest_direction,
                 })
+    if skipped:
+        print(f"skipped {skipped} cases with non-finite or non-PSD covariance",
+              file=sys.stderr)
     return jobs
 
 
