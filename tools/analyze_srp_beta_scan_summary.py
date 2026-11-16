@@ -48,6 +48,7 @@ from srp_first_split_time import select_first_split_time
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RESULTS = ROOT / "results" / "srp_sensitivity" / "results"
+DEFAULT_MAX_AXIS_KM = 1e6  # longest 1-sigma position axis above this is treated as diverged
 TU_S = 375237.080249162
 SEC_PER_DAY = 86400.0
 ND_TO_DAYS = TU_S / SEC_PER_DAY
@@ -149,9 +150,10 @@ def _extremes(vals):
             "max": mx[0], "max_amp": mx[1], "max_phase": mx[2]}
 
 
-def summarize_group(jobs) -> dict:
+def summarize_group(jobs, max_axis_km) -> dict:
     axis_vals = []   # (axis_km, amp, phase)
     n_diverged = 0
+    n_skipped = 0
     for j in jobs:
         if j["status"] is not None and j["status"] < 0:
             n_diverged += 1
@@ -159,7 +161,15 @@ def summarize_group(jobs) -> dict:
         cov = j["cov_state"]
         if not isinstance(cov, list) or len(cov) != 36:
             continue
-        axis_vals.append((axis_km(cov), j["amplitude"], j["phase_index"]))
+        try:
+            a = axis_km(cov)
+        except ValueError:
+            n_skipped += 1
+            continue  # non-finite / non-PSD covariance from diverged samples
+        if a > max_axis_km:
+            n_skipped += 1
+            continue  # diverged endpoint: absurd principal-axis length
+        axis_vals.append((a, j["amplitude"], j["phase_index"]))
 
     split_vals = []  # (days, amp, phase)
     n_never = 0
@@ -178,6 +188,7 @@ def summarize_group(jobs) -> dict:
         "axis_min_amp": a["min_amp"], "axis_min_phase": a["min_phase"],
         "axis_max_amp": a["max_amp"], "axis_max_phase": a["max_phase"],
         "axis_n_valid": len(axis_vals), "axis_n_diverged": n_diverged,
+        "axis_n_skipped": n_skipped,
         "split_min": s["min"], "split_max": s["max"],
         "split_min_amp": s["min_amp"], "split_min_phase": s["min_phase"],
         "split_max_amp": s["max_amp"], "split_max_phase": s["max_phase"],
@@ -191,6 +202,7 @@ def summarize_group(jobs) -> dict:
 CSV_HEADER = ("family", "config", "beta_lo", "beta_hi", "beta_center", "beta_width",
               "axis_min_km", "axis_max_km", "axis_min_amp", "axis_min_phase",
               "axis_max_amp", "axis_max_phase", "axis_n_valid", "axis_n_diverged",
+              "axis_n_skipped",
               "split_min_days", "split_max_days", "split_min_amp", "split_min_phase",
               "split_max_amp", "split_max_phase", "split_n_split", "split_n_never")
 
@@ -222,6 +234,7 @@ def write_csv(rows, path):
                 "axis_min_amp": _fmt_int(r["axis_min_amp"]), "axis_min_phase": _fmt_int(r["axis_min_phase"]),
                 "axis_max_amp": _fmt_int(r["axis_max_amp"]), "axis_max_phase": _fmt_int(r["axis_max_phase"]),
                 "axis_n_valid": _fmt_int(r["axis_n_valid"]), "axis_n_diverged": _fmt_int(r["axis_n_diverged"]),
+                "axis_n_skipped": _fmt_int(r["axis_n_skipped"]),
                 "split_min_days": _fmt(r["split_min"]), "split_max_days": _fmt(r["split_max"]),
                 "split_min_amp": _fmt_int(r["split_min_amp"]), "split_min_phase": _fmt_int(r["split_min_phase"]),
                 "split_max_amp": _fmt_int(r["split_max_amp"]), "split_max_phase": _fmt_int(r["split_max_phase"]),
@@ -372,6 +385,9 @@ def parser():
                    help="explicit config ids (default: auto-detect all Q1_beta_*)")
     p.add_argument("--outdir", type=Path,
                    default=ROOT / "results" / "srp_sensitivity" / "analysis")
+    p.add_argument("--max-axis-km", type=float, default=DEFAULT_MAX_AXIS_KM,
+                   help="skip cases whose longest one-sigma position axis exceeds "
+                        "this many km (default: 1e6 = ~2.6 Earth-Moon distances)")
     p.add_argument("--no-png", action="store_true")
     return p
 
@@ -412,7 +428,7 @@ def main(argv=None) -> int:
         for j in cfg_jobs:
             fam_groups.setdefault(j["family"], []).append(j)
         for fam, g in fam_groups.items():
-            s = summarize_group(g)
+            s = summarize_group(g, max_axis_km=args.max_axis_km)
             rows.append({"family": fam, "config": cfg,
                          "beta_lo": lo, "beta_hi": hi,
                          "beta_center": center, "beta_width": width, **s})
@@ -427,6 +443,11 @@ def main(argv=None) -> int:
 
     print(f"\n{len(parsed)} configs x up to {len(FAMILY_ORDER)} families "
           f"= {len(rows)} rows")
+
+    total_skipped = sum(r.get("axis_n_skipped", 0) for r in rows)
+    if total_skipped:
+        print(f"skipped {total_skipped} cases with non-finite/absurd covariance "
+              f"(longest axis > {args.max_axis_km:.0f} km) across all groups")
 
     if not args.no_png and HAS_MPL:
         plot_trend(rows, "axis", args.outdir)
