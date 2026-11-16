@@ -31,6 +31,7 @@ from srp_covariance_metrics import position_covariance_metrics
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RESULTS = ROOT / "results" / "srp_sensitivity" / "results"
+DEFAULT_MAX_AXIS_KM = 1e6  # longest 1-sigma position axis above this is treated as diverged
 
 try:
     import numpy as np
@@ -54,7 +55,7 @@ def axis_km(cov_state: list) -> float:
     return position_covariance_metrics(cov_state).longest_axis_km
 
 
-def scan_results(root: Path) -> list:
+def scan_results(root: Path, max_axis_km: float = DEFAULT_MAX_AXIS_KM) -> list:
     """Walk root/<config>/<orbit>/p*.json and return completed cases with cov_state."""
     jobs = []
     skipped = 0
@@ -81,6 +82,9 @@ def scan_results(root: Path) -> list:
                 except ValueError:
                     skipped += 1
                     continue  # non-finite / non-PSD covariance from diverged samples
+                if metrics.longest_axis_km > max_axis_km:
+                    skipped += 1
+                    continue  # diverged endpoint: absurd principal-axis length
                 jobs.append({
                     "config": cfg_dir.name,
                     "orbit": orbit_dir.name,
@@ -92,7 +96,8 @@ def scan_results(root: Path) -> list:
                     "longest_direction": metrics.longest_direction,
                 })
     if skipped:
-        print(f"skipped {skipped} cases with non-finite or non-PSD covariance",
+        print(f"skipped {skipped} cases with unusable covariance "
+              f"(non-finite, non-PSD, or longest axis > {max_axis_km:.0f} km)",
               file=sys.stderr)
     return jobs
 
@@ -255,6 +260,9 @@ def parser():
                    help="restrict to these config ids (default: all present)")
     p.add_argument("--metric", choices=tuple(METRIC_INFO), default="longest",
                    help="heatmap metric (default: longest)")
+    p.add_argument("--max-axis-km", type=float, default=DEFAULT_MAX_AXIS_KM,
+                   help="skip cases whose longest one-sigma position axis exceeds "
+                        "this many km (default: 1e6 = ~2.6 Earth-Moon distances)")
     p.add_argument("--outdir", type=Path, default=ROOT / "results" / "srp_sensitivity" / "analysis",
                    help="where to write CSVs and PNGs")
     p.add_argument("--no-png", action="store_true", help="force ASCII even if matplotlib is available")
@@ -263,7 +271,7 @@ def parser():
 
 def main(argv=None) -> int:
     args = parser().parse_args(argv)
-    jobs = scan_results(args.results_root)
+    jobs = scan_results(args.results_root, max_axis_km=args.max_axis_km)
     if not jobs:
         print(f"no result JSONs found under {args.results_root}", file=sys.stderr)
         return 1
