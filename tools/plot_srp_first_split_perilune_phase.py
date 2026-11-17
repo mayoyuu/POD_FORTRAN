@@ -231,7 +231,7 @@ def render_config(jobs, outdir: Path, png: bool, perilune: dict) -> None:
             v = grid[a][p]
             if v is None:
                 frow.append(float("nan")); srow.append("  .   ")
-            elif v < 0.0:
+            elif v == -1.0:
                 frow.append(float("nan")); srow.append("  inf  "); n_no_split += 1
             else:
                 frow.append(v); srow.append(f"{v:7.2f}")
