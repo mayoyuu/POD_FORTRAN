@@ -118,8 +118,15 @@ def reconstruct(result, time_days):
     n_diverged = int(result.get("n_diverged", 0))
     if n_diverged < 0:
         raise ValueError("negative n_diverged")
-    if "n_patches" in result and int(result["n_patches"]) + n_diverged != 1 + expected:
-        raise ValueError("n_patches + n_diverged != 1 + n_splits_total; incomplete result")
+    n_numerical_failures = int(result.get("n_numerical_failures", 0))
+    if n_numerical_failures < 0:
+        raise ValueError("negative n_numerical_failures")
+    # Diverged patches are kept in the manifold (flag only), so they still count
+    # toward n_patches. Only numerical failures actually drop a patch, so the
+    # patch-conservation law is:
+    #     n_patches + n_numerical_failures == 1 + n_splits_total.
+    if "n_patches" in result and int(result["n_patches"]) + n_numerical_failures != 1 + expected:
+        raise ValueError("n_patches + n_numerical_failures != 1 + n_splits_total; incomplete result")
     root_key = tuple((0, 0) if a else (-1, 0) for a in active)
     leaves = {root_key: make_box(root_key, 0.0)}
     applied = 0
@@ -151,14 +158,22 @@ def reconstruct(result, time_days):
         applied += 1
     first_div = result.get("first_divergence_time")
     first_div_days = finite(first_div) * nd_days if first_div is not None and finite(first_div) >= 0 else None
-    historical = n_diverged > 0 and (
-        first_div_days is None or first_div_days <= time_days + time_tolerance)
+    first_fail = result.get("first_numerical_failure_time")
+    first_fail_days = finite(first_fail) * nd_days if first_fail is not None and finite(first_fail) >= 0 else None
+    # A patch may be dropped (numerical failure) or flagged diverged; either way
+    # the surviving partition can no longer be recovered, so report it as
+    # historical once the first such event precedes the requested time.
+    historical = (
+        (n_diverged > 0 and (first_div_days is None or first_div_days <= time_days + time_tolerance))
+        or (n_numerical_failures > 0 and (first_fail_days is None or first_fail_days <= time_days + time_tolerance))
+    )
     return {
         "parameter_names": names, "parameter_lower": lower, "parameter_upper": upper,
         "time_days": time_days, "time_tolerance_days": time_tolerance,
         "last_split_days": max((b["birth_days"] for b in leaves.values()), default=0),
         "events_applied": applied, "partition_kind": "historical" if historical else "active",
         "first_divergence_days": first_div_days, "n_diverged_end": n_diverged,
+        "first_numerical_failure_days": first_fail_days, "n_numerical_failures_end": n_numerical_failures,
         "boxes": [leaves[key] for key in sorted(leaves)],
     }
 
