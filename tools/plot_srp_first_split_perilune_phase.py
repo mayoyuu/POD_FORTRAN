@@ -300,6 +300,21 @@ def main(argv=None) -> int:
     configs = sorted({j["config"] for j in sel})
     print(f"orbit prefix: {args.orbit_prefix}  configs: {configs}  cases: {len(sel)}")
 
+    missing_perilune = sorted({str(j["orbit"]) for j in sel
+                               if str(j["orbit"]) not in perilune})
+    if missing_perilune:
+        preview = ", ".join(missing_perilune[:10])
+        print(f"WARNING: {len(missing_perilune)} orbits have no perilune entry "
+              f"(cells show '.'): {preview}"
+              f"{' ...' if len(missing_perilune) > 10 else ''}", file=sys.stderr)
+    missing_period = sorted({str(j["orbit"]) for j in sel
+                             if _positive_float(j.get("period_nd")) is None})
+    if missing_period:
+        preview = ", ".join(missing_period[:10])
+        print(f"WARNING: {len(missing_period)} orbits have missing/invalid period_nd "
+              f"(cells show '.'): {preview}"
+              f"{' ...' if len(missing_period) > 10 else ''}", file=sys.stderr)
+
     args.outdir.mkdir(parents=True, exist_ok=True)
     for cfg in configs:
         render_config([j for j in sel if j["config"] == cfg], args.outdir,
