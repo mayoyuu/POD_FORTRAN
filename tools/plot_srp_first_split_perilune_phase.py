@@ -5,8 +5,8 @@ For each catalog orbit the perilune phase (fraction of the orbital period where
 the orbit is closest to the Moon) is read from ``CRTBP_SRP/perilune_phase.csv``.
 Each propagation case starts from one of the 24 evenly spaced reference phases,
 so the orbit phase at the first split is ``phase_index/24 + t_split/period_nd``.
-The cell value is the wrapped interval between that phase and perilune, in
-periods: 0.0 means the first split happens at perilune, +/-0.5 at apolune.
+The cell value is the absolute wrapped interval (distance) between that phase
+and perilune, in periods: 0.0 = perilune, 0.5 = apolune.
 
 Heatmap layout: x = phase_index, y = amplitude. Completed cases that never
 split are shown as ``inf`` (ASCII) or masked (PNG); missing/incomplete cases as
@@ -166,7 +166,7 @@ def build_interval_grid(jobs: list, perilune: dict) -> dict:
                 grid[amp][phase] = None
             else:
                 orbit_phase = phase / len(phases) + first_split / period
-                grid[amp][phase] = wrap_interval(orbit_phase - perilune_frac)
+                grid[amp][phase] = abs(wrap_interval(orbit_phase - perilune_frac))
     return grid
 
 
@@ -237,7 +237,7 @@ def render_config(jobs, outdir: Path, png: bool, perilune: dict) -> None:
                 frow.append(v); srow.append(f"{v:7.2f}")
         fmat.append(frow); smat.append(srow)
 
-    title = (f"{cfg}: first split interval to perilune (periods) "
+    title = (f"{cfg}: first split |interval| to perilune (periods) "
              f"[{n_done}/{n_total} completed, {n_no_split} never split]")
     print(f"\nconfig {cfg}: {n_done}/{n_total} cases completed "
           f"(amplitudes {amps[0]}..{amps[-1]} km)")
@@ -245,12 +245,12 @@ def render_config(jobs, outdir: Path, png: bool, perilune: dict) -> None:
     if png and HAS_MPL:
         path = outdir / f"heatmap_first_split_perilune_{cfg}.png"
         png_heatmap(amps, phases, fmat, title, path,
-                    "interval to perilune (periods)")
+                    "|interval| to perilune (periods)")
         print(f"  perilune interval heatmap -> {path}")
     else:
         ascii_heatmap(amps, phases, smat, title,
                       "(. = not completed; inf = completed but never split; "
-                      "else interval to perilune in periods)",
+                      "else |interval| to perilune in periods)",
                       sys.stdout)
         if png and not HAS_MPL:
             print("  (matplotlib not installed; install for PNG heatmaps)",
