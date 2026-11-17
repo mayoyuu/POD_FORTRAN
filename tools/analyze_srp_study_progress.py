@@ -201,6 +201,18 @@ def first_split_days(job: dict):
     return None if value is None else value * ND_TO_DAYS
 
 
+def pick_time_unit(days_values, requested):
+    """Return (scale, unit_label) for displaying first-split times."""
+    if requested == "hours":
+        return 24.0, "hours"
+    if requested == "days":
+        return 1.0, "days"
+    finite = [d for d in days_values if d is not None and math.isfinite(d) and d > 0.0]
+    if finite and max(finite) < 1.0:
+        return 24.0, "hours"
+    return 1.0, "days"
+
+
 # ---------------------------------------------------------------------------
 # Output: per-case statistics table
 # ---------------------------------------------------------------------------
@@ -312,11 +324,14 @@ def ascii_heatmap(amps, phases, str_matrix, title, legend, stream):
 
 
 def _emit_heatmap(metric, title, amps, phases, float_matrix, str_matrix, cfg, outdir,
-                  png, fmt, legend):
+                  png, fmt, legend, colorbar_label=None):
     if png and HAS_MPL:
         path = outdir / f"heatmap_{metric}_{cfg}.png"
+        if colorbar_label is None:
+            colorbar_label = ("first_split_time (days)" if metric == "first_split_time"
+                              else "split count")
         png_heatmap(amps, phases, float_matrix, title, path, fmt=fmt,
-                    colorbar_label="first_split_time (days)" if metric == "first_split_time" else "split count")
+                    colorbar_label=colorbar_label)
         print(f"  {metric} heatmap -> {path}")
     else:
         ascii_heatmap(amps, phases, str_matrix, title, legend, sys.stdout)
@@ -346,7 +361,7 @@ def render_direction_summary(jobs) -> dict:
             "solar_phase_rad": jobs[0].get("solar_phase_rad", ""), "n_diverged": n_div}
 
 
-def render_config(jobs, outdir: Path, png: bool) -> dict:
+def render_config(jobs, outdir: Path, png: bool, time_unit: str = "auto") -> dict:
     cfg = jobs[0]["config"]
     if any(parameter_names(j) != parameter_names(jobs[0]) for j in jobs):
         raise ValueError(f"mixed attitude parameterizations in config {cfg}")
@@ -361,8 +376,20 @@ def render_config(jobs, outdir: Path, png: bool) -> dict:
     print(f"\nconfig {cfg}: {n_done}/{n_total} cases completed "
           f"(amplitudes {amps[0]}..{amps[-1]} km, phases {phases[0]}..{phases[-1]})")
 
-    # ---- first_split_time (days) ----
+    # ---- first_split_time (adaptive unit) ----
     fs_grid = build_first_split_grid(jobs)
+    fs_days = []
+    for a in amps:
+        for p in phases:
+            v = fs_grid[a][p]
+            if v is None:
+                continue
+            v = float(v)
+            if v < 0.0:
+                continue
+            fs_days.append(v * ND_TO_DAYS)
+    scale, unit_label = pick_time_unit(fs_days, time_unit)
+
     fs_float, fs_str = [], []
     n_no_split = 0
     for a in amps:
@@ -376,15 +403,16 @@ def render_config(jobs, outdir: Path, png: bool) -> dict:
                 if v < 0.0:
                     frow.append(float("nan")); srow.append("  inf  "); n_no_split += 1
                 else:
-                    d = v * ND_TO_DAYS
+                    d = v * ND_TO_DAYS * scale
                     frow.append(d); srow.append(f"{d:7.2f}")
         fs_float.append(frow); fs_str.append(srow)
     _emit_heatmap("first_split_time",
-                  f"{cfg}: first split time, event preferred (days) "
+                  f"{cfg}: first split time, event preferred ({unit_label}) "
                   f"[{n_done}/{n_total} completed, "
                   f"{n_no_split} never split]",
-                  amps, phases, fs_float, fs_str, cfg, outdir, png, "{:.1f}",
-                  "(. = not completed; inf = completed but never split; else days)")
+                  amps, phases, fs_float, fs_str, cfg, outdir, png, "{:.2f}",
+                  f"(. = not completed; inf = completed but never split; else {unit_label})",
+                  colorbar_label=f"first split time ({unit_label})")
 
     # ---- n_splits_total ----
     ns_grid = build_grid(jobs, "n_splits_total")
@@ -447,6 +475,9 @@ def parser():
                    help="where to write CSVs and PNGs")
     p.add_argument("--solar-phase", type=float, default=None,
                    help="select a single solar initial phase in radians (not attitude phi)")
+    p.add_argument("--time-unit", choices=("days", "hours", "auto"), default="auto",
+                   help="display unit for first-split time; auto uses hours when all "
+                        "values are under 1 day (default: auto)")
     p.add_argument("--no-png", action="store_true", help="force ASCII output even if matplotlib is available")
     return p
 
@@ -500,7 +531,8 @@ def main(argv=None) -> int:
             if len(groups) > 1:
                 outdir = outdir / family / f"alpha0_{solar}"
             outdir.mkdir(parents=True, exist_ok=True)
-            summary = render_config(group, outdir, png=not args.no_png)
+            summary = render_config(group, outdir, png=not args.no_png,
+                                    time_unit=args.time_unit)
             summary["family"] = family
             dir_summaries.append(summary)
 
