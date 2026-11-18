@@ -24,6 +24,7 @@ Outputs:
   * trend_cov_axis_median.png      -- median cov axis vs beta range width
   * trend_cov_axis_t90.png         -- P90 (90th percentile) cov axis vs beta range width
   * trend_split_time.png           -- max/min split time vs beta range width
+  * trend_split_orbit.png          -- max/min split time (orbits) vs beta range width
   * grid_axis_<family>.png         -- per-family (center x width) location grid
   * grid_split_<family>.png
   * grid_axis_median_<family>.png  -- median cov-axis location grid
@@ -120,6 +121,7 @@ def scan_results(root: Path) -> list:
                     "status": res.get("status"),
                     "first_split_time": res.get("first_split_time"),
                     "first_split_time_accurate": res.get("first_split_time_accurate"),
+                    "period_nd": res.get("period_nd"),
                     "cov_state": res.get("cov_state"),
                 })
     return jobs
@@ -197,6 +199,7 @@ def summarize_group(jobs, max_axis_km) -> dict:
         axis_vals.append((a, j["amplitude"], j["phase_index"]))
 
     split_vals = []  # (days, amp, phase)
+    split_orbit_vals = []  # (orbits, amp, phase)
     n_never = 0
     for j in jobs:
         fst, source = select_first_split_time(j)
@@ -204,10 +207,16 @@ def summarize_group(jobs, max_axis_km) -> dict:
             if source == "never":
                 n_never += 1
             continue
-        split_vals.append((fst * ND_TO_DAYS, j["amplitude"], j["phase_index"]))
+        amp = j["amplitude"]
+        phase = j["phase_index"]
+        split_vals.append((fst * ND_TO_DAYS, amp, phase))
+        pnd = j.get("period_nd")
+        if isinstance(pnd, (int, float)) and pnd > 0.0:
+            split_orbit_vals.append((fst / pnd, amp, phase))
 
     a = _extremes(axis_vals)
     s = _extremes(split_vals)
+    so = _extremes(split_orbit_vals)
     med = _quantile(axis_vals, 0.5)
     t90 = _quantile(axis_vals, 0.9)
     return {
@@ -222,6 +231,9 @@ def summarize_group(jobs, max_axis_km) -> dict:
         "split_min_amp": s["min_amp"], "split_min_phase": s["min_phase"],
         "split_max_amp": s["max_amp"], "split_max_phase": s["max_phase"],
         "split_n_split": len(split_vals), "split_n_never": n_never,
+        "split_orbit_min": so["min"], "split_orbit_max": so["max"],
+        "split_orbit_min_amp": so["min_amp"], "split_orbit_min_phase": so["min_phase"],
+        "split_orbit_max_amp": so["max_amp"], "split_orbit_max_phase": so["max_phase"],
     }
 
 
@@ -236,7 +248,9 @@ CSV_HEADER = ("family", "config", "beta_lo", "beta_hi", "beta_center", "beta_wid
               "axis_n_valid", "axis_n_diverged",
               "axis_n_skipped",
               "split_min_days", "split_max_days", "split_min_amp", "split_min_phase",
-              "split_max_amp", "split_max_phase", "split_n_split", "split_n_never")
+              "split_max_amp", "split_max_phase", "split_n_split", "split_n_never",
+              "split_orbit_min", "split_orbit_max", "split_orbit_min_amp",
+              "split_orbit_min_phase", "split_orbit_max_amp", "split_orbit_max_phase")
 
 
 def _fmt(v):
@@ -273,6 +287,9 @@ def write_csv(rows, path):
                 "split_min_amp": _fmt_int(r["split_min_amp"]), "split_min_phase": _fmt_int(r["split_min_phase"]),
                 "split_max_amp": _fmt_int(r["split_max_amp"]), "split_max_phase": _fmt_int(r["split_max_phase"]),
                 "split_n_split": _fmt_int(r["split_n_split"]), "split_n_never": _fmt_int(r["split_n_never"]),
+                "split_orbit_min": _fmt(r["split_orbit_min"]), "split_orbit_max": _fmt(r["split_orbit_max"]),
+                "split_orbit_min_amp": _fmt_int(r["split_orbit_min_amp"]), "split_orbit_min_phase": _fmt_int(r["split_orbit_min_phase"]),
+                "split_orbit_max_amp": _fmt_int(r["split_orbit_max_amp"]), "split_orbit_max_phase": _fmt_int(r["split_orbit_max_phase"]),
             })
 
 
@@ -288,6 +305,11 @@ def plot_trend(rows, metric, outdir):
         ylabel = "first split time (days)"
         fname = "trend_split_time.png"
         stats = [("max", "split_max", "-", "o"), ("min", "split_min", "--", "s")]
+    elif metric == "split_orbit":
+        ylabel = "first split time (orbits)"
+        fname = "trend_split_orbit.png"
+        stats = [("max", "split_orbit_max", "-", "o"),
+                 ("min", "split_orbit_min", "--", "s")]
     elif metric == "axis_median":
         ylabel = "cov longest axis (km) median"
         fname = "trend_cov_axis_median.png"
@@ -503,6 +525,7 @@ def main(argv=None) -> int:
         plot_trend(rows, "axis_median", args.outdir)
         plot_trend(rows, "axis_t90", args.outdir)
         plot_trend(rows, "split", args.outdir)
+        plot_trend(rows, "split_orbit", args.outdir)
         plot_location_grid(rows, "axis", args.outdir)
         plot_location_grid(rows, "split", args.outdir)
         plot_location_grid(rows, "axis_median", args.outdir)
