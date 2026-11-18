@@ -21,6 +21,8 @@ move as the beta center and range change.
 Outputs:
   * beta_scan_summary.csv          -- one row per (family, config)
   * trend_cov_axis.png             -- max/min axis vs beta range width, 7 subplots
+  * trend_cov_axis_median.png      -- median cov axis vs beta range width
+  * trend_cov_axis_t90.png         -- P90 (90th percentile) cov axis vs beta range width
   * trend_split_time.png           -- max/min split time vs beta range width
   * grid_axis_<family>.png         -- per-family (center x width) location grid
   * grid_split_<family>.png
@@ -281,11 +283,21 @@ def plot_trend(rows, metric, outdir):
     if metric == "axis":
         ylabel = "cov longest axis (km)"
         fname = "trend_cov_axis.png"
-        max_key, min_key = "axis_max", "axis_min"
-    else:
+        stats = [("max", "axis_max", "-", "o"), ("min", "axis_min", "--", "s")]
+    elif metric == "split":
         ylabel = "first split time (days)"
         fname = "trend_split_time.png"
-        max_key, min_key = "split_max", "split_min"
+        stats = [("max", "split_max", "-", "o"), ("min", "split_min", "--", "s")]
+    elif metric == "axis_median":
+        ylabel = "cov longest axis (km) median"
+        fname = "trend_cov_axis_median.png"
+        stats = [("median", "axis_median", "-", "o")]
+    elif metric == "axis_t90":
+        ylabel = "cov longest axis (km) P90"
+        fname = "trend_cov_axis_t90.png"
+        stats = [("P90", "axis_t90", "-", "o")]
+    else:
+        raise ValueError(f"unknown metric: {metric}")
 
     families = [f for f in FAMILY_ORDER if any(r["family"] == f for r in rows)]
     centers = sorted({r["beta_center"] for r in rows})
@@ -304,14 +316,11 @@ def plot_trend(rows, metric, outdir):
             if not cr:
                 continue
             xs = [r["beta_width"] for r in cr]
-            pts_max = [(x, r[max_key]) for x, r in zip(xs, cr) if r[max_key] is not None]
-            pts_min = [(x, r[min_key]) for x, r in zip(xs, cr) if r[min_key] is not None]
-            if pts_max:
-                ax.plot([p[0] for p in pts_max], [p[1] for p in pts_max],
-                        "o-", color=center_color[c], lw=1.5)
-            if pts_min:
-                ax.plot([p[0] for p in pts_min], [p[1] for p in pts_min],
-                        "s--", color=center_color[c], lw=1.2, alpha=0.7)
+            for label, key, ls, marker in stats:
+                pts = [(x, r[key]) for x, r in zip(xs, cr) if r[key] is not None]
+                if pts:
+                    ax.plot([p[0] for p in pts], [p[1] for p in pts],
+                            ls, color=center_color[c], lw=1.5, marker=marker)
         ax.set_title(fam, fontsize=11)
         ax.set_xlabel("beta range width")
         ax.set_ylabel(ylabel, fontsize=8)
@@ -321,10 +330,10 @@ def plot_trend(rows, metric, outdir):
     legend_handles = []
     for c in centers:
         col = center_color[c]
-        legend_handles.append(Line2D([0], [0], color=col, lw=1.5, marker="o",
-                                     label=f"center {c:.3g} max"))
-        legend_handles.append(Line2D([0], [0], color=col, lw=1.2, ls="--", marker="s",
-                                     label=f"center {c:.3g} min"))
+        for label, key, ls, marker in stats:
+            legend_handles.append(Line2D([0], [0], color=col, lw=1.5,
+                                         ls=ls, marker=marker,
+                                         label=f"center {c:.3g} {label}"))
     axes[7].axis("off")
     axes[7].legend(handles=legend_handles, loc="center", fontsize=9, title=ylabel)
     for j in range(len(families), 7):
@@ -491,6 +500,8 @@ def main(argv=None) -> int:
 
     if not args.no_png and HAS_MPL:
         plot_trend(rows, "axis", args.outdir)
+        plot_trend(rows, "axis_median", args.outdir)
+        plot_trend(rows, "axis_t90", args.outdir)
         plot_trend(rows, "split", args.outdir)
         plot_location_grid(rows, "axis", args.outdir)
         plot_location_grid(rows, "split", args.outdir)
