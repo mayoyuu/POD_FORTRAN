@@ -24,6 +24,8 @@ Outputs:
   * trend_split_time.png           -- max/min split time vs beta range width
   * grid_axis_<family>.png         -- per-family (center x width) location grid
   * grid_split_<family>.png
+  * grid_axis_median_<family>.png  -- median cov-axis location grid
+  * grid_axis_t90_<family>.png     -- t90 (90th percentile) cov-axis location grid
 
 Usage:
     python3 tools/analyze_srp_beta_scan_summary.py \
@@ -40,6 +42,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -150,6 +153,26 @@ def _extremes(vals):
             "max": mx[0], "max_amp": mx[1], "max_phase": mx[2]}
 
 
+def _quantile(vals, q):
+    """(value, amp, phase) at quantile q (linear interpolation on value);
+    location = the sample whose value is closest to the interpolated value."""
+    if not vals:
+        return None, None, None
+    s = sorted(vals, key=lambda t: t[0])
+    n = len(s)
+    if n == 1:
+        return s[0]
+    pos = q * (n - 1)
+    lo = int(math.floor(pos))
+    hi = int(math.ceil(pos))
+    if lo == hi:
+        return s[lo]
+    frac = pos - lo
+    val = s[lo][0] * (1.0 - frac) + s[hi][0] * frac
+    best = min(s, key=lambda t: abs(t[0] - val))
+    return val, best[1], best[2]
+
+
 def summarize_group(jobs, max_axis_km) -> dict:
     axis_vals = []   # (axis_km, amp, phase)
     n_diverged = 0
@@ -183,10 +206,14 @@ def summarize_group(jobs, max_axis_km) -> dict:
 
     a = _extremes(axis_vals)
     s = _extremes(split_vals)
+    med = _quantile(axis_vals, 0.5)
+    t90 = _quantile(axis_vals, 0.9)
     return {
         "axis_min": a["min"], "axis_max": a["max"],
         "axis_min_amp": a["min_amp"], "axis_min_phase": a["min_phase"],
         "axis_max_amp": a["max_amp"], "axis_max_phase": a["max_phase"],
+        "axis_median": med[0], "axis_median_amp": med[1], "axis_median_phase": med[2],
+        "axis_t90": t90[0], "axis_t90_amp": t90[1], "axis_t90_phase": t90[2],
         "axis_n_valid": len(axis_vals), "axis_n_diverged": n_diverged,
         "axis_n_skipped": n_skipped,
         "split_min": s["min"], "split_max": s["max"],
@@ -201,7 +228,10 @@ def summarize_group(jobs, max_axis_km) -> dict:
 # ---------------------------------------------------------------------------
 CSV_HEADER = ("family", "config", "beta_lo", "beta_hi", "beta_center", "beta_width",
               "axis_min_km", "axis_max_km", "axis_min_amp", "axis_min_phase",
-              "axis_max_amp", "axis_max_phase", "axis_n_valid", "axis_n_diverged",
+              "axis_max_amp", "axis_max_phase",
+              "axis_median_km", "axis_median_amp", "axis_median_phase",
+              "axis_t90_km", "axis_t90_amp", "axis_t90_phase",
+              "axis_n_valid", "axis_n_diverged",
               "axis_n_skipped",
               "split_min_days", "split_max_days", "split_min_amp", "split_min_phase",
               "split_max_amp", "split_max_phase", "split_n_split", "split_n_never")
@@ -233,6 +263,8 @@ def write_csv(rows, path):
                 "axis_min_km": _fmt(r["axis_min"]), "axis_max_km": _fmt(r["axis_max"]),
                 "axis_min_amp": _fmt_int(r["axis_min_amp"]), "axis_min_phase": _fmt_int(r["axis_min_phase"]),
                 "axis_max_amp": _fmt_int(r["axis_max_amp"]), "axis_max_phase": _fmt_int(r["axis_max_phase"]),
+                "axis_median_km": _fmt(r["axis_median"]), "axis_median_amp": _fmt_int(r["axis_median_amp"]), "axis_median_phase": _fmt_int(r["axis_median_phase"]),
+                "axis_t90_km": _fmt(r["axis_t90"]), "axis_t90_amp": _fmt_int(r["axis_t90_amp"]), "axis_t90_phase": _fmt_int(r["axis_t90_phase"]),
                 "axis_n_valid": _fmt_int(r["axis_n_valid"]), "axis_n_diverged": _fmt_int(r["axis_n_diverged"]),
                 "axis_n_skipped": _fmt_int(r["axis_n_skipped"]),
                 "split_min_days": _fmt(r["split_min"]), "split_max_days": _fmt(r["split_max"]),
@@ -309,25 +341,33 @@ def plot_trend(rows, metric, outdir):
 # Location grid
 # ---------------------------------------------------------------------------
 def plot_location_grid(rows, metric, outdir):
-    """Per-family grid of where each metric's extrema concentrate.
+    """Per-family grid of where a metric's statistic(s) concentrate.
 
-    x-axis = beta center, y-axis = beta width; each cell shows the
-    (amplitude, phase) of the max and min separately ("max A.. phi.." /
-    "min A.. phi.."), or is left blank when that (center, width) config is
-    absent or the metric has no valid cases. One PNG per family.
+    x-axis = beta center, y-axis = beta width. Each cell lists the
+    (amplitude, phase) of one or two statistics ("max A.. φ.." / "min A.. φ..",
+    or a single "A.. φ.." for median/t90), blank when that (center, width)
+    config is absent or the statistic has no valid cases. One PNG per family.
     """
     if metric == "axis":
         ylabel = "cov longest axis (km)"
         fname_prefix = "grid_axis"
-        max_key, min_key = "axis_max", "axis_min"
-        max_amp, min_amp = "axis_max_amp", "axis_min_amp"
-        max_phase, min_phase = "axis_max_phase", "axis_min_phase"
-    else:
+        stats = [("max", "axis_max", "axis_max_amp", "axis_max_phase"),
+                 ("min", "axis_min", "axis_min_amp", "axis_min_phase")]
+    elif metric == "split":
         ylabel = "first split time (days)"
         fname_prefix = "grid_split"
-        max_key, min_key = "split_max", "split_min"
-        max_amp, min_amp = "split_max_amp", "split_min_amp"
-        max_phase, min_phase = "split_max_phase", "split_min_phase"
+        stats = [("max", "split_max", "split_max_amp", "split_max_phase"),
+                 ("min", "split_min", "split_min_amp", "split_min_phase")]
+    elif metric == "axis_median":
+        ylabel = "cov longest axis (km) median"
+        fname_prefix = "grid_axis_median"
+        stats = [("", "axis_median", "axis_median_amp", "axis_median_phase")]
+    elif metric == "axis_t90":
+        ylabel = "cov longest axis (km) t90"
+        fname_prefix = "grid_axis_t90"
+        stats = [("", "axis_t90", "axis_t90_amp", "axis_t90_phase")]
+    else:
+        raise ValueError(f"unknown metric: {metric}")
 
     families = [f for f in FAMILY_ORDER if any(r["family"] == f for r in rows)]
     centers = sorted({round(r["beta_center"], 6) for r in rows})
@@ -345,10 +385,10 @@ def plot_location_grid(rows, metric, outdir):
                 r = lookup.get((c, w))
                 lines = []
                 if r is not None:
-                    if r[max_key] is not None:
-                        lines.append(f"max A{r[max_amp]} φ{r[max_phase]}")
-                    if r[min_key] is not None:
-                        lines.append(f"min A{r[min_amp]} φ{r[min_phase]}")
+                    for label, vk, ak, pk in stats:
+                        if r[vk] is not None:
+                            pfx = f"{label} " if label else ""
+                            lines.append(f"{pfx}A{r[ak]} φ{r[pk]}")
                 ax.text(xi, yi, "\n".join(lines), ha="center", va="center",
                         fontsize=10)
 
@@ -454,6 +494,8 @@ def main(argv=None) -> int:
         plot_trend(rows, "split", args.outdir)
         plot_location_grid(rows, "axis", args.outdir)
         plot_location_grid(rows, "split", args.outdir)
+        plot_location_grid(rows, "axis_median", args.outdir)
+        plot_location_grid(rows, "axis_t90", args.outdir)
     elif not args.no_png and not HAS_MPL:
         print("(matplotlib not installed; install it for PNG trend plots)",
               file=sys.stderr)
