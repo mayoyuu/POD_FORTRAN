@@ -13,33 +13,47 @@ def endpoint(path):
     record = json.loads(path.read_text(encoding="utf-8-sig"))
     if record.get("status") != 0 or record.get("case_diverged"):
         raise ValueError(f"{path}: endpoint failed or marked diverged")
-    mean = np.asarray(record["mean_state"], dtype=float).reshape(6)[:3]
-    cov = np.asarray(record["cov_state"], dtype=float).reshape(6, 6)[:3, :3]
+    return ellipsoid(record["mean_state"], record["cov_state"])
+
+
+def ellipsoid(mean_state, cov_state):
+    mean = np.asarray(mean_state, dtype=float).reshape(6)[:3]
+    cov = np.asarray(cov_state, dtype=float).reshape(6, 6)[:3, :3]
     if not (np.isfinite(mean).all() and np.isfinite(cov).all()):
-        raise ValueError(f"{path}: nonfinite endpoint")
+        raise ValueError("nonfinite position mean or covariance")
     try:
         factor = np.linalg.cholesky((cov + cov.T) * 0.5)
     except np.linalg.LinAlgError as exc:
-        raise ValueError(f"{path}: 3D position covariance is singular or indefinite; "
+        raise ValueError("3D position covariance is singular or indefinite; "
                          "cannot estimate a full-dimensional volume") from exc
     volume = (4 * math.pi / 3) * np.prod(np.diag(factor) * LU_KM)
     return mean, factor, volume
 
 
-def estimate(inner, outer, samples, seed):
+def ball_points(rng, n):
+    unit = rng.normal(size=(n, 3))
+    unit *= (np.cbrt(rng.random(n)) / np.linalg.norm(unit, axis=1))[:, None]
+    return unit
+
+
+def overlap_hits(inner, outer, unit):
     small, large = sorted((inner, outer), key=lambda item: item[2])
     transform = np.linalg.solve(large[1], small[1])
     offset = np.linalg.solve(large[1], small[0] - large[0])
+    mapped = unit @ transform.T
+    return {name: int(np.count_nonzero(np.einsum("ij,ij->i", points, points) <= 1))
+            for name, points in (("centered", mapped), ("actual_means", mapped + offset))}
+
+
+def estimate(inner, outer, samples, seed):
+    small = min((inner, outer), key=lambda item: item[2])
     rng = np.random.default_rng(seed)
     hits = dict(centered=0, actual_means=0)
     for start in range(0, samples, 65536):
         n = min(samples - start, 65536)
         # Uniform directions and cube-root radii give uniform volume samples.
-        unit = rng.normal(size=(n, 3))
-        unit *= (np.cbrt(rng.random(n)) / np.linalg.norm(unit, axis=1))[:, None]
-        mapped = unit @ transform.T
-        for name, points in (("centered", mapped), ("actual_means", mapped + offset)):
-            hits[name] += np.count_nonzero(np.einsum("ij,ij->i", points, points) <= 1)
+        for name, count in overlap_hits(inner, outer, ball_points(rng, n)).items():
+            hits[name] += count
     for name, count in hits.items():
         p = count / samples
         volume = small[2] * p

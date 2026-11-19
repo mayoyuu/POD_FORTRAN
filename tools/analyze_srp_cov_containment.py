@@ -28,6 +28,10 @@ are aggregated and written to CSV, and rendered as one heatmap each
 
 Outputs (prefix = --orbit-prefix):
   * cov_containment_<prefix>.csv
+  * cov_overlap_checkpoints_<prefix>.csv -- 1-sigma volumes (km^3), volume
+    ratio and Monte Carlo overlap fractions at matching nondimensional times.
+    The new case means weight each usable checkpoint equally, whether or not
+    containment holds. Legacy vol_* statistics remain containment-conditional.
   * heatmap_containment_rate_<prefix>.png
   * heatmap_vol_mean_<prefix>.png / _median_ / _min_ / _max_
 
@@ -46,6 +50,12 @@ import json
 import math
 import sys
 from pathlib import Path
+
+try:
+    from srp_endpoint_overlap import ball_points, ellipsoid, overlap_hits
+    import numpy as np
+except ImportError:
+    ball_points = None
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTDIR = ROOT / "results" / "srp_sensitivity" / "analysis" / "containment"
@@ -171,25 +181,23 @@ def generalized_check(inner_cov, outer_cov):
 # ---------------------------------------------------------------------------
 # Data loading / matching
 # ---------------------------------------------------------------------------
-def scan_config(root: Path) -> dict:
-    """Return {(orbit_id, phase_index): result_json} over <orbit>/p*.json."""
+def scan_config(root: Path, prefix=None, solar_phase=None) -> dict:
+    """Index case paths, retaining the solar phase so only like cases pair."""
     cases = {}
     if not root.is_dir():
         return cases
     for orbit_dir in sorted(root.iterdir()):
-        if not orbit_dir.is_dir():
+        if not orbit_dir.is_dir() or (prefix and not orbit_dir.name.startswith(prefix)):
             continue
         oid = orbit_dir.name
         for f in sorted(orbit_dir.glob("p*.json")):
             try:
-                res = json.loads(f.read_text(encoding="utf-8-sig"))
-            except Exception:
-                continue
-            try:
-                pi = int(f.stem.split("__")[0][1:])
+                phase, sep, suffix = f.stem.partition("__a")
+                pi, alpha = int(phase[1:]), float(suffix) if sep else 0.0
             except ValueError:
                 continue
-            cases[(oid, pi)] = res
+            if solar_phase is None or math.isclose(alpha, solar_phase, abs_tol=1e-12, rel_tol=0):
+                cases[(oid, pi, alpha)] = f
     return cases
 
 
@@ -200,19 +208,20 @@ def is_diverged(res: dict) -> bool:
     return st is not None and st < 0
 
 
-def compare_case(inner_res, outer_res):
+def compare_case(inner_res, outer_res, pairs=None):
     """Aggregate containment over checkpoints. Returns None if either diverged."""
     if is_diverged(inner_res) or is_diverged(outer_res):
         return None
-    inner_cp = inner_res.get("checkpoints") or []
-    outer_cp = outer_res.get("checkpoints") or []
-    n = min(len(inner_cp), len(outer_cp))
+    if pairs is None:
+        pairs = matched_times(inner_res, outer_res)
     n_valid = 0
     n_contained = 0
     vols = []
-    for i in range(n):
-        icov = inner_cp[i].get("cov")
-        ocov = outer_cp[i].get("cov")
+    for _, inner, outer in pairs:
+        if inner is None or outer is None:
+            continue
+        icov = inner.get("cov")
+        ocov = outer.get("cov")
         if not (isinstance(icov, list) and len(icov) == 36
                 and isinstance(ocov, list) and len(ocov) == 36):
             continue
@@ -244,12 +253,60 @@ def _agg(vals):
     return mean, median, s[0], s[-1]
 
 
+def matched_times(inner, outer):
+    """The study writes the same t_nd for identical integration schedules."""
+    def by_time(record):
+        result = {}
+        for cp in record.get("checkpoints") or []:
+            t = cp["t_nd"]
+            if not math.isfinite(t) or t in result:
+                raise ValueError(f"invalid or duplicate checkpoint time: {t}")
+            result[t] = cp
+        return result
+    a, b = by_time(inner), by_time(outer)
+    return [(t, a.get(t), b.get(t)) for t in sorted(a.keys() | b.keys())]
+
+
+VOLUME_KEYS = ("volume_q1_km3", "volume_q2_km3", "volume_ratio_q2_q1")
+OVERLAP_KEYS = tuple(f"{mode}_{metric}" for mode in ("centered", "actual_means")
+                     for metric in ("overlap_km3", "overlap_q1", "overlap_q2", "iou"))
+
+
+def checkpoint_overlap(inner, outer, unit):
+    if inner is None or outer is None:
+        return {"status": "unmatched_time"}
+    shapes = []
+    means_ok = True
+    for label, cp in (("q1", inner), ("q2", outer)):
+        try:
+            mu = np.asarray(cp.get("mean"), dtype=float).reshape(6)
+            valid = np.isfinite(mu[:3]).all()
+        except (TypeError, ValueError):
+            valid = False
+        means_ok = means_ok and valid
+        try:
+            shapes.append(ellipsoid(mu if valid else np.zeros(6), cp.get("cov")))
+        except (TypeError, ValueError) as exc:
+            return {"status": f"invalid_{label}_cov: {exc}"}
+    v1, v2 = (shape[2] for shape in shapes)
+    row = dict(status="ok" if means_ok else "missing_mean", volume_q1_km3=v1,
+               volume_q2_km3=v2, volume_ratio_q2_q1=v2/v1)
+    for mode, hits in overlap_hits(*shapes, unit).items():
+        if mode == "actual_means" and not means_ok:
+            continue
+        overlap = min(v1, v2) * (hits / len(unit))
+        row.update({f"{mode}_overlap_km3": overlap, f"{mode}_overlap_q1": overlap/v1,
+                    f"{mode}_overlap_q2": overlap/v2, f"{mode}_iou": overlap/(v1+v2-overlap)})
+    return row
+
+
 # ---------------------------------------------------------------------------
 # CSV
 # ---------------------------------------------------------------------------
 CSV_HEADER = ("family", "orbit", "amplitude_km", "phase_index", "status",
               "n_checkpoints", "n_contained", "containment_rate",
-              "vol_mean", "vol_median", "vol_min", "vol_max")
+              "vol_mean", "vol_median", "vol_min", "vol_max",
+              "n_volume", "n_actual_means", *("mean_" + k for k in VOLUME_KEYS + OVERLAP_KEYS))
 
 
 def _fmt(v):
@@ -267,7 +324,7 @@ def write_csv(rows, path):
         w = csv.DictWriter(f, fieldnames=CSV_HEADER, extrasaction="ignore")
         w.writeheader()
         for r in rows:
-            w.writerow({
+            w.writerow({**r,
                 "family": r["family"], "orbit": r["orbit"],
                 "amplitude_km": r["amplitude_km"], "phase_index": r["phase_index"],
                 "status": r["status"],
@@ -288,7 +345,9 @@ def _render_heatmap(amps, phases, matrix, title, cmap_name, fmt_spec, path):
                                     max(6, 0.35 * len(amps))))
     cmap = plt.get_cmap(cmap_name).copy()
     cmap.set_bad(color="0.45")   # missing -> dark gray
-    vmax = np.nanmax(arr)
+    vmax = np.nanmax(arr) if np.isfinite(arr).any() else 1.0
+    if "overlap / Q1" in title:
+        vmax = 1.0
     if not np.isfinite(vmax) or vmax <= 0.0:
         vmax = 1.0
     im = ax.imshow(arr, aspect="auto", origin="lower", cmap=cmap, vmin=0.0, vmax=vmax)
@@ -323,8 +382,13 @@ def render_family(rows, prefix, outdir, png):
         ("vol_median", "volume expansion median", "cividis", "{:.2f}", "heatmap_vol_median"),
         ("vol_min", "volume expansion min", "cividis", "{:.2f}", "heatmap_vol_min"),
         ("vol_max", "volume expansion max", "cividis", "{:.2f}", "heatmap_vol_max"),
+        ("mean_volume_ratio_q2_q1", "mean volume ratio Q2/Q1 (all valid)", "cividis", "{:.2g}", "heatmap_volume_ratio"),
+        ("mean_centered_overlap_q1", "mean centered overlap / Q1", "viridis", "{:.2f}", "heatmap_centered_overlap_q1"),
+        ("mean_actual_means_overlap_q1", "mean actual-means overlap / Q1", "viridis", "{:.2f}", "heatmap_actual_overlap_q1"),
     ]
     for key, label, cmap, spec, fname in metrics:
+        if key.startswith("mean_") and not any(key in r for r in rows):
+            continue
         matrix = []
         for a in amps:
             row = []
@@ -354,13 +418,23 @@ def parser():
                    help="restrict to this orbit_id prefix (required for heatmaps)")
     p.add_argument("--outdir", type=Path, default=DEFAULT_OUTDIR)
     p.add_argument("--no-png", action="store_true")
+    p.add_argument("--solar-phase", type=float, help="select one solar phase in radians")
+    p.add_argument("--overlap-samples", type=int, default=8192,
+                   help="uniform volume probes per checkpoint (default 8192; 0 for legacy outputs)")
+    p.add_argument("--seed", type=int, default=42, help="seed for shared volume probes")
     return p
 
 
 def main(argv=None) -> int:
     args = parser().parse_args(argv)
-    inner = scan_config(args.inner_results)
-    outer = scan_config(args.outer_results)
+    if args.overlap_samples < 0 or args.seed < 0:
+        raise ValueError("sample count and seed must be nonnegative")
+    if args.overlap_samples and ball_points is None:
+        raise ValueError("overlap requires numpy; use --overlap-samples 0 for containment only")
+    unit = (ball_points(np.random.default_rng(args.seed), args.overlap_samples)
+            if args.overlap_samples else None)
+    inner = scan_config(args.inner_results, args.orbit_prefix, args.solar_phase)
+    outer = scan_config(args.outer_results, args.orbit_prefix, args.solar_phase)
     if not inner or not outer:
         print("one or both results dirs are empty / missing", file=sys.stderr)
         return 1
@@ -370,11 +444,18 @@ def main(argv=None) -> int:
         print("no orbit+phase cases shared by the two configs", file=sys.stderr)
         return 1
 
-    rows = []
-    for oid, pi in common:
-        if args.orbit_prefix and not oid.startswith(args.orbit_prefix):
+    if len({alpha for _, _, alpha in common}) > 1:
+        raise ValueError("multiple solar phases matched; select --solar-phase")
+    rows, details = [], []
+    for key in common:
+        oid, pi, alpha = key
+        try:
+            a, b = (json.loads(paths[key].read_text(encoding="utf-8-sig")) for paths in (inner, outer))
+        except (ValueError, OSError) as exc:
+            print(f"WARNING: skipping {key}: {exc}", file=sys.stderr)
             continue
-        r = compare_case(inner[(oid, pi)], outer[(oid, pi)])
+        pairs = matched_times(a, b)
+        r = compare_case(a, b, pairs)
         if r is None:
             rows.append({"family": family_of(oid), "orbit": oid,
                          "amplitude_km": parse_amplitude(oid), "phase_index": pi,
@@ -383,6 +464,20 @@ def main(argv=None) -> int:
                          "vol_mean": None, "vol_median": None,
                          "vol_min": None, "vol_max": None})
             continue
+        summary = {}
+        if unit is not None:
+            checkpoints = []
+            for t, icp, ocp in pairs:
+                row = checkpoint_overlap(icp, ocp, unit)
+                checkpoints.append(row)
+                details.append(dict(orbit=oid, phase_index=pi, alpha0_rad=alpha, t_nd=t,
+                                    samples=len(unit), seed=args.seed, **row))
+            for metric in VOLUME_KEYS + OVERLAP_KEYS:
+                values = [c[metric] for c in checkpoints if metric in c]
+                if values:
+                    summary["mean_" + metric] = sum(values) / len(values)
+            summary["n_volume"] = sum("volume_q1_km3" in c for c in checkpoints)
+            summary["n_actual_means"] = sum("actual_means_overlap_km3" in c for c in checkpoints)
         mean, median, vmin, vmax = _agg(r["vols"])
         rows.append({"family": family_of(oid), "orbit": oid,
                      "amplitude_km": parse_amplitude(oid), "phase_index": pi,
@@ -390,7 +485,7 @@ def main(argv=None) -> int:
                      "n_contained": r["n_contained"],
                      "containment_rate": r["rate"],
                      "vol_mean": mean, "vol_median": median,
-                     "vol_min": vmin, "vol_max": vmax})
+                     "vol_min": vmin, "vol_max": vmax, **summary})
 
     rows.sort(key=lambda r: (FAMILY_ORDER.index(r["family"])
                              if r["family"] in FAMILY_ORDER else 99,
@@ -401,6 +496,14 @@ def main(argv=None) -> int:
     csv_path = args.outdir / f"cov_containment_{tag}.csv"
     write_csv(rows, csv_path)
     print(f"per-case table -> {csv_path}")
+    if unit is not None:
+        path = args.outdir / f"cov_overlap_checkpoints_{tag}.csv"
+        with path.open("w", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=("orbit", "phase_index", "alpha0_rad",
+                "t_nd", "samples", "seed", "status", *VOLUME_KEYS, *OVERLAP_KEYS))
+            writer.writeheader()
+            writer.writerows(details)
+        print(f"per-checkpoint volumes and overlap -> {path}")
 
     if args.orbit_prefix:
         render_family(rows, args.orbit_prefix, args.outdir, png=not args.no_png)
