@@ -151,15 +151,109 @@ class Summary:
         return out
 
 
-def summarize(path, outdir):
+def plot_results(path, outdir, days, overall, case_key, snapshots):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Rectangle
+
+    colors = ("#138072", "#c6cdd1", "#ce5a35")
+    day = sorted(days)
+    stats = [days[d].result() for d in day]
+    fig = plt.figure(figsize=(13, 7.4), layout="constrained")
+    grid = fig.add_gridspec(2, 6)
+    freq = fig.add_subplot(grid[0, :4])
+    bottom = [0.] * len(day)
+    for label, title, color in zip(JUDGMENTS, ("Contained", "Indeterminate", "Outside"), colors):
+        pct = [r[f"pct_{label}"] or 0 for r in stats]
+        freq.bar(day, pct, bottom=bottom, width=0.94, align="edge", color=color, label=title)
+        bottom = [a + b for a, b in zip(bottom, pct)]
+    freq.set(title="Daily box judgments", xlabel="Propagation day (bin start)",
+             ylabel="Valid checkpoints (%)", ylim=(0, 101))
+    freq.legend(ncols=3, loc="upper center", bbox_to_anchor=(0.5, -0.18), frameon=False)
+
+    faces = [axis + sign for axis in AXES for sign in ("-", "+")]
+    ax = fig.add_subplot(grid[0, 4:])
+    counts = [overall.faces[f] for f in faces]
+    bars = ax.barh(faces, counts, color=colors[2])
+    ax.bar_label(bars, padding=3)
+    ax.set_xlim(0, max(1, max(counts)) * 1.25)
+    ax.set(title="Limiting face when outside", xlabel="Checkpoint count")
+    ax.invert_yaxis()
+
+    for i, axis in enumerate(AXES):
+        ax = fig.add_subplot(grid[1, 2*i:2*i+2])
+        # Gaps in the available daily bins should also be gaps in the curves.
+        bins = range(min(day), max(day) + 1)
+        daily = dict(zip(day, stats))
+        for box, style in (("small", "--"), ("large", "-")):
+            gains = [daily.get(d, {}).get(f"median_{box}_{axis}_width_gain_km") for d in bins]
+            ax.plot([d + 0.5 for d in bins], gains, style, color="#215c84",
+                    label=f"Q2 {box} box")
+        ax.axhline(0, color="#666666", linewidth=0.7)
+        ax.set(title=f"{axis.upper()} full-width change", xlabel="Propagation day",
+               ylabel="Median Q2 minus Q1 (km)")
+        if i == 0:
+            ax.legend(frameon=False)
+    fig.suptitle(f"Q2 containment of Q1  |  {overall.total:,} records", fontsize=16)
+    output = outdir / f"{path.stem}_overview.png"
+    fig.savefig(output, dpi=160)
+    plt.close(fig)
+    print(output)
+
+    # Width gains in the two conventions differ only by Q2's scale factor.
+    # Recover Q1 and Q2 half-widths and the center offset directly from the CSV.
+    snapshots.sort(key=lambda r: float(r["t_days"]))
+    selected = sorted({0, (len(snapshots)-1)//2, len(snapshots)-1})
+    fig, panels = plt.subplots(2, len(selected), squeeze=False, figsize=(4.2*len(selected), 7.1),
+                               layout="constrained")
+    for col, index in enumerate(selected):
+        row = snapshots[index]
+        widths, centers = {}, {}
+        for axis in AXES:
+            small = float(row[f"small_{axis}_width_gain_km"]) / 2
+            large = float(row[f"large_{axis}_width_gain_km"]) / 2
+            sigma2 = (large-small) / (3-math.sqrt(3))
+            widths[axis] = (max(0., math.sqrt(3)*sigma2-small),
+                            math.sqrt(3)*sigma2, 3*sigma2)
+            centers[axis] = small - float(row[f"small_{axis}_minus_margin_km"])
+        for k, (u, v) in enumerate((("x", "y"), ("y", "z"))):
+            ax = panels[k, col]
+            for b, label, color, style in ((2, "Q2 large", "#215c84", "--"),
+                                            (1, "Q2 small", "#215c84", "-"),
+                                            (0, "Q1", colors[2], "-")):
+                x, y = (centers[u], centers[v]) if b else (0., 0.)
+                w, h = widths[u][b], widths[v][b]
+                ax.add_patch(Rectangle((x-w, y-h), 2*w, 2*h, fill=False,
+                                       edgecolor=color, lw=1.8, linestyle=style, label=label))
+            ax.autoscale_view()
+            ax.set_aspect("equal", adjustable="datalim")
+            ax.set(xlabel=f"{u} offset (km)", ylabel=f"{v} offset (km)")
+            if k == 0:
+                ax.set_title(f"Day {float(row['t_days']):.2f}  |  {row['judgment'].replace('_',' ')}")
+    orbit, phase, alpha = case_key
+    fig.suptitle(f"{orbit}  |  phase {phase}  |  solar phase {alpha:g} rad\n"
+                 "Estimated boxes relative to the Q1 center")
+    panels[-1, 0].legend(loc="upper center", bbox_to_anchor=(0.5, -0.20), ncols=3, frameon=False)
+    output = outdir / f"{path.stem}_{orbit}_p{phase:02d}_a{alpha:g}_boxes.png"
+    fig.savefig(output, dpi=160)
+    plt.close(fig)
+    print(output)
+
+
+def summarize(path, outdir, plots=False):
     """Read an existing detail CSV once. Day d groups checkpoints in [d, d+1)."""
     overall = Summary()
     cases = defaultdict(Summary)
     days = defaultdict(Summary)
+    case_key = None
+    snapshots = []
     with path.open(encoding="utf-8-sig", newline="") as stream:
         reader = csv.DictReader(stream)
         required = {"orbit", "phase_index", "alpha0_rad", "t_days", "status",
                     "judgment", "large_limiting_face", *METRICS}
+        if plots:
+            required.update(f"small_{axis}_minus_margin_km" for axis in AXES)
         missing = required.difference(reader.fieldnames or ())
         if missing:
             raise ValueError(f"{path}: missing columns {sorted(missing)}")
@@ -176,6 +270,11 @@ def summarize(path, outdir):
                 values = tuple(float(row[name]) for name in METRICS)
                 if not all(map(math.isfinite, values)):
                     raise ValueError(f"{path}:{reader.line_num}: nonfinite metrics")
+                if plots and (case_key is None or key <= case_key):
+                    if key != case_key:
+                        case_key = key
+                        snapshots.clear()
+                    snapshots.append(row)
             for group in groups:
                 group.add(judgment, values, row["large_limiting_face"])
 
@@ -201,6 +300,8 @@ def summarize(path, outdir):
     for label in JUDGMENTS:
         if result["n_valid"]:
             print(f"  {label}: {result['n_' + label]} ({result['pct_' + label]:.2f}%)")
+    if plots and snapshots:
+        plot_results(path, outdir, days, overall, case_key, snapshots)
     return 0 if result["n_valid"] else 1
 
 
@@ -210,6 +311,8 @@ def main():
     parser.add_argument("--outer-results", type=Path, help="Q2 config directory")
     parser.add_argument("--summary-from-csv", type=Path, help="summarize saved judgments directly")
     parser.add_argument("--outdir", required=True, type=Path)
+    parser.add_argument("--plots", action="store_true",
+                        help="write overview and projected boxes for the first valid case")
     parser.add_argument("--orbit-prefix")
     parser.add_argument("--solar-phase", type=float, help="solar phase in radians")
     parser.add_argument("--tol-km", type=float, help="absolute face tolerance in km (default 0)")
@@ -218,7 +321,7 @@ def main():
         if any(x is not None for x in (args.inner_results, args.outer_results, args.orbit_prefix,
                                        args.solar_phase, args.tol_km)):
             parser.error("--summary-from-csv uses the cases and judgments already saved in the CSV")
-        return summarize(args.summary_from_csv, args.outdir)
+        return summarize(args.summary_from_csv, args.outdir, args.plots)
     if args.inner_results is None or args.outer_results is None:
         parser.error("provide both config directories or --summary-from-csv")
     if args.tol_km is None:
@@ -255,7 +358,7 @@ def main():
                     rows += 1
         temp.replace(output)
     print(f"{valid} classified / {rows} rows across {len(keys)} paired cases -> {output}")
-    return summarize(output, args.outdir)
+    return summarize(output, args.outdir, args.plots)
 
 
 if __name__ == "__main__":
