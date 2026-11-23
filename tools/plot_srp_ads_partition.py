@@ -6,6 +6,8 @@ FULL width, in normalized root coordinates). This is a parameter-domain plot,
 not the spacecraft position distribution. No DA evaluation or propagation occurs.
 
 Angles in --slice and figures are degrees. CSV physical angle bounds are radians.
+For a beta-only Q1 case use --axes beta. Each segment is a leaf interval
+in physical beta, drawn at its recorded split depth.
 After the first dropped/diverged patch, only the historical split partition can
 be recovered: the JSON does not contain the geometry of deleted patches.
 """
@@ -294,11 +296,38 @@ def plot_boxes(snapshot, selected, axes, fixed, path, case_label, projection=Fal
     plt.close(fig)
 
 
+def plot_beta_intervals(snapshot, path, case_label):
+    """Plot the leaf intervals at the requested time, including an unsplit root."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.ticker import MaxNLocator
+
+    left, right, depths = [], [], []
+    for box in snapshot["boxes"]:
+        lo, hi = physical_bounds(snapshot, box)
+        left.append(lo[0])
+        right.append(hi[0])
+        depths.append(box["depth"])
+    fig, ax = plt.subplots(figsize=(9, 4), layout="constrained")
+    ax.hlines(depths, left, right, color="#174c78", linewidth=2)
+    # End caps keep adjacent sibling intervals distinguishable at equal depth.
+    ax.plot(left + right, depths + depths, "|", color="#174c78", markersize=9)
+    ax.set(xlabel=r"$\beta$ [$\mathrm{m}^2/\mathrm{kg}$]", ylabel="ADS split depth",
+           ylim=(-0.5, max(depths) + 0.5),
+           title=f"{case_label}\nDay {snapshot['time_days']:g} | {snapshot['partition_kind']} "
+                 f"partition | {len(depths)} intervals")
+    ax.yaxis.set_major_locator(MaxNLocator(integer=True))
+    fig.savefig(path, dpi=180)
+    plt.close(fig)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--json", required=True, type=Path, help="one per-case CRTBP study result")
     parser.add_argument("--time-days", required=True, type=float)
-    parser.add_argument("--axes", nargs=2, default=["theta", "phi"])
+    parser.add_argument("--axes", nargs="+", default=["theta", "phi"],
+                        help="two uncertain parameters, or beta for a beta-only partition")
     parser.add_argument("--slice", nargs="*", default=[], metavar="NAME=VALUE",
                         help="hidden parameters; angles in degrees; default=root midpoint")
     parser.add_argument("--projection", action="store_true", help="project all boxes; overlaps are expected")
@@ -316,7 +345,15 @@ def main(argv=None):
         raise ValueError("--projection and --slice cannot be combined")
     result = json.loads(args.json.read_text(encoding="utf-8-sig"))
     snapshot = reconstruct(result, args.time_days)
-    selected, fixed = select_slice(snapshot, args.axes, values)
+    beta_only = args.axes == ["beta"]
+    if beta_only:
+        active = [n for n, lo, hi in zip(snapshot["parameter_names"], snapshot["parameter_lower"],
+                                         snapshot["parameter_upper"]) if hi > lo]
+        if active != ["beta"] or args.projection or values:
+            raise ValueError("--axes beta requires a beta-only domain without slices or projection")
+        selected, fixed = snapshot["boxes"], {}
+    else:
+        selected, fixed = select_slice(snapshot, args.axes, values)
     if args.projection:
         selected, fixed = snapshot["boxes"], {}
     if snapshot["partition_kind"] == "historical":
@@ -328,7 +365,7 @@ def main(argv=None):
     stem = f"partition_{args.json.stem}_t{args.time_days:g}d_{'_'.join(args.axes)}"
     if args.projection:
         stem += "_projection"
-    else:
+    elif not beta_only:
         stem += "_slice_" + "_".join(
             f"{n}{math.degrees(v) if n in ('theta', 'phi') else v:.12g}" for n, v in fixed.items())
     # Keep separate cases in separate directories, even when --outdir is shared.
@@ -337,13 +374,16 @@ def main(argv=None):
     write_boxes(snapshot, selected, out / f"{stem}_boxes.csv")
     report = {k: v for k, v in snapshot.items() if k != "boxes"}
     report.update(source_json=str(args.json.resolve()), axes=args.axes, slice_physical=fixed,
-                  mode="projection" if args.projection else "slice",
+                  mode="intervals" if beta_only else ("projection" if args.projection else "slice"),
                   n_boxes=len(snapshot["boxes"]), n_displayed=len(selected),
                   physical_angle_units="rad", plot_angle_units="deg")
     (out / f"{stem}_summary.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     if not args.no_png:
         label = f"{args.json.parent.parent.name}\n{args.json.parent.name} / {args.json.stem}"
-        plot_boxes(snapshot, selected, args.axes, fixed, out / f"{stem}.png", label, args.projection)
+        if beta_only:
+            plot_beta_intervals(snapshot, out / f"{stem}.png", label)
+        else:
+            plot_boxes(snapshot, selected, args.axes, fixed, out / f"{stem}.png", label, args.projection)
     print(f"{snapshot['partition_kind']}: {len(snapshot['boxes'])} boxes, "
           f"{len(selected)} displayed, {snapshot['events_applied']} split events -> {out}")
     return 0
